@@ -1,5 +1,9 @@
 from datetime import date
 
+from fastapi.testclient import TestClient
+
+from app.api.deps import get_db
+from app.main import app
 from app.models.entities import LeaveRequest
 from app.models.enums import LeaveStatus, RatingLevel
 from app.schemas.admin import ActorCreate, ActorUpdate, RoleCreate, TheaterCreate
@@ -13,6 +17,7 @@ from app.services.admin_data import (
     review_leave_request,
     update_actor,
 )
+from app.services.auth import create_access_token
 
 
 def test_admin_data_services_create_theaters_roles_and_actor_capabilities(db_session):
@@ -72,3 +77,52 @@ def test_update_actor_rating_and_leave_review(db_session):
     assert updated.rating_level == RatingLevel.LOW
     assert updated.low_rating_monthly_cap == 4
     assert reviewed.status == LeaveStatus.APPROVED
+
+
+def test_admin_crud_routes_create_and_list_core_data(db_session):
+    def override_get_db():
+        yield db_session
+
+    app.dependency_overrides[get_db] = override_get_db
+    try:
+        client = TestClient(app)
+        token = create_access_token("admin@example.com", "admin")
+        headers = {"Authorization": f"Bearer {token}"}
+
+        theater_response = client.post(
+            "/admin/theaters",
+            headers=headers,
+            json={"name": "西幽剧场", "default_weekly_template": {"monday": ["early", "late"]}},
+        )
+        role_response = client.post(
+            "/admin/roles",
+            headers=headers,
+            json={"name": "长离", "group_name": "女位"},
+        )
+        actor_response = client.post(
+            "/admin/actors",
+            headers=headers,
+            json={
+                "display_name": "小展",
+                "max_consecutive_performances": 2,
+                "rating_level": "normal",
+                "low_rating_monthly_cap": None,
+                "notes": "可跨卡",
+            },
+        )
+        capability_response = client.put(
+            f"/admin/actors/{actor_response.json()['id']}/capabilities",
+            headers=headers,
+            json={"role_ids": [role_response.json()["id"]]},
+        )
+
+        assert theater_response.status_code == 200
+        assert role_response.status_code == 200
+        assert actor_response.status_code == 200
+        assert capability_response.status_code == 200
+        assert client.get("/admin/theaters", headers=headers).json()[0]["name"] == "西幽剧场"
+        assert client.get("/admin/actors", headers=headers).json()[0]["role_ids"] == [
+            role_response.json()["id"]
+        ]
+    finally:
+        app.dependency_overrides.clear()
