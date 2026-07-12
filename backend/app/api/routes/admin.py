@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db, require_admin
-from app.models.entities import Actor, LeaveRequest, Role, Theater
+from app.models.entities import Actor, LeaveRequest, Performance, Role, Theater
 from app.models.enums import LeaveStatus
 from app.schemas.admin import (
     ActorCreate,
@@ -12,6 +12,8 @@ from app.schemas.admin import (
     DashboardRead,
     LeaveRead,
     LeaveReviewInput,
+    MonthlyPlanRequest,
+    PerformanceRead,
     RoleCreate,
     RoleRead,
     TheaterCreate,
@@ -29,6 +31,7 @@ from app.services.admin_data import (
     review_leave_request,
     update_actor,
 )
+from app.services.monthly_plan import generate_monthly_plan, list_month_performances
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -137,6 +140,30 @@ def post_leave_review(
         return _leave_read(review_leave_request(db, leave_id, payload.status))
     except (LookupError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/monthly-plan/generate", response_model=list[PerformanceRead])
+def post_monthly_plan_generate(
+    payload: MonthlyPlanRequest,
+    _: dict[str, str] = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> list[Performance]:
+    try:
+        return generate_monthly_plan(
+            db, payload.theater_id, payload.year, payload.month, set(payload.closed_dates)
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/performances", response_model=list[PerformanceRead])
+def get_performances(
+    year: int,
+    month: int,
+    _: dict[str, str] = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> list[Performance]:
+    return list_month_performances(db, year, month)
 
 
 def _actor_read(actor: Actor) -> ActorRead:
