@@ -1,8 +1,16 @@
 import { CalendarDays, ClipboardList, Home, UserRound } from "lucide-react";
+import { useState } from "react";
 import { useAuth } from "../auth/AuthContext";
+import { DashboardPage } from "../pages/admin/DashboardPage";
+import { MonthlyPlanPage } from "../pages/admin/MonthlyPlanPage";
+import { RequestsPage } from "../pages/admin/RequestsPage";
+import { WeeklySchedulingPage } from "../pages/admin/WeeklySchedulingPage";
+import { MyLeavePage } from "../pages/actor/MyLeavePage";
+import { MySchedulePage } from "../pages/actor/MySchedulePage";
 
 export function AppShell() {
   const { role, logout } = useAuth();
+  const [page, setPage] = useState("工作台");
   const adminItems = [
     ["工作台", Home],
     ["月度计划", CalendarDays],
@@ -21,14 +29,23 @@ export function AppShell() {
         <h1>剧场卡司排班</h1>
         <nav className="nav">
           {items.map(([label, Icon]) => (
-            <button className="button" key={label} type="button">
+            <button className="button" key={label} type="button" onClick={() => setPage(label)}>
               <Icon size={16} /> {label}
             </button>
           ))}
           <button className="button" type="button" onClick={logout}>退出</button>
         </nav>
       </aside>
-      <main className="content">请选择一个工作区</main>
+      <main className="content">{renderPage(page)}</main>
     </div>
   );
+}
+
+function renderPage(page: string) {
+  if (page === "工作台") return <DashboardPage />;
+  if (page === "月度计划") return <MonthlyPlanPage />;
+  if (page === "请假审核") return <RequestsPage />;
+  if (page === "周排班") return <WeeklySchedulingPage />;
+  if (page === "我的请假") return <MyLeavePage />;
+  return <MySchedulePage />;
 }
