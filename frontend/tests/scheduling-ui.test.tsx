@@ -10,7 +10,10 @@ test("renders login screen by default", () => {
 });
 
 test("admin can see weekly scheduling navigation after login", async () => {
-  vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ access_token: "token" }), { status: 200 })));
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => new Response(JSON.stringify({ access_token: "token", role: "admin" }), { status: 200 })),
+  );
   render(<App />);
   fireEvent.click(screen.getByText("登录"));
   await waitFor(() => expect(screen.getByText("周排班")).toBeInTheDocument());

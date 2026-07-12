@@ -34,6 +34,22 @@ def test_candidate_fails_when_actor_lacks_role_capability():
     assert [violation.code for violation in violations] == ["role_not_allowed"]
 
 
+def test_candidate_fails_when_actor_is_suspended():
+    candidate = AssignmentCandidate(actor_id=1, role_id=10, performance=PerformanceSlot(1, date(2026, 6, 5), "early"))
+
+    violations = validate_candidate(
+        candidate=candidate,
+        existing_assignments=[],
+        approved_leave_dates={},
+        actor_role_ids={1: {10}},
+        monthly_counts={},
+        low_rating_caps={},
+        suspended_actor_ids={1},
+    )
+
+    assert [violation.code for violation in violations] == ["actor_suspended"]
+
+
 def test_same_actor_cannot_take_two_roles_in_same_performance():
     performance = PerformanceSlot(1, date(2026, 6, 5), "early")
     candidate = AssignmentCandidate(actor_id=1, role_id=10, performance=performance)

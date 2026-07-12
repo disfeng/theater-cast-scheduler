@@ -20,6 +20,12 @@ DESIGNATION_PRIORITY = {
 }
 
 
+class SchedulingRuleError(ValueError):
+    def __init__(self, message: str, violations: list[RuleViolation]) -> None:
+        super().__init__(message)
+        self.violations = violations
+
+
 def generate_week_schedule(
     performances: list[PerformanceSlot],
     role_ids: list[int],
@@ -33,14 +39,29 @@ def generate_week_schedule(
     locked_assignments: list[AssignmentCandidate],
     designations: list[DesignationInput],
     wishes: list[WishInput],
+    suspended_actor_ids: set[int] | None = None,
 ) -> ScheduleResult:
     assignments: dict[tuple[int, int], AssignmentCandidate] = {}
     explanations: dict[tuple[int, int, int], list[RuleViolation]] = {}
     unsatisfied_designations: list[DesignationInput] = []
     mutable_monthly_counts = dict(monthly_counts)
     mutable_actor_slots = {actor_id: list(slots) for actor_id, slots in existing_actor_slots.items()}
+    suspended_actor_ids = suspended_actor_ids or set()
 
     for assignment in locked_assignments:
+        violations = _violations_for_candidate(
+            assignment,
+            assignments,
+            approved_leave_dates,
+            actor_role_ids,
+            mutable_monthly_counts,
+            low_rating_caps,
+            mutable_actor_slots,
+            max_consecutive,
+            suspended_actor_ids,
+        )
+        if violations:
+            raise SchedulingRuleError("锁定排班违反硬规则", violations)
         assignments[(assignment.performance.id, assignment.role_id)] = assignment
         mutable_monthly_counts[assignment.actor_id] = mutable_monthly_counts.get(assignment.actor_id, 0) + 1
         mutable_actor_slots.setdefault(assignment.actor_id, []).append(assignment.performance)
@@ -74,6 +95,7 @@ def generate_week_schedule(
                 low_rating_caps,
                 mutable_actor_slots,
                 max_consecutive,
+                suspended_actor_ids,
             )
             explanations[(performance.id, designation.role_id, designation.actor_id)] = violations
             if violations:
@@ -102,6 +124,7 @@ def generate_week_schedule(
                 max_consecutive,
                 assignments,
                 wishes,
+                suspended_actor_ids,
             )
             if best_candidate is not None:
                 _place(best_candidate, assignments, mutable_monthly_counts, mutable_actor_slots)
@@ -136,6 +159,7 @@ def _best_candidate(
     max_consecutive: dict[int, int],
     assignments: dict[tuple[int, int], AssignmentCandidate],
     wishes: list[WishInput],
+    suspended_actor_ids: set[int],
 ) -> AssignmentCandidate | None:
     valid: list[tuple[int, AssignmentCandidate]] = []
     for actor_id in actor_ids:
@@ -149,6 +173,7 @@ def _best_candidate(
             low_rating_caps,
             actor_slots,
             max_consecutive,
+            suspended_actor_ids,
         )
         if violations:
             continue
@@ -169,6 +194,7 @@ def _violations_for_candidate(
     low_rating_caps: dict[int, int],
     actor_slots: dict[int, list[PerformanceSlot]],
     max_consecutive: dict[int, int],
+    suspended_actor_ids: set[int],
 ) -> list[RuleViolation]:
     violations = validate_candidate(
         candidate,
@@ -177,6 +203,7 @@ def _violations_for_candidate(
         actor_role_ids,
         monthly_counts,
         low_rating_caps,
+        suspended_actor_ids,
     )
     if would_exceed_consecutive_limit(
         candidate.actor_id,

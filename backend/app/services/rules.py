@@ -13,8 +13,13 @@ def validate_candidate(
     actor_role_ids: dict[int, set[int]],
     monthly_counts: dict[int, int],
     low_rating_caps: dict[int, int],
+    suspended_actor_ids: set[int] | None = None,
 ) -> list[RuleViolation]:
     violations: list[RuleViolation] = []
+    suspended_actor_ids = suspended_actor_ids or set()
+
+    if candidate.actor_id in suspended_actor_ids:
+        violations.append(RuleViolation("actor_suspended", "演员已暂停排班"))
 
     if candidate.performance.date in approved_leave_dates.get(candidate.actor_id, set()):
         violations.append(RuleViolation("actor_on_leave", "演员当天已批准请假"))

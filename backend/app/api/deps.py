@@ -1,11 +1,21 @@
 from fastapi import Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
+from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.db.session import SessionLocal
 
 
 bearer = HTTPBearer(auto_error=False)
+
+
+def get_db() -> Session:
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
 
 
 def require_user(credentials: HTTPAuthorizationCredentials | None = Depends(bearer)) -> dict[str, str]:

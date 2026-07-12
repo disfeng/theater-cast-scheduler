@@ -11,7 +11,7 @@ export function LoginPage() {
     event.preventDefault();
     try {
       const response = await apiClient.login(email, password);
-      setSession(response.access_token, email.startsWith("actor") ? "actor" : "admin");
+      setSession(response.access_token, response.role);
     } catch (err) {
       alert("登录失败，请检查账号密码");
     }

@@ -9,7 +9,7 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 @router.post("/login", response_model=TokenResponse)
 def login(payload: LoginRequest) -> TokenResponse:
     if payload.email == "admin@example.com" and payload.password == "admin":
-        return TokenResponse(access_token=create_access_token(payload.email, "admin"))
+        return TokenResponse(access_token=create_access_token(payload.email, "admin"), role="admin")
     if payload.email == "actor@example.com" and payload.password == "actor":
-        return TokenResponse(access_token=create_access_token(payload.email, "actor"))
+        return TokenResponse(access_token=create_access_token(payload.email, "actor"), role="actor")
     raise HTTPException(status_code=401, detail="Invalid credentials")

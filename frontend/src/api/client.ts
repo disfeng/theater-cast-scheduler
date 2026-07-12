@@ -1,7 +1,7 @@
 export class ApiClient {
   constructor(private readonly baseUrl = "http://localhost:8000") {}
 
-  async login(email: string, password: string): Promise<{ access_token: string }> {
+  async login(email: string, password: string): Promise<{ access_token: string; role: "admin" | "actor" }> {
     const response = await fetch(`${this.baseUrl}/auth/login`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
