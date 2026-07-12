@@ -2,8 +2,10 @@ import { CalendarDays, ClipboardList, Home, UserRound } from "lucide-react";
 import { useState } from "react";
 import { useAuth } from "../auth/AuthContext";
 import { DashboardPage } from "../pages/admin/DashboardPage";
+import { ActorsPage } from "../pages/admin/ActorsPage";
 import { MonthlyPlanPage } from "../pages/admin/MonthlyPlanPage";
 import { RequestsPage } from "../pages/admin/RequestsPage";
+import { SettingsPage } from "../pages/admin/SettingsPage";
 import { WeeklySchedulingPage } from "../pages/admin/WeeklySchedulingPage";
 import { MyLeavePage } from "../pages/actor/MyLeavePage";
 import { MySchedulePage } from "../pages/actor/MySchedulePage";
@@ -13,6 +15,8 @@ export function AppShell() {
   const [page, setPage] = useState("工作台");
   const adminItems = [
     ["工作台", Home],
+    ["基础配置", CalendarDays],
+    ["演员管理", UserRound],
     ["月度计划", CalendarDays],
     ["请假审核", ClipboardList],
     ["周排班", ClipboardList],
@@ -43,6 +47,8 @@ export function AppShell() {
 
 function renderPage(page: string) {
   if (page === "工作台") return <DashboardPage />;
+  if (page === "基础配置") return <SettingsPage />;
+  if (page === "演员管理") return <ActorsPage />;
   if (page === "月度计划") return <MonthlyPlanPage />;
   if (page === "请假审核") return <RequestsPage />;
   if (page === "周排班") return <WeeklySchedulingPage />;
