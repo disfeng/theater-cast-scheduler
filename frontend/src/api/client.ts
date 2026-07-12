@@ -9,6 +9,21 @@ export type Actor = {
   notes: string | null;
   role_ids: number[];
 };
+export type Performance = {
+  id: number;
+  theater_id: number;
+  performance_date: string;
+  slot: string;
+  status: string;
+};
+export type LeaveRequest = {
+  id: number;
+  actor_id: number;
+  actor_name: string;
+  leave_date: string;
+  status: string;
+  note: string | null;
+};
 
 export class ApiClient {
   constructor(private readonly baseUrl = "http://localhost:8000") {}
@@ -45,6 +60,22 @@ export class ApiClient {
 
   async createActor(token: string, payload: Omit<Actor, "id" | "role_ids">): Promise<Actor> {
     return this.post("/admin/actors", token, payload);
+  }
+
+  async generateMonthlyPlan(token: string, payload: { theater_id: number; year: number; month: number; closed_dates: string[] }): Promise<Performance[]> {
+    return this.post("/admin/monthly-plan/generate", token, payload);
+  }
+
+  async getPerformances(token: string, year: number, month: number): Promise<Performance[]> {
+    return this.get(`/admin/performances?year=${year}&month=${month}`, token);
+  }
+
+  async getLeaveRequests(token: string): Promise<LeaveRequest[]> {
+    return this.get("/admin/leave-requests", token);
+  }
+
+  async reviewLeaveRequest(token: string, leaveId: number, status: "approved" | "rejected" | "locked"): Promise<LeaveRequest> {
+    return this.post(`/admin/leave-requests/${leaveId}/review`, token, { status });
   }
 
   private async get<T>(path: string, token: string): Promise<T> {
