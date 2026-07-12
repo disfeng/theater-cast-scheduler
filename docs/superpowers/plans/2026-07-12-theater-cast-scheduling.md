@@ -6,7 +6,7 @@
 
 **Architecture:** Use a tested backend-first architecture. FastAPI owns persistence, auth, scheduling rules, imports, and API contracts; React/Vite consumes those APIs for admin and actor workflows. The scheduling engine is a pure Python service with deterministic inputs and explanatory outputs so it can be tested independently from HTTP and UI code.
 
-**Tech Stack:** Python 3.11+, FastAPI, SQLAlchemy 2.x, Pydantic v2, SQLite for local dev with PostgreSQL-compatible schema choices, pytest, TypeScript, React, Vite, Vitest.
+**Tech Stack:** Python 3.11+, FastAPI, SQLAlchemy 2.x, Alembic, Pydantic v2, MySQL 8.0 for production and local integration, SQLite in-memory only for unit tests, pytest, TypeScript, React, Vite, Vitest.
 
 ## Global Constraints
 
@@ -21,7 +21,10 @@
 - Low-rated actor monthly caps require approval before publishing if exceeded.
 - Default max consecutive performances is 3, with per-actor overrides of 2 or 1.
 - Imported group text must go through a confirmation flow before becoming official records.
-- The repository currently has no git metadata; initialize git before the first commit.
+- MySQL 8.0 is the official database target.
+- SQLite is allowed only for in-memory unit tests that do not validate database-specific SQL behavior.
+- SQLAlchemy models must use portable column types unless a MySQL-specific behavior is explicitly tested.
+- The repository has git metadata; commit each completed task.
 
 ---
 
@@ -118,15 +121,15 @@ Frontend responsibilities:
 - Produces: `backend.app.main.app: FastAPI`
 - Produces: frontend script commands `npm run dev`, `npm run test`, `npm run build`
 
-- [ ] **Step 1: Initialize git**
+- [ ] **Step 1: Verify git state**
 
 Run:
 
 ```bash
-git init
+git status --short
 ```
 
-Expected: output contains `Initialized empty Git repository`.
+Expected: no output, or only files intentionally created by the current task.
 
 - [ ] **Step 2: Create backend package and failing smoke test**
 
@@ -141,6 +144,7 @@ dependencies = [
   "fastapi>=0.115.0",
   "uvicorn[standard]>=0.30.0",
   "sqlalchemy>=2.0.30",
+  "pymysql>=1.1.0",
   "alembic>=1.13.0",
   "pydantic-settings>=2.4.0",
   "python-jose[cryptography]>=3.3.0",
@@ -198,7 +202,7 @@ from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
     app_name: str = "Theater Cast Scheduling"
-    database_url: str = "sqlite:///./theater_cast_scheduling.db"
+    database_url: str = "mysql+pymysql://root:password@localhost:3306/theater_cast_scheduling"
     jwt_secret: str = "local-dev-secret-change-before-production"
     jwt_algorithm: str = "HS256"
     access_token_minutes: int = 480
@@ -442,6 +446,7 @@ from app.core.config import settings
 engine = create_engine(
     settings.database_url,
     connect_args={"check_same_thread": False} if settings.database_url.startswith("sqlite") else {},
+    pool_pre_ping=True,
 )
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 ```
@@ -492,8 +497,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Any
 
-from sqlalchemy import Date, DateTime, Enum, ForeignKey, Integer, String, Text, UniqueConstraint
-from sqlalchemy.dialects.sqlite import JSON
+from sqlalchemy import JSON, Date, DateTime, Enum, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
