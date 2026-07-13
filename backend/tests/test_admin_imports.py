@@ -46,3 +46,54 @@ def test_duplicate_weekly_batches_raise_integrity_error(db_session):
     db_session.add(batch2)
     with pytest.raises(IntegrityError):
         db_session.commit()
+
+
+from app.services.admin_imports import get_or_create_weekly_batch, parse_import_draft
+
+
+def test_get_or_create_weekly_batch_validation_and_idempotency(db_session):
+    theater = Theater(name="测试剧场", default_weekly_template={})
+    db_session.add(theater)
+    db_session.flush()
+
+    # Non-Monday date should raise ValueError
+    with pytest.raises(ValueError, match="week_start_must_be_monday"):
+        get_or_create_weekly_batch(db_session, theater.id, date(2026, 6, 2))  # Tuesday
+
+    # Creation
+    batch1 = get_or_create_weekly_batch(db_session, theater.id, date(2026, 6, 1))
+    db_session.commit()
+
+    # Repeated query/creation returns existing
+    batch2 = get_or_create_weekly_batch(db_session, theater.id, date(2026, 6, 1))
+    assert batch1.id == batch2.id
+
+
+def test_parse_import_draft_persists_items(db_session):
+    theater = Theater(name="测试剧场", default_weekly_template={})
+    db_session.add(theater)
+    db_session.flush()
+
+    batch = get_or_create_weekly_batch(db_session, theater.id, date(2026, 6, 1))
+    db_session.commit()
+
+    text = """
+#指定信息⬇️
+【虔诚许愿】-小展/长离-Jennifer 山风昭昭可以原地转十个圈
+热力榜三-文轩/轩辕重光（四月热力榜-兹）
+未知行：什么都没有匹配
+"""
+    draft = parse_import_draft(db_session, batch.id, text)
+    db_session.commit()
+    db_session.expire_all()
+
+    # Verify persistent draft and its items
+    refreshed_draft = db_session.get(PersistentImportDraft, draft.id)
+    assert refreshed_draft is not None
+    assert len(refreshed_draft.items) == 3
+
+    # Check kind
+    kinds = [item.item_kind for item in refreshed_draft.items]
+    assert DraftItemKind.WISH in kinds
+    assert DraftItemKind.DESIGNATION in kinds
+    assert DraftItemKind.UNRESOLVED in kinds
