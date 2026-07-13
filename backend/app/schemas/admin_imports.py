@@ -1,5 +1,5 @@
 from datetime import date, datetime
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict
 from app.models.enums import BatchStatus, ImportDraftStatus, DraftItemKind, DraftValidationStatus, DesignationType
 
 class WeeklyBatchCreate(BaseModel):

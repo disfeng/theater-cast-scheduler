@@ -343,7 +343,7 @@ def get_batch_scheduling_inputs(db: Session, batch_id: int) -> dict:
     designations = db.scalars(
         select(Designation).where(
             Designation.weekly_batch_id == batch_id,
-            Designation.included_in_batch == True,
+            Designation.included_in_batch,
         )
     ).all()
 

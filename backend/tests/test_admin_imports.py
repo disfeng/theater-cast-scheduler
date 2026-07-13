@@ -297,3 +297,113 @@ def test_batch_scheduling_inputs(db_session):
     assert len(inputs["wishes"]) == 1
     assert inputs["wishes"][0]["player_name"] == "Jerry"
     assert w1.note == "备注1"
+
+
+from fastapi.testclient import TestClient
+from app.main import app
+from app.services.auth import create_access_token
+from app.api.deps import get_db
+
+def test_admin_imports_api_workflow(db_session):
+    theater = Theater(name="测试剧场", default_weekly_template={})
+    actor = Actor(display_name="浩泽")
+    role = Role(name="长离")
+    db_session.add_all([theater, actor, role])
+    db_session.flush()
+    db_session.add(ActorRoleCapability(actor_id=actor.id, role_id=role.id))
+    db_session.commit()
+
+    def override_get_db():
+        yield db_session
+
+    app.dependency_overrides[get_db] = override_get_db
+    try:
+        client = TestClient(app)
+        token = create_access_token("admin@example.com", "admin")
+        headers = {"Authorization": f"Bearer {token}"}
+
+        # 1. POST /admin/weekly-batches (create batch)
+        res_batch = client.post(
+            "/admin/weekly-batches",
+            headers=headers,
+            json={"theater_id": theater.id, "week_start": "2026-06-01"},
+        )
+        assert res_batch.status_code == 200
+        batch_id = res_batch.json()["id"]
+
+        # 2. GET /admin/weekly-batches (list batches)
+        res_list = client.get("/admin/weekly-batches", headers=headers)
+        assert res_list.status_code == 200
+        assert len(res_list.json()) >= 1
+
+        # 3. GET /admin/weekly-batches/{batch_id}
+        res_get_batch = client.get(f"/admin/weekly-batches/{batch_id}", headers=headers)
+        assert res_get_batch.status_code == 200
+
+        # 4. POST /admin/import-drafts/parse
+        res_parse = client.post(
+            f"/admin/import-drafts/parse?batch_id={batch_id}",
+            headers=headers,
+            json={"raw_text": "#指定信息\n【虔诚许愿】-浩泽/长离-Jerry\n未知行：不合规"},
+        )
+        assert res_parse.status_code == 200
+        draft_id = res_parse.json()["id"]
+        assert len(res_parse.json()["items"]) == 2
+
+        # Find items
+        item_wish = next(i for i in res_parse.json()["items"] if i["item_kind"] == "wish")
+        item_unresolved = next(i for i in res_parse.json()["items"] if i["item_kind"] == "unresolved")
+
+        # 5. GET /admin/import-drafts/{draft_id}
+        res_draft = client.get(f"/admin/import-drafts/{draft_id}", headers=headers)
+        assert res_draft.status_code == 200
+
+        # 6. POST /admin/import-drafts/{draft_id}/items (manual item creation)
+        res_manual = client.post(
+            f"/admin/import-drafts/{draft_id}/items",
+            headers=headers,
+            json={
+                "item_kind": "wish",
+                "player_name": "Tom",
+                "actor_name_raw": "浩泽",
+                "role_name_raw": "长离",
+            },
+        )
+        assert res_manual.status_code == 200
+
+        # 7. PATCH /admin/import-draft-items/{item_id} (correct unresolved to valid designation)
+        res_patch = client.patch(
+            f"/admin/import-draft-items/{item_unresolved['id']}",
+            headers=headers,
+            json={
+                "item_kind": "designation",
+                "designation_type": "universal",
+                "player_name": "Jerry",
+                "actor_name_raw": "浩泽",
+                "role_name_raw": "长离",
+            },
+        )
+        assert res_patch.status_code == 200
+        assert res_patch.json()["validation_status"] == "valid"
+
+        # 8. POST /admin/import-draft-items/{item_id}/confirm
+        res_confirm = client.post(
+            f"/admin/import-draft-items/{item_wish['id']}/confirm",
+            headers=headers,
+        )
+        assert res_confirm.status_code == 200
+
+        # 9. POST /admin/import-drafts/{draft_id}/confirm-valid
+        res_confirm_all = client.post(
+            f"/admin/import-drafts/{draft_id}/confirm-valid",
+            headers=headers,
+        )
+        assert res_confirm_all.status_code == 200
+
+        # 10. GET /admin/weekly-batches/{batch_id}/scheduling-inputs
+        res_inputs = client.get(f"/admin/weekly-batches/{batch_id}/scheduling-inputs", headers=headers)
+        assert res_inputs.status_code == 200
+        assert len(res_inputs.json()["designations"]) == 1
+        assert len(res_inputs.json()["wishes"]) == 2
+    finally:
+        app.dependency_overrides.clear()
