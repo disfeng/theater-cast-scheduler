@@ -1,8 +1,12 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom";
-import { expect, test, vi } from "vitest";
+import { expect, test, vi, beforeEach } from "vitest";
 import App from "../src/App";
 import { ApiClient } from "../src/api/client";
+
+beforeEach(() => {
+  localStorage.clear();
+});
 
 test("admin shell exposes settings and actor management pages", async () => {
   vi.stubGlobal(

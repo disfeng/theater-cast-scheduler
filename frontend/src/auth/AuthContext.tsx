@@ -12,18 +12,22 @@ type AuthState = {
 const AuthContext = createContext<AuthState | null>(null);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [token, setToken] = useState<string | null>(null);
-  const [role, setRole] = useState<Role | null>(null);
+  const [token, setToken] = useState<string | null>(() => localStorage.getItem("token"));
+  const [role, setRole] = useState<Role | null>(() => localStorage.getItem("role") as Role | null);
 
   const value = useMemo<AuthState>(
     () => ({
       token,
       role,
       setSession(nextToken, nextRole) {
+        localStorage.setItem("token", nextToken);
+        localStorage.setItem("role", nextRole);
         setToken(nextToken);
         setRole(nextRole);
       },
       logout() {
+        localStorage.removeItem("token");
+        localStorage.removeItem("role");
         setToken(null);
         setRole(null);
       },

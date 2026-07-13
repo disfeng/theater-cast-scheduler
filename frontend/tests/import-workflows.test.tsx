@@ -1,7 +1,11 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom";
-import { expect, test, vi } from "vitest";
+import { expect, test, vi, beforeEach } from "vitest";
 import App from "../src/App";
+
+beforeEach(() => {
+  localStorage.clear();
+});
 
 test("designation and wish import parse and resume workflow", async () => {
   const requests: { method: string; path: string; body: any }[] = [];
@@ -141,7 +145,10 @@ test("designation and wish import parse and resume workflow", async () => {
   // 5. Unmount and resume (reload page)
   unmount();
   render(<App />);
-  fireEvent.click(screen.getByText("登录"));
+  const loginBtn = screen.queryByText("登录");
+  if (loginBtn) {
+    fireEvent.click(loginBtn);
+  }
   await waitFor(() => expect(screen.getByText("指定与许愿")).toBeInTheDocument());
   fireEvent.click(screen.getByText("指定与许愿"));
 
