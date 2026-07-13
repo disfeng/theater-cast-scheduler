@@ -31,3 +31,26 @@ class RatingLevel(StrEnum):
     NORMAL = "normal"
     LOW = "low"
     SUSPENDED = "suspended"
+
+
+class BatchStatus(StrEnum):
+    DRAFT = "draft"
+    READY = "ready"
+    SCHEDULED = "scheduled"
+
+
+class ImportDraftStatus(StrEnum):
+    DRAFT = "draft"
+    PARTIALLY_CONFIRMED = "partially_confirmed"
+    CONFIRMED = "confirmed"
+
+
+class DraftItemKind(StrEnum):
+    DESIGNATION = "designation"
+    WISH = "wish"
+    UNRESOLVED = "unresolved"
+
+
+class DraftValidationStatus(StrEnum):
+    VALID = "valid"
+    INVALID = "invalid"

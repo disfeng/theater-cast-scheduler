@@ -7,7 +7,17 @@ from sqlalchemy import JSON, Date, DateTime, Enum, ForeignKey, Integer, String, 
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
-from app.models.enums import DesignationType, LeaveStatus, PerformanceStatus, RatingLevel, UserRole
+from app.models.enums import (
+    BatchStatus,
+    DesignationType,
+    DraftItemKind,
+    DraftValidationStatus,
+    ImportDraftStatus,
+    LeaveStatus,
+    PerformanceStatus,
+    RatingLevel,
+    UserRole,
+)
 
 
 class User(Base):
@@ -101,9 +111,11 @@ class Designation(Base):
     included_in_batch: Mapped[bool] = mapped_column(default=False)
     status: Mapped[str] = mapped_column(String(40), default="pending")
     failure_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    weekly_batch_id: Mapped[int | None] = mapped_column(ForeignKey("weekly_batches.id"), nullable=True)
     role: Mapped[Role] = relationship()
     actor: Mapped[Actor] = relationship()
     target_performance: Mapped[Performance | None] = relationship()
+    weekly_batch: Mapped[WeeklyBatch | None] = relationship()
 
 
 class Wish(Base):
@@ -114,8 +126,10 @@ class Wish(Base):
     role_id: Mapped[int] = mapped_column(ForeignKey("roles.id"))
     actor_id: Mapped[int] = mapped_column(ForeignKey("actors.id"))
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    weekly_batch_id: Mapped[int | None] = mapped_column(ForeignKey("weekly_batches.id"), nullable=True)
     role: Mapped[Role] = relationship()
     actor: Mapped[Actor] = relationship()
+    weekly_batch: Mapped[WeeklyBatch | None] = relationship()
 
 
 class ScheduleAssignment(Base):
@@ -133,3 +147,69 @@ class ScheduleAssignment(Base):
     performance: Mapped[Performance] = relationship()
     role: Mapped[Role] = relationship()
     actor: Mapped[Actor] = relationship()
+
+
+class WeeklyBatch(Base):
+    __tablename__ = "weekly_batches"
+    __table_args__ = (UniqueConstraint("theater_id", "week_start"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    theater_id: Mapped[int] = mapped_column(ForeignKey("theaters.id"), index=True)
+    week_start: Mapped[date] = mapped_column(Date, index=True)
+    status: Mapped[BatchStatus] = mapped_column(Enum(BatchStatus), default=BatchStatus.DRAFT)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    theater: Mapped[Theater] = relationship()
+
+
+class PersistentImportDraft(Base):
+    __tablename__ = "import_drafts"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    weekly_batch_id: Mapped[int] = mapped_column(ForeignKey("weekly_batches.id"), index=True)
+    raw_text: Mapped[str] = mapped_column(Text)
+    status: Mapped[ImportDraftStatus] = mapped_column(
+        Enum(ImportDraftStatus), default=ImportDraftStatus.DRAFT
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+
+    weekly_batch: Mapped[WeeklyBatch] = relationship()
+    items: Mapped[list[ImportDraftItem]] = relationship(
+        back_populates="import_draft", cascade="all, delete-orphan"
+    )
+
+
+class ImportDraftItem(Base):
+    __tablename__ = "import_draft_items"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    import_draft_id: Mapped[int] = mapped_column(ForeignKey("import_drafts.id"), index=True)
+    item_kind: Mapped[DraftItemKind] = mapped_column(Enum(DraftItemKind))
+    raw_line: Mapped[str | None] = mapped_column(Text, nullable=True)
+    designation_type: Mapped[DesignationType | None] = mapped_column(
+        Enum(DesignationType), nullable=True
+    )
+    player_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    actor_name_raw: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    role_name_raw: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    actor_id: Mapped[int | None] = mapped_column(ForeignKey("actors.id"), nullable=True)
+    role_id: Mapped[int | None] = mapped_column(ForeignKey("roles.id"), nullable=True)
+    target_performance_id: Mapped[int | None] = mapped_column(ForeignKey("performances.id"), nullable=True)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    validation_status: Mapped[DraftValidationStatus] = mapped_column(
+        Enum(DraftValidationStatus), default=DraftValidationStatus.INVALID
+    )
+    failure_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    confirmed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    designation_id: Mapped[int | None] = mapped_column(ForeignKey("designations.id"), nullable=True)
+    wish_id: Mapped[int | None] = mapped_column(ForeignKey("wishes.id"), nullable=True)
+
+    import_draft: Mapped[PersistentImportDraft] = relationship(back_populates="items")
+    actor: Mapped[Actor | None] = relationship()
+    role: Mapped[Role | None] = relationship()
+    target_performance: Mapped[Performance | None] = relationship()
+    designation: Mapped[Designation | None] = relationship()
+    wish: Mapped[Wish | None] = relationship()
