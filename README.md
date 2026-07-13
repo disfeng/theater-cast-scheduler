@@ -1,38 +1,243 @@
 # 剧场卡司排班
 
-V1 theater cast scheduling system for monthly capacity planning and weekly semi-automatic cast scheduling.
+> 面向剧场运营的开源卡司排班系统：管理场次、角色、演员能力与请假，导入指定和许愿，并生成可解释的周排班预览。
 
-## Backend
+这个项目把剧场基础资料、月度场次、演员请假、玩家指定/许愿与排班规则放到同一条工作流中。它不只输出“谁演哪个角色”，也会保留空槽和未满足指定的失败原因，方便排班员复核与人工决策。
+
+## 功能总览
+
+- **基础资料**：剧场、角色、演员、跨卡能力与个人排班限制。
+- **月度计划**：按周模板生成场次并处理公休日；请假流程支持整天申请与审核。
+- **指定与许愿**：群文本解析、人工校正、规则校验、幂等确认和周批次锁定。
+- **排班引擎**：硬规则过滤、三级指定优先级、许愿偏好与失败原因输出。
+- **双角色入口**：管理员负责配置与审核；演员排班查询和请假 API 已提供，对应前端仍在完善。
+
+## 项目解决什么问题
+
+剧场排班往往同时受到角色能力、请假、连场上限、玩家付费指定、许愿和演员工作量的影响。当这些信息散落在群消息、表格和个人记忆中时，手工排班容易出现：
+
+- 请假、跨卡能力或连场限制被遗漏。
+- 不同类型指定的优先级难以统一执行。
+- 许愿与工作量均衡缺少一致的衡量方式。
+- 导入数据一旦出错，很难追溯原文和修正过程。
+- 排班失败时只看到结果，不知道具体违反了哪条规则。
+
+本项目以“月度基础计划 + 周排班批次”为主线，将上述信息结构化，再用可测试、可解释的规则生成排班建议。
+
+## 已实现功能
+
+### 管理员端
+
+- 管理剧场及默认每周场次模板。
+- 管理固定角色、角色分组和演员可出演角色。
+- 管理演员评级、最大连场数、低评级月度上限和备注。
+- 生成并保存月度场次，支持公休日与已有排班数据的冲突保护。
+- 查看和审核演员的整天请假申请。
+
+### 指定与许愿导入
+
+- 为某个剧场的自然周创建唯一批次。
+- 粘贴群统计文本，生成可追溯的导入草稿，不直接写入正式数据。
+- 自动匹配演员与角色，无法确定的内容保留原文等待人工处理。
+- 支持人工修正类型、玩家、演员、角色、目标场次和备注，修改后立即重新校验。
+- 支持逐条确认和批量确认；重复确认不会重复生成正式记录。
+- 批次进入 `ready` 后锁定导入内容，防止后续编辑与并发写入。
+
+### 排班引擎与 API
+
+- 为场次与角色槽位筛选可用演员。
+- 应用请假、角色能力、同场唯一和最大连场等硬规则。
+- 按万能指定、榜单前三指定、对位指定的顺序尝试满足权益。
+- 在剩余候选人中考虑许愿和月度工作量。
+- 输出排班结果、未满足指定和空槽，供前端或其他系统继续处理。
+- 提供管理员、演员、月度计划、导入和排班预览 API。
+
+### 演员端
+
+- 支持演员角色登录。
+- 后端支持查询个人排班和提交多日整天请假。
+- 前端已提供“我的排班”和“我的请假”入口，数据联动界面仍在开发。
+
+## V1 工作流程
+
+1. **基础配置**：建立剧场、默认场次模板、固定角色和演员跨卡能力。
+2. **月度准备**：选择剧场和月份，排除公休日后生成当月场次，同时审核演员请假。
+3. **周数据导入**：选择自然周，导入群统计文本或手工添加指定/许愿。
+4. **复核确认**：修正解析失败的条目，逐条或批量确认有效数据，完成后将批次标记为 `ready`。
+5. **排班预览**：将场次、角色、演员、请假、指定与许愿传入排班 API，得到推荐结果、未满足指定的失败原因和空槽。
+
+## 排班规则
+
+引擎按以下层级处理排班：
+
+1. **硬规则**：已批准请假不可排班；演员必须会该角色；同一场不能出演两个角色；不得超过个人最大连场数；暂停演员不参与排班。
+2. **指定优先级**：万能指定 > 榜单前三指定 > 对位指定。指定不能覆盖硬规则。
+3. **补排偏好**：指定之后再考虑许愿、月度场次与排班密度。许愿只影响偏好，不会压过指定。
+4. **可解释输出**：返回未满足指定的失败原因和尚未安排的空槽。
+
+V1 使用可解释的分层规则与评分方式，不追求数学意义上的全局最优。
+
+## 技术栈
+
+| 层级 | 技术 |
+| --- | --- |
+| 后端 | Python 3.11+、FastAPI、Pydantic Settings |
+| 数据与迁移 | SQLAlchemy 2、Alembic、MySQL 8.0、PyMySQL |
+| 认证 | JWT (`python-jose`)，V1 演示账号为硬编码认证 |
+| 前端 | React 18、TypeScript、Vite 5、Lucide React |
+| 测试 | Pytest、FastAPI TestClient、Vitest、Testing Library |
+| 质量检查 | Ruff、TypeScript Compiler、Vite production build |
+
+## 项目结构
+
+```text
+.
+├── backend/
+│   ├── app/
+│   │   ├── api/routes/       # 认证、管理端、演员端、导入和排班 API
+│   │   ├── models/           # SQLAlchemy 实体与枚举
+│   │   ├── schemas/          # API 请求/响应模型
+│   │   └── services/         # 月度计划、导入、校验和排班规则
+│   ├── migrations/               # Alembic 迁移
+│   └── tests/                    # 后端单元与 API 测试
+├── frontend/
+│   ├── src/
+│   │   ├── api/              # TypeScript API 客户端
+│   │   ├── components/       # 应用框架与通用组件
+│   │   └── pages/            # 管理员与演员页面
+│   └── tests/                    # 前端工作流测试
+└── docs/superpowers/
+    ├── specs/                         # 产品与功能设计
+    ├── plans/                         # 实施计划
+    └── acceptance-checklist.md        # V1 验收记录
+```
+
+## 快速开始
+
+### 环境要求
+
+- Python 3.11+
+- Node.js 18+ 与 npm
+- MySQL 8.0
+
+### 1. 创建数据库
+
+```bash
+mysql -u root -p -e "CREATE DATABASE theater_cast_scheduling CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+```
+
+### 2. 启动后端
+
+在仓库根目录执行：
 
 ```bash
 cd backend
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
-pytest -q
+
+export DATABASE_URL="mysql+pymysql://root:password@localhost:3306/theater_cast_scheduling"
+export JWT_SECRET="replace-with-a-random-secret"
+
+alembic upgrade head
 uvicorn app.main:app --reload
 ```
 
-Backend health check: http://localhost:8000/health
+后端默认运行在 <http://localhost:8000>，可通过 <http://localhost:8000/health> 检查状态。
 
-## Frontend
+### 3. 启动前端
+
+新建一个终端，回到仓库根目录后执行：
 
 ```bash
 cd frontend
 npm install
-npm run test
 npm run dev
 ```
 
-Frontend dev server: http://localhost:5173
+前端默认运行在 <http://localhost:5173>，API 客户端请求 <http://localhost:8000>。后端已允许 `localhost:5173` 和 `127.0.0.1:5173` 两个本地开发来源；部署到其他域名时，请改为实际前端来源。
 
-## Demo Accounts
+## 演示账号
 
-- Admin: `admin@example.com` / `admin`
-- Actor: `actor@example.com` / `actor`
+| 角色 | 邮箱 | 密码 |
+| --- | --- | --- |
+| 管理员 | `admin@example.com` | `admin` |
+| 演员 | `actor@example.com` | `actor` |
 
-## Design and Plan
+> [!WARNING]
+> 当前认证仅用于 V1 演示，账号和密码硬编码在登录接口中。请勿直接用于生产环境。
 
-- Design: `docs/superpowers/specs/2026-07-12-theater-cast-scheduling-design.md`
-- Plan: `docs/superpowers/plans/2026-07-12-theater-cast-scheduling.md`
-- Acceptance checklist: `docs/superpowers/acceptance-checklist.md`
+## API 文档
+
+启动后端后可使用 FastAPI 自动文档：
+
+- Swagger UI：<http://localhost:8000/docs>
+- ReDoc：<http://localhost:8000/redoc>
+- 健康检查：<http://localhost:8000/health>
+
+主要路由前缀：
+
+- `/auth`：登录与 Token。
+- `/admin`：基础资料、月度计划、请假审核、周批次和导入草稿。
+- `/actor`：演员个人排班与请假。
+- `/scheduling`：周排班预览。
+
+## 测试与质量检查
+
+### 后端
+
+```bash
+backend/.venv/bin/ruff check backend
+cd backend
+pytest -q
+```
+
+后端测试默认使用 SQLite 内存数据库，因此不会修改本地 MySQL 数据。
+
+### 前端
+
+```bash
+cd frontend
+npm run test -- --run
+npm run build
+```
+
+## 开发状态
+
+项目当前处于 **V1 持续开发阶段**。
+
+| 能力 | 状态 |
+| --- | --- |
+| 管理员/演员演示登录 | 已实现 |
+| 剧场、角色、演员与跨卡能力管理 | 已实现 |
+| 整天请假提交与审核 | 后端已实现，管理端已联动，演员端界面待完善 |
+| 月度场次生成与保存 | 已实现 |
+| 指定/许愿导入、修正、确认与批次锁定 | 已实现 |
+| 规则排班预览 API | 已实现 |
+| 完整周排班操作台、锁定/替换/重算联动 | 规划中 |
+| 排班持久化、发布前校验与正式发布 | 规划中 |
+| 内部排班表与演员个人班次导出 | 规划中 |
+| MySQL 8.0 实例上的完整迁移与集成验证 | 待完成 |
+
+## 贡献
+
+欢迎通过 Issue 报告问题或提交 Pull Request。为了让变更容易复核：
+
+1. 先在 Issue 中说明业务场景、期望结果和当前行为。
+2. 功能变更应包含对应的后端或前端测试。
+3. 提交前运行 Ruff、Pytest、Vitest 和前端生产构建。
+4. 不要提交 `.env`、本地数据库、虚拟环境、`node_modules` 或构建产物。
+
+如果修改排班规则，请在 PR 中写明优先级、冲突时的取舍和新增测试用例。
+
+## 许可证
+
+本项目采用 [MIT License](LICENSE)。你可以在保留版权和许可声明的前提下使用、修改、分发和商业化本项目。
+
+## 设计文档
+
+- [V1 总体设计](docs/superpowers/specs/2026-07-12-theater-cast-scheduling-design.md)
+- [管理基础能力补全设计](docs/superpowers/specs/2026-07-13-admin-foundation-completion-design.md)
+- [指定/许愿导入设计](docs/superpowers/specs/2026-07-13-designation-wish-import-design.md)
+- [V1 验收清单](docs/superpowers/acceptance-checklist.md)
+- [实施计划目录](docs/superpowers/plans/)

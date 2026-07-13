@@ -13,16 +13,21 @@
 - The README is primarily Chinese; technology names and shell commands remain in their original form.
 - The opening must summarize project purpose and core functions before installation details.
 - The document must serve both theater operators and open-source developers.
-- Do not claim an online demo, screenshots, CI status, coverage percentage, license, publishing, or export support that the repository does not provide.
+- Do not claim an online demo, screenshots, CI status, coverage percentage, publishing, or export support that the repository does not provide.
+- Add the owner-approved MIT License with the collective copyright line `Copyright (c) 2026 Theater Cast Scheduling contributors`.
 - Explicitly identify complete weekly scheduling operations, publishing, and export as future work.
 - Require Python 3.11+, Node.js 18+, npm, and MySQL 8.0 for the documented local workflow.
+- Allow browser API calls only from the local Vite origins `http://localhost:5173` and `http://127.0.0.1:5173`; do not use a wildcard CORS origin.
 
 ---
 
 ### Task 1: Rewrite the public project README
 
 **Files:**
+- Create: `LICENSE`
 - Modify: `README.md`
+- Modify: `backend/app/main.py`
+- Modify: `backend/tests/test_api_smoke.py`
 - Reference: `backend/pyproject.toml`
 - Reference: `backend/app/core/config.py`
 - Reference: `backend/migrations/env.py`
@@ -34,7 +39,72 @@
 - Consumes: current repository behavior, environment variables `DATABASE_URL` and `JWT_SECRET`, backend port `8000`, frontend port `5173`
 - Produces: a self-contained root README for product evaluation, local development, testing, and contribution
 
-- [ ] **Step 1: Replace the short README with the approved product-first structure**
+- [x] **Step 1: Add a failing local-development CORS test**
+
+Add behavior tests to `backend/tests/test_api_smoke.py` that verify both allowed local origins and reject an unknown origin:
+
+```python
+@pytest.mark.parametrize(
+    "origin",
+    ["http://localhost:5173", "http://127.0.0.1:5173"],
+)
+def test_local_vite_origin_is_allowed(origin):
+    client = TestClient(app)
+    response = client.options(
+        "/auth/login",
+        headers={
+            "Origin": origin,
+            "Access-Control-Request-Method": "POST",
+        },
+    )
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == origin
+
+
+def test_unknown_cors_origin_is_rejected():
+    client = TestClient(app)
+    response = client.options(
+        "/auth/login",
+        headers={
+            "Origin": "https://example.com",
+            "Access-Control-Request-Method": "POST",
+        },
+    )
+    assert response.status_code == 400
+    assert "access-control-allow-origin" not in response.headers
+```
+
+Run:
+
+```bash
+cd backend && pytest tests/test_api_smoke.py::test_local_vite_origin_is_allowed -q
+```
+
+Expected: FAIL because the preflight response does not include `access-control-allow-origin`.
+
+- [x] **Step 2: Configure the two local Vite origins**
+
+Add `CORSMiddleware` to `backend/app/main.py` before registering routes:
+
+```python
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+```
+
+Re-run:
+
+```bash
+cd backend && pytest tests/test_api_smoke.py::test_local_vite_origin_is_allowed -q
+```
+
+Expected: PASS.
+
+- [x] **Step 3: Replace the short README with the approved product-first structure**
 
 Write `README.md` with these sections and exact content boundaries:
 
@@ -66,7 +136,8 @@ Continue with the following headings in this order:
 10. `## 测试与质量检查`
 11. `## 开发状态`
 12. `## 贡献`
-13. `## 设计文档`
+13. `## 许可证`
+14. `## 设计文档`
 
 The quick-start section must include these executable command blocks:
 
@@ -89,7 +160,7 @@ npm run dev
 
 Document the demo-only credentials `admin@example.com / admin` and `actor@example.com / actor`, and warn that the hardcoded authentication is not production-ready.
 
-- [ ] **Step 2: Verify that README claims match shipped behavior**
+- [x] **Step 4: Verify that README claims match shipped behavior**
 
 Run:
 
@@ -107,7 +178,7 @@ rg -n "Python 3\.11|Node\.js 18|MySQL 8\.0|DATABASE_URL|JWT_SECRET|alembic upgra
 
 Expected: every required runtime, environment variable, migration command, and quality command appears at least once.
 
-- [ ] **Step 3: Run repository quality checks**
+- [x] **Step 5: Run repository quality checks**
 
 Run:
 
@@ -121,9 +192,9 @@ cd .. && git diff --check
 
 Expected: Ruff passes, all backend and frontend tests pass, the frontend production build succeeds, and `git diff --check` reports no whitespace errors.
 
-- [ ] **Step 4: Commit the README**
+- [x] **Step 6: Commit the CORS support and README**
 
 ```bash
-git add README.md
+git add LICENSE README.md backend/app/main.py backend/tests/test_api_smoke.py docs/superpowers/specs/2026-07-13-open-source-readme-design.md docs/superpowers/plans/2026-07-13-open-source-readme.md
 git commit -m "docs: add open source project readme"
 ```
