@@ -78,22 +78,40 @@ export class ApiClient {
     return this.post(`/admin/leave-requests/${leaveId}/review`, token, { status });
   }
 
-  private async get<T>(path: string, token: string): Promise<T> {
+  async updateActor(token: string, actorId: number, payload: Omit<Actor, "id" | "display_name" | "role_ids">): Promise<Actor> {
+    return this.request(`/admin/actors/${actorId}`, token, "PATCH", payload);
+  }
+
+  async replaceActorCapabilities(token: string, actorId: number, roleIds: number[]): Promise<Actor> {
+    return this.request(`/admin/actors/${actorId}/capabilities`, token, "PUT", { role_ids: roleIds });
+  }
+
+  private async request<T>(path: string, token: string, method: string, payload?: object): Promise<T> {
     const response = await fetch(`${this.baseUrl}${path}`, {
-      headers: { Authorization: `Bearer ${token}` },
+      method,
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: payload ? JSON.stringify(payload) : undefined,
     });
-    if (!response.ok) throw new Error("请求失败");
+    if (!response.ok) {
+      let message = "请求失败";
+      try {
+        const body = await response.json();
+        message = body.detail ?? message;
+      } catch {}
+      throw new Error(message);
+    }
     return response.json();
   }
 
+  private async get<T>(path: string, token: string): Promise<T> {
+    return this.request(path, token, "GET");
+  }
+
   private async post<T>(path: string, token: string, payload: object): Promise<T> {
-    const response = await fetch(`${this.baseUrl}${path}`, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    if (!response.ok) throw new Error("保存失败");
-    return response.json();
+    return this.request(path, token, "POST", payload);
   }
 }
 
