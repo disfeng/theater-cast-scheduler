@@ -3,6 +3,10 @@ import { defineConfig } from "vite";
 
 export default defineConfig({
   plugins: [react()],
+  server: {
+    port: 7003,
+    strictPort: true,
+  },
   test: {
     environment: "jsdom",
     globals: true,

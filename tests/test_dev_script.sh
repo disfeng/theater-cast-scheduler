@@ -31,7 +31,11 @@ stop_recorded_services() {
   local pid_file
   local pid
 
-  for pid_file in "$TMP_ROOT"/*/backend-pid "$TMP_ROOT"/*/frontend-pid; do
+  for pid_file in \
+    "$TMP_ROOT"/*/backend-pid \
+    "$TMP_ROOT"/*/frontend-pid \
+    "$TMP_ROOT"/*/backend-child-pid \
+    "$TMP_ROOT"/*/frontend-child-pid; do
     [ -s "$pid_file" ] || continue
     pid=$(<"$pid_file")
     case "$pid" in
@@ -171,6 +175,8 @@ make_fake_project() {
   FAKE_EVENTS="$FAKE_PROJECT/events"
   FAKE_BACKEND_PID="$FAKE_PROJECT/backend-pid"
   FAKE_FRONTEND_PID="$FAKE_PROJECT/frontend-pid"
+  FAKE_BACKEND_CHILD_PID="$FAKE_PROJECT/backend-child-pid"
+  FAKE_FRONTEND_CHILD_PID="$FAKE_PROJECT/frontend-child-pid"
   RUN_OUTPUT_FILE="$FAKE_PROJECT/dev-output"
   : > "$FAKE_EVENTS"
   printf '%s\n' \
@@ -219,7 +225,14 @@ apply_fake_executables() {
     'if [ "${FAKE_BACKEND_EXIT:-0}" = "normal" ]; then' \
     '  exit 0' \
     'fi' \
-    "trap 'exit 0' TERM INT" \
+    'if [ "${FAKE_SIGNAL_DURING_BACKEND_START:-0}" = "1" ]; then' \
+    '  kill -TERM "$PPID"' \
+    'fi' \
+    "trap 'if [ \"\${FAKE_SLOW_TERM:-0}\" = \"1\" ]; then sleep 0.3; fi; exit 0' TERM INT" \
+    'if [ "${FAKE_SPAWN_DESCENDANTS:-0}" = "1" ]; then' \
+    "  ( trap 'exit 0' TERM INT; while :; do sleep 1; done ) &" \
+    "  printf '%s\\n' \"\$!\" > \"\$FAKE_BACKEND_CHILD_PID\"" \
+    'fi' \
     'while :; do sleep 1; done' \
     > "$uvicorn"
 
@@ -240,7 +253,11 @@ apply_fake_executables() {
     'if [ "${FAKE_FRONTEND_EXIT:-0}" = "1" ]; then' \
     '  exit 9' \
     'fi' \
-    "trap 'exit 0' TERM INT" \
+    "trap 'if [ \"\${FAKE_SLOW_TERM:-0}\" = \"1\" ]; then sleep 0.3; fi; exit 0' TERM INT" \
+    'if [ "${FAKE_SPAWN_DESCENDANTS:-0}" = "1" ]; then' \
+    "  ( trap 'exit 0' TERM INT; while :; do sleep 1; done ) &" \
+    "  printf '%s\\n' \"\$!\" > \"\$FAKE_FRONTEND_CHILD_PID\"" \
+    'fi' \
     'while :; do sleep 1; done' \
     > "$npm"
 
@@ -264,9 +281,14 @@ start_dev() {
       FAKE_EVENTS="$FAKE_EVENTS" \
       FAKE_BACKEND_PID="$FAKE_BACKEND_PID" \
       FAKE_FRONTEND_PID="$FAKE_FRONTEND_PID" \
+      FAKE_BACKEND_CHILD_PID="$FAKE_BACKEND_CHILD_PID" \
+      FAKE_FRONTEND_CHILD_PID="$FAKE_FRONTEND_CHILD_PID" \
       FAKE_MIGRATION_FAIL="${FAKE_MIGRATION_FAIL:-0}" \
       FAKE_BACKEND_EXIT="${FAKE_BACKEND_EXIT:-0}" \
       FAKE_FRONTEND_EXIT="${FAKE_FRONTEND_EXIT:-0}" \
+      FAKE_SPAWN_DESCENDANTS="${FAKE_SPAWN_DESCENDANTS:-0}" \
+      FAKE_SIGNAL_DURING_BACKEND_START="${FAKE_SIGNAL_DURING_BACKEND_START:-0}" \
+      FAKE_SLOW_TERM="${FAKE_SLOW_TERM:-0}" \
       ./dev.sh
   ) > "$RUN_OUTPUT_FILE" 2>&1 &
   DEV_PID=$!
@@ -328,33 +350,41 @@ test_migration_failure() {
 
 test_backend_exit_cleans_up_frontend() {
   local frontend_pid
+  local frontend_child_pid
 
   make_fake_project backend-exit
 
-  FAKE_BACKEND_EXIT=1 run_dev
+  FAKE_SPAWN_DESCENDANTS=1 FAKE_BACKEND_EXIT=1 run_dev
 
   assert_status 7 "$RUN_STATUS" "backend exit status must propagate"
   assert_file_contains "$FAKE_EVENTS" "backend-started" "backend must start"
   assert_file_contains "$FAKE_EVENTS" "frontend-started" "frontend must start"
   wait_for_file "$FAKE_FRONTEND_PID"
+  wait_for_file "$FAKE_FRONTEND_CHILD_PID"
   frontend_pid=$(<"$FAKE_FRONTEND_PID")
+  frontend_child_pid=$(<"$FAKE_FRONTEND_CHILD_PID")
   assert_process_stopped "$frontend_pid" "frontend sibling must be terminated"
+  assert_process_stopped "$frontend_child_pid" "frontend sibling descendant must be terminated"
   assert_database_not_created
 }
 
 test_frontend_exit_cleans_up_backend() {
   local backend_pid
+  local backend_child_pid
 
   make_fake_project frontend-exit
 
-  FAKE_FRONTEND_EXIT=1 run_dev
+  FAKE_SPAWN_DESCENDANTS=1 FAKE_FRONTEND_EXIT=1 run_dev
 
   assert_status 9 "$RUN_STATUS" "frontend exit status must propagate"
   assert_file_contains "$FAKE_EVENTS" "backend-started" "backend must start"
   assert_file_contains "$FAKE_EVENTS" "frontend-started" "frontend must start"
   wait_for_file "$FAKE_BACKEND_PID"
+  wait_for_file "$FAKE_BACKEND_CHILD_PID"
   backend_pid=$(<"$FAKE_BACKEND_PID")
+  backend_child_pid=$(<"$FAKE_BACKEND_CHILD_PID")
   assert_process_stopped "$backend_pid" "backend sibling must be terminated"
+  assert_process_stopped "$backend_child_pid" "backend sibling descendant must be terminated"
   assert_database_not_created
 }
 
@@ -378,9 +408,54 @@ test_signal_cleans_up_both_services() {
   local signal=$1
   local backend_pid
   local frontend_pid
+  local backend_child_pid
+  local frontend_child_pid
 
   make_fake_project "${signal}-cleanup"
-  start_dev
+  FAKE_SPAWN_DESCENDANTS=1 start_dev
+
+  wait_for_file "$FAKE_BACKEND_PID"
+  wait_for_file "$FAKE_FRONTEND_PID"
+  wait_for_file "$FAKE_BACKEND_CHILD_PID"
+  wait_for_file "$FAKE_FRONTEND_CHILD_PID"
+  backend_pid=$(<"$FAKE_BACKEND_PID")
+  frontend_pid=$(<"$FAKE_FRONTEND_PID")
+  backend_child_pid=$(<"$FAKE_BACKEND_CHILD_PID")
+  frontend_child_pid=$(<"$FAKE_FRONTEND_CHILD_PID")
+  TEST_PIDS="$TEST_PIDS $backend_pid $frontend_pid $backend_child_pid $frontend_child_pid"
+
+  kill -"$signal" "$DEV_PID"
+  wait_for_process_exit "$DEV_PID" "dev.sh after $signal"
+
+  assert_process_stopped "$backend_pid" "$signal must stop the backend"
+  assert_process_stopped "$frontend_pid" "$signal must stop the frontend"
+  assert_process_stopped "$backend_child_pid" "$signal must stop the backend descendant"
+  assert_process_stopped "$frontend_child_pid" "$signal must stop the frontend descendant"
+  assert_database_not_created
+}
+
+test_signal_during_backend_launch_cleans_up() {
+  local backend_pid
+
+  make_fake_project signal-during-launch
+  FAKE_SIGNAL_DURING_BACKEND_START=1 start_dev
+
+  wait_for_file "$FAKE_BACKEND_PID"
+  backend_pid=$(<"$FAKE_BACKEND_PID")
+  TEST_PIDS="$TEST_PIDS $backend_pid"
+  wait_for_process_exit "$DEV_PID" "dev.sh after signal during backend launch"
+
+  assert_status 143 "$WAIT_STATUS" "deferred startup signal status must propagate"
+  assert_process_stopped "$backend_pid" "startup signal must stop the recorded backend"
+  assert_database_not_created
+}
+
+test_repeated_signals_finish_cleanup() {
+  local backend_pid
+  local frontend_pid
+
+  make_fake_project repeated-signals
+  FAKE_SLOW_TERM=1 start_dev
 
   wait_for_file "$FAKE_BACKEND_PID"
   wait_for_file "$FAKE_FRONTEND_PID"
@@ -388,11 +463,13 @@ test_signal_cleans_up_both_services() {
   frontend_pid=$(<"$FAKE_FRONTEND_PID")
   TEST_PIDS="$TEST_PIDS $backend_pid $frontend_pid"
 
-  kill -"$signal" "$DEV_PID"
-  wait_for_process_exit "$DEV_PID" "dev.sh after $signal"
+  kill -TERM "$DEV_PID"
+  sleep "$WAIT_INTERVAL"
+  kill -TERM "$DEV_PID" 2>/dev/null || true
+  wait_for_process_exit "$DEV_PID" "dev.sh after repeated signals"
 
-  assert_process_stopped "$backend_pid" "$signal must stop the backend"
-  assert_process_stopped "$frontend_pid" "$signal must stop the frontend"
+  assert_process_stopped "$backend_pid" "repeated signals must not interrupt backend cleanup"
+  assert_process_stopped "$frontend_pid" "repeated signals must not interrupt frontend cleanup"
   assert_database_not_created
 }
 
@@ -402,6 +479,8 @@ test_migration_failure
 test_backend_exit_cleans_up_frontend
 test_frontend_exit_cleans_up_backend
 test_normal_exit_cleans_up_sibling
+test_signal_during_backend_launch_cleans_up
+test_repeated_signals_finish_cleanup
 test_signal_cleans_up_both_services INT
 test_signal_cleans_up_both_services TERM
 

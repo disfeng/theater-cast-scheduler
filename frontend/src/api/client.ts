@@ -81,7 +81,7 @@ export type LeaveRequest = {
 };
 
 export class ApiClient {
-  constructor(private readonly baseUrl = "http://localhost:8000") {}
+  constructor(private readonly baseUrl = "http://localhost:7004") {}
 
   async login(email: string, password: string): Promise<{ access_token: string; role: "admin" | "actor" }> {
     const response = await fetch(`${this.baseUrl}/auth/login`, {

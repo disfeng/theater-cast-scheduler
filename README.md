@@ -136,10 +136,10 @@ export DATABASE_URL="mysql+pymysql://root:password@localhost:3306/theater_cast_s
 export JWT_SECRET="replace-with-a-random-secret"
 
 alembic upgrade head
-uvicorn app.main:app --reload
+uvicorn app.main:app --port 7004 --reload
 ```
 
-后端默认运行在 <http://localhost:8000>，可通过 <http://localhost:8000/health> 检查状态。
+后端默认运行在 <http://localhost:7004>，可通过 <http://localhost:7004/health> 检查状态。
 
 ### 3. 启动前端
 
@@ -151,7 +151,7 @@ npm install
 npm run dev
 ```
 
-前端默认运行在 <http://localhost:5173>，API 客户端请求 <http://localhost:8000>。后端已允许 `localhost:5173` 和 `127.0.0.1:5173` 两个本地开发来源；部署到其他域名时，请改为实际前端来源。
+前端默认运行在 <http://localhost:7003>，API 客户端请求 <http://localhost:7004>。后端已允许 `localhost:7003` 和 `127.0.0.1:7003` 两个本地开发来源；部署到其他域名时，请改为实际前端来源。
 
 ## 演示账号
 
@@ -167,9 +167,9 @@ npm run dev
 
 启动后端后可使用 FastAPI 自动文档：
 
-- Swagger UI：<http://localhost:8000/docs>
-- ReDoc：<http://localhost:8000/redoc>
-- 健康检查：<http://localhost:8000/health>
+- Swagger UI：<http://localhost:7004/docs>
+- ReDoc：<http://localhost:7004/redoc>
+- 健康检查：<http://localhost:7004/health>
 
 主要路由前缀：
 
