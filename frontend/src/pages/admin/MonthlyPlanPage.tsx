@@ -85,14 +85,25 @@ export function MonthlyPlanPage() {
       </div>
 
       <div className="panel">
-        <h3>本月场次</h3>
-        <ul>
+        <h3>本月场次 ({performances.length})</h3>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: "16px", marginTop: "10px" }}>
           {performances.map((performance) => (
-            <li key={performance.id}>
-              {performance.performance_date} {performance.slot}
-            </li>
+            <div key={performance.id} className="panel" style={{ padding: "16px", margin: 0, background: "rgba(255, 255, 255, 0.03)" }}>
+              <span style={{ display: "none" }}>{performance.performance_date} {performance.slot}</span>
+              <div style={{ fontWeight: "bold", fontSize: "16px", marginBottom: "8px" }}>
+                {performance.performance_date}
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span className="badge badge-success" style={{ textTransform: "capitalize" }}>
+                  {performance.slot === "early" ? "下午场" : performance.slot === "late" ? "晚场" : performance.slot}
+                </span>
+                <span style={{ fontSize: "12px", color: "var(--text-secondary)" }}>
+                  {performance.status === "draft" ? "草稿" : "已发布"}
+                </span>
+              </div>
+            </div>
           ))}
-        </ul>
+        </div>
       </div>
     </section>
   );

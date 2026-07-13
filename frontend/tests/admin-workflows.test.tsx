@@ -37,7 +37,7 @@ test("monthly plan page supports selectable generation and closed dates", async 
     "fetch",
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      const path = url.replace("http://localhost:8000", "");
+      const path = url.replace(/https?:\/\/localhost:\d+/, "");
       const method = init?.method ?? "GET";
       const body = init?.body ? JSON.parse(String(init.body)) : null;
 
@@ -100,7 +100,7 @@ test("theater and role entry workflows", async () => {
     "fetch",
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      const path = url.replace("http://localhost:8000", "");
+      const path = url.replace(/https?:\/\/localhost:\d+/, "");
       const method = init?.method ?? "GET";
       const body = init?.body ? JSON.parse(String(init.body)) : null;
 
@@ -169,7 +169,7 @@ test("actor entry and capability workflows", async () => {
     "fetch",
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      const path = url.replace("http://localhost:8000", "");
+      const path = url.replace(/https?:\/\/localhost:\d+/, "");
       const method = init?.method ?? "GET";
       const body = init?.body ? JSON.parse(String(init.body)) : null;
 
@@ -278,7 +278,7 @@ test("monthly plan page displays generation conflicts", async () => {
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const path = String(input).replace("http://localhost:8000", "");
+      const path = String(input).replace(/https?:\/\/localhost:\d+/, "");
       if (path === "/auth/login") {
         return new Response(JSON.stringify({ access_token: "token", role: "admin" }), {
           status: 200,

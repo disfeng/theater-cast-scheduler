@@ -48,7 +48,7 @@ test("designation and wish import parse and resume workflow", async () => {
     "fetch",
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      const path = url.replace("http://localhost:8000", "");
+      const path = url.replace(/https?:\/\/localhost:\d+/, "");
       requestedPaths.push(path);
       const method = init?.method ?? "GET";
       const body = init?.body ? JSON.parse(String(init.body)) : null;
