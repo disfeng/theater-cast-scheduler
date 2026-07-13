@@ -75,6 +75,21 @@ def post_import_drafts_parse(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
+@router.get("/import-drafts", response_model=list[ImportDraftRead])
+def get_import_drafts(
+    batch_id: int,
+    _: dict[str, str] = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> list[PersistentImportDraft]:
+    return list(
+        db.scalars(
+            select(PersistentImportDraft).where(
+                PersistentImportDraft.weekly_batch_id == batch_id
+            )
+        ).all()
+    )
+
+
 @router.get("/import-drafts/{draft_id}", response_model=ImportDraftRead)
 def get_import_draft(
     draft_id: int,
