@@ -31,7 +31,7 @@ from app.services.admin_data import (
     review_leave_request,
     update_actor,
 )
-from app.services.monthly_plan import generate_monthly_plan, list_month_performances
+from app.services.monthly_plan import MonthlyPlanConflict, generate_monthly_plan, list_month_performances
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -152,6 +152,8 @@ def post_monthly_plan_generate(
         return generate_monthly_plan(
             db, payload.theater_id, payload.year, payload.month, set(payload.closed_dates)
         )
+    except MonthlyPlanConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
