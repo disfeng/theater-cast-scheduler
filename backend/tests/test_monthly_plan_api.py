@@ -239,3 +239,56 @@ def test_monthly_regeneration_rejects_designation_referenced_draft(db_session):
         assert db_session.get(Performance, performance.id) is not None
     finally:
         app.dependency_overrides.clear()
+
+
+def test_create_and_delete_performance_endpoints(db_session):
+    theater = create_theater(
+        db_session,
+        TheaterCreate(name="西幽剧场", default_weekly_template={}),
+    )
+
+    def override_get_db():
+        yield db_session
+
+    app.dependency_overrides[get_db] = override_get_db
+    try:
+        # 1. Create a performance
+        client = TestClient(app)
+        response = client.post(
+            "/admin/performances",
+            headers=_admin_headers(),
+            json={
+                "theater_id": theater.id,
+                "performance_date": "2026-06-15",
+                "slot": "early"
+            }
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["performance_date"] == "2026-06-15"
+        assert data["slot"] == "early"
+        perf_id = data["id"]
+
+        # 2. Try creating duplicate
+        response = client.post(
+            "/admin/performances",
+            headers=_admin_headers(),
+            json={
+                "theater_id": theater.id,
+                "performance_date": "2026-06-15",
+                "slot": "early"
+            }
+        )
+        assert response.status_code == 400
+
+        # 3. Delete performance
+        response = client.delete(
+            f"/admin/performances/{perf_id}",
+            headers=_admin_headers(),
+        )
+        assert response.status_code == 200
+
+        # Verify it's deleted
+        assert db_session.get(Performance, perf_id) is None
+    finally:
+        app.dependency_overrides.clear()

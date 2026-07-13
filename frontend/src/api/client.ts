@@ -125,6 +125,14 @@ export class ApiClient {
     return this.get(`/admin/performances?theater_id=${theaterId}&year=${year}&month=${month}`, token);
   }
 
+  async createPerformance(token: string, payload: { theater_id: number; performance_date: string; slot: string }): Promise<Performance> {
+    return this.post("/admin/performances", token, payload);
+  }
+
+  async deletePerformance(token: string, performanceId: number): Promise<{ status: string }> {
+    return this.request(`/admin/performances/${performanceId}`, token, "DELETE");
+  }
+
   async getLeaveRequests(token: string): Promise<LeaveRequest[]> {
     return this.get("/admin/leave-requests", token);
   }

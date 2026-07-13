@@ -16,7 +16,7 @@ def test_health_check_returns_ok():
 
 @pytest.mark.parametrize(
     "origin",
-    ["http://localhost:5173", "http://127.0.0.1:5173"],
+    ["http://localhost:7003", "http://127.0.0.1:7003"],
 )
 def test_local_vite_origin_is_allowed(origin):
     client = TestClient(app)

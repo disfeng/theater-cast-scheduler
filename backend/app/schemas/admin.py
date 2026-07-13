@@ -93,6 +93,12 @@ class PerformanceRead(BaseModel):
     status: PerformanceStatus
 
 
+class PerformanceCreate(BaseModel):
+    theater_id: int
+    performance_date: date
+    slot: str
+
+
 class DashboardRead(BaseModel):
     pending_leave_requests: int
     pending_designations: int

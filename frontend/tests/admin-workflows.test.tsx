@@ -318,3 +318,71 @@ test("monthly plan page displays generation conflicts", async () => {
     await screen.findByText("monthly_plan_has_non_draft_performances"),
   ).toHaveAttribute("role", "alert");
 });
+
+
+test("monthly plan page supports adding and deleting custom performances", async () => {
+  const requests: { method: string; path: string; body: any }[] = [];
+  
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input).replace(/https?:\/\/localhost:\d+/, "");
+      const method = init?.method ?? "GET";
+      const body = init?.body ? JSON.parse(String(init.body)) : null;
+
+      requests.push({ method, path, body });
+
+      if (path === "/auth/login") {
+        return new Response(JSON.stringify({ access_token: "token", role: "admin" }), { status: 200 });
+      }
+      if (path === "/admin/theaters") {
+        return new Response(JSON.stringify([{ id: 1, name: "西幽剧场", default_weekly_template: {} }]), { status: 200 });
+      }
+      if (path.startsWith("/admin/performances")) {
+        if (method === "GET") {
+          const hasCreated = requests.some(r => r.method === "POST" && r.path === "/admin/performances");
+          const hasDeleted = requests.some(r => r.method === "DELETE" && r.path.startsWith("/admin/performances/"));
+          if (hasCreated && !hasDeleted) {
+            return new Response(JSON.stringify([{ id: 99, theater_id: 1, performance_date: "2026-06-15", slot: "early", status: "draft" }]), { status: 200 });
+          }
+          return new Response(JSON.stringify([]), { status: 200 });
+        }
+        if (method === "POST") {
+          return new Response(JSON.stringify({ id: 99, theater_id: 1, performance_date: "2026-06-15", slot: "early", status: "draft" }), { status: 200 });
+        }
+        if (method === "DELETE") {
+          return new Response(JSON.stringify({ status: "ok" }), { status: 200 });
+        }
+      }
+      return new Response(JSON.stringify([]), { status: 200 });
+    }),
+  );
+
+  render(<App />);
+  fireEvent.click(screen.getByText("登录"));
+  await waitFor(() => expect(screen.getByText("月度计划")).toBeInTheDocument());
+  fireEvent.click(screen.getByText("月度计划"));
+  await screen.findByText("西幽剧场");
+
+  // Fill in manual performance creation form
+  fireEvent.change(screen.getByLabelText("选择日期"), { target: { value: "2026-06-15" } });
+  fireEvent.change(screen.getByLabelText("场次选择"), { target: { value: "early" } });
+  fireEvent.click(screen.getByText("确认添加"));
+
+  // Verify added
+  await screen.findByText("自定义场次添加成功！");
+  await screen.findByText("2026-06-15");
+
+  // Verify list request was sent
+  expect(requests.some(r => r.method === "POST" && r.path === "/admin/performances")).toBe(true);
+
+  // Mock window.confirm
+  vi.spyOn(window, "confirm").mockImplementation(() => true);
+
+  // Delete performance
+  fireEvent.click(screen.getByText("删除场次"));
+
+  // Verify deleted message
+  await screen.findByText("场次删除成功！");
+  expect(requests.some(r => r.method === "DELETE" && r.path === "/admin/performances/99")).toBe(true);
+});

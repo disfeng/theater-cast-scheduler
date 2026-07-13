@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db, require_admin
-from app.models.entities import Actor, LeaveRequest, Performance, Role, Theater
+from app.models.entities import Actor, LeaveRequest, Performance, Role, Theater, Designation, ScheduleAssignment, ImportDraftItem
 from app.models.enums import LeaveStatus
 from app.schemas.admin import (
     ActorCreate,
@@ -14,6 +14,7 @@ from app.schemas.admin import (
     LeaveReviewInput,
     MonthlyPlanRequest,
     PerformanceRead,
+    PerformanceCreate,
     RoleCreate,
     RoleRead,
     TheaterCreate,
@@ -171,6 +172,53 @@ def get_performances(
     db: Session = Depends(get_db),
 ) -> list[Performance]:
     return list_month_performances(db, theater_id, year, month)
+
+
+@router.post("/performances", response_model=PerformanceRead)
+def create_performance(
+    payload: PerformanceCreate,
+    _: dict[str, str] = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> Performance:
+    existing = db.query(Performance).filter(
+        Performance.theater_id == payload.theater_id,
+        Performance.performance_date == payload.performance_date,
+        Performance.slot == payload.slot
+    ).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="performance_already_exists")
+    
+    perf = Performance(
+        theater_id=payload.theater_id,
+        performance_date=payload.performance_date,
+        slot=payload.slot,
+        status="draft"
+    )
+    db.add(perf)
+    db.commit()
+    db.refresh(perf)
+    return perf
+
+
+@router.delete("/performances/{performance_id}")
+def delete_performance(
+    performance_id: int,
+    _: dict[str, str] = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> dict[str, str]:
+    perf = db.query(Performance).filter(Performance.id == performance_id).first()
+    if not perf:
+        raise HTTPException(status_code=404, detail="performance_not_found")
+    
+    has_designation = db.query(Designation).filter(Designation.target_performance_id == performance_id).first()
+    has_assignment = db.query(ScheduleAssignment).filter(ScheduleAssignment.performance_id == performance_id).first()
+    has_draft = db.query(ImportDraftItem).filter(ImportDraftItem.target_performance_id == performance_id).first()
+    if has_designation or has_assignment or has_draft:
+        raise HTTPException(status_code=400, detail="performance_has_referenced_records")
+        
+    db.delete(perf)
+    db.commit()
+    return {"status": "ok"}
 
 
 def _actor_read(actor: Actor) -> ActorRead:
