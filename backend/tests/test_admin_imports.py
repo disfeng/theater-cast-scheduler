@@ -1,8 +1,41 @@
 from datetime import date, datetime
+
 import pytest
+from fastapi.testclient import TestClient
 from sqlalchemy.exc import IntegrityError
-from app.models.entities import Theater, WeeklyBatch, PersistentImportDraft, ImportDraftItem
-from app.models.enums import BatchStatus, ImportDraftStatus, DraftItemKind, DraftValidationStatus, DesignationType
+from app.api.deps import get_db
+from app.main import app
+from app.models.entities import (
+    Actor,
+    ActorRoleCapability,
+    Designation,
+    ImportDraftItem,
+    Performance,
+    PersistentImportDraft,
+    Role,
+    Theater,
+    WeeklyBatch,
+    Wish,
+)
+from app.models.enums import (
+    BatchStatus,
+    ImportDraftStatus,
+    DraftItemKind,
+    DraftValidationStatus,
+    DesignationType,
+)
+from app.schemas.admin_imports import DraftItemCreate, DraftItemUpdate
+from app.services.admin_imports import (
+    DraftItemConflict,
+    confirm_draft_item,
+    create_manual_item,
+    get_batch_scheduling_inputs,
+    get_or_create_weekly_batch,
+    parse_import_draft,
+    update_draft_item,
+)
+from app.services.auth import create_access_token
+
 
 def test_weekly_batch_and_import_draft_relationships(db_session):
     theater = Theater(name="测试剧场", default_weekly_template={})
@@ -18,9 +51,7 @@ def test_weekly_batch_and_import_draft_relationships(db_session):
     db_session.flush()
 
     item = ImportDraftItem(
-        import_draft_id=draft.id,
-        item_kind=DraftItemKind.UNRESOLVED,
-        raw_line="浩泽 想要 演 长离"
+        import_draft_id=draft.id, item_kind=DraftItemKind.UNRESOLVED, raw_line="浩泽 想要 演 长离"
     )
     db_session.add(item)
     db_session.commit()
@@ -35,6 +66,7 @@ def test_weekly_batch_and_import_draft_relationships(db_session):
     assert item.import_draft.id == draft.id
     assert draft.weekly_batch.id == batch.id
 
+
 def test_duplicate_weekly_batches_raise_integrity_error(db_session):
     theater = Theater(name="测试剧场", default_weekly_template={})
     db_session.add(theater)
@@ -46,9 +78,6 @@ def test_duplicate_weekly_batches_raise_integrity_error(db_session):
     db_session.add(batch2)
     with pytest.raises(IntegrityError):
         db_session.commit()
-
-
-from app.services.admin_imports import get_or_create_weekly_batch, parse_import_draft
 
 
 def test_get_or_create_weekly_batch_validation_and_idempotency(db_session):
@@ -99,18 +128,6 @@ def test_parse_import_draft_persists_items(db_session):
     assert DraftItemKind.UNRESOLVED in kinds
 
 
-from app.services.admin_imports import (
-    create_manual_item,
-    update_draft_item,
-    confirm_draft_item,
-    confirm_valid_items,
-    get_batch_scheduling_inputs,
-    DraftItemConflict,
-)
-from app.models.entities import Actor, Role, ActorRoleCapability, Performance, Designation, Wish
-from app.schemas.admin_imports import DraftItemUpdate
-
-
 def test_item_validation_and_corrections(db_session):
     # Setup theater, batch, actor, role, capability
     theater = Theater(name="测试剧场", default_weekly_template={})
@@ -118,14 +135,16 @@ def test_item_validation_and_corrections(db_session):
     db_session.flush()
 
     batch = get_or_create_weekly_batch(db_session, theater.id, date(2026, 6, 1))
-    
+
     actor = Actor(display_name="浩泽")
     role = Role(name="长离")
     db_session.add_all([actor, role])
     db_session.flush()
 
     # Cap not added yet.
-    draft = parse_import_draft(db_session, batch.id, "#指定信息\n【虔诚许愿】-浩泽/长离-Jerry 想要长离")
+    draft = parse_import_draft(
+        db_session, batch.id, "#指定信息\n【虔诚许愿】-浩泽/长离-Jerry 想要长离"
+    )
     db_session.commit()
 
     item = draft.items[0]
@@ -165,10 +184,14 @@ def test_performance_outside_batch_validation(db_session):
     batch = get_or_create_weekly_batch(db_session, theater.id, date(2026, 6, 1))
 
     # Performance belonging to another theater
-    perf_other = Performance(theater_id=other_theater.id, performance_date=date(2026, 6, 1), slot="early")
+    perf_other = Performance(
+        theater_id=other_theater.id, performance_date=date(2026, 6, 1), slot="early"
+    )
     # Performance outside Monday to Sunday week range
-    perf_outside = Performance(theater_id=theater.id, performance_date=date(2026, 6, 8), slot="early")
-    
+    perf_outside = Performance(
+        theater_id=theater.id, performance_date=date(2026, 6, 8), slot="early"
+    )
+
     actor = Actor(display_name="浩泽")
     role = Role(name="长离")
     db_session.add_all([perf_other, perf_outside, actor, role])
@@ -215,7 +238,9 @@ def test_partial_confirmation_and_idempotency(db_session):
     db_session.commit()
 
     # Draft with one valid wish and one unresolved (invalid) designation
-    draft = parse_import_draft(db_session, batch.id, "#指定信息\n【虔诚许愿】-浩泽/长离-Jerry\n未知行：无效数据")
+    draft = parse_import_draft(
+        db_session, batch.id, "#指定信息\n【虔诚许愿】-浩泽/长离-Jerry\n未知行：无效数据"
+    )
     item_wish = next(i for i in draft.items if i.item_kind == DraftItemKind.WISH)
     item_unresolved = next(i for i in draft.items if i.item_kind == DraftItemKind.UNRESOLVED)
 
@@ -279,14 +304,47 @@ def test_batch_scheduling_inputs(db_session):
     db_session.commit()
 
     # Confirmed records on batch1
-    d1 = Designation(weekly_batch_id=batch1.id, designation_type=DesignationType.UNIVERSAL, player_name="Jerry", actor_id=actor.id, role_id=role.id, submitted_at=datetime.utcnow(), included_in_batch=True, status="confirmed")
-    w1 = Wish(weekly_batch_id=batch1.id, player_name="Jerry", actor_id=actor.id, role_id=role.id, note="备注1")
-    
+    d1 = Designation(
+        weekly_batch_id=batch1.id,
+        designation_type=DesignationType.UNIVERSAL,
+        player_name="Jerry",
+        actor_id=actor.id,
+        role_id=role.id,
+        submitted_at=datetime.utcnow(),
+        included_in_batch=True,
+        status="confirmed",
+    )
+    w1 = Wish(
+        weekly_batch_id=batch1.id,
+        player_name="Jerry",
+        actor_id=actor.id,
+        role_id=role.id,
+        note="备注1",
+    )
+
     # Confirmed records on batch2 (should be excluded from batch1)
-    d2 = Designation(weekly_batch_id=batch2.id, designation_type=DesignationType.UNIVERSAL, player_name="Tom", actor_id=actor.id, role_id=role.id, submitted_at=datetime.utcnow(), included_in_batch=True, status="confirmed")
-    
+    d2 = Designation(
+        weekly_batch_id=batch2.id,
+        designation_type=DesignationType.UNIVERSAL,
+        player_name="Tom",
+        actor_id=actor.id,
+        role_id=role.id,
+        submitted_at=datetime.utcnow(),
+        included_in_batch=True,
+        status="confirmed",
+    )
+
     # Unconfirmed/not-included designations on batch1 (should be excluded)
-    d1_unconfirmed = Designation(weekly_batch_id=batch1.id, designation_type=DesignationType.UNIVERSAL, player_name="Spike", actor_id=actor.id, role_id=role.id, submitted_at=datetime.utcnow(), included_in_batch=False, status="pending")
+    d1_unconfirmed = Designation(
+        weekly_batch_id=batch1.id,
+        designation_type=DesignationType.UNIVERSAL,
+        player_name="Spike",
+        actor_id=actor.id,
+        role_id=role.id,
+        submitted_at=datetime.utcnow(),
+        included_in_batch=False,
+        status="pending",
+    )
 
     db_session.add_all([d1, w1, d2, d1_unconfirmed])
     db_session.commit()
@@ -298,11 +356,6 @@ def test_batch_scheduling_inputs(db_session):
     assert inputs["wishes"][0]["player_name"] == "Jerry"
     assert w1.note == "备注1"
 
-
-from fastapi.testclient import TestClient
-from app.main import app
-from app.services.auth import create_access_token
-from app.api.deps import get_db
 
 def test_admin_imports_api_workflow(db_session):
     theater = Theater(name="测试剧场", default_weekly_template={})
@@ -340,6 +393,21 @@ def test_admin_imports_api_workflow(db_session):
         res_get_batch = client.get(f"/admin/weekly-batches/{batch_id}", headers=headers)
         assert res_get_batch.status_code == 200
 
+        res_ready = client.patch(
+            f"/admin/weekly-batches/{batch_id}/status",
+            headers=headers,
+            json={"status": "ready"},
+        )
+        assert res_ready.status_code == 200
+        assert res_ready.json()["status"] == "ready"
+
+        res_reopen = client.patch(
+            f"/admin/weekly-batches/{batch_id}/status",
+            headers=headers,
+            json={"status": "draft"},
+        )
+        assert res_reopen.status_code == 409
+
         # 4. POST /admin/import-drafts/parse
         res_parse = client.post(
             f"/admin/import-drafts/parse?batch_id={batch_id}",
@@ -352,7 +420,9 @@ def test_admin_imports_api_workflow(db_session):
 
         # Find items
         item_wish = next(i for i in res_parse.json()["items"] if i["item_kind"] == "wish")
-        item_unresolved = next(i for i in res_parse.json()["items"] if i["item_kind"] == "unresolved")
+        item_unresolved = next(
+            i for i in res_parse.json()["items"] if i["item_kind"] == "unresolved"
+        )
 
         # 5. GET /admin/import-drafts/{draft_id}
         res_draft = client.get(f"/admin/import-drafts/{draft_id}", headers=headers)
@@ -401,9 +471,89 @@ def test_admin_imports_api_workflow(db_session):
         assert res_confirm_all.status_code == 200
 
         # 10. GET /admin/weekly-batches/{batch_id}/scheduling-inputs
-        res_inputs = client.get(f"/admin/weekly-batches/{batch_id}/scheduling-inputs", headers=headers)
+        res_inputs = client.get(
+            f"/admin/weekly-batches/{batch_id}/scheduling-inputs", headers=headers
+        )
         assert res_inputs.status_code == 200
         assert len(res_inputs.json()["designations"]) == 1
         assert len(res_inputs.json()["wishes"]) == 2
     finally:
         app.dependency_overrides.clear()
+
+
+def test_selected_actor_and_role_ids_override_unmatched_raw_names(db_session):
+    theater = Theater(name="测试剧场", default_weekly_template={})
+    actor = Actor(display_name="正确演员")
+    role = Role(name="正确角色")
+    db_session.add_all([theater, actor, role])
+    db_session.flush()
+    db_session.add(ActorRoleCapability(actor_id=actor.id, role_id=role.id))
+    batch = get_or_create_weekly_batch(db_session, theater.id, date(2026, 6, 1))
+    draft = PersistentImportDraft(weekly_batch_id=batch.id, raw_text="")
+    db_session.add(draft)
+    db_session.flush()
+    item = create_manual_item(
+        db_session,
+        draft.id,
+        DraftItemCreate(
+            item_kind=DraftItemKind.WISH,
+            player_name="玩家甲",
+            actor_name_raw="错误演员",
+            role_name_raw="错误角色",
+            actor_id=actor.id,
+            role_id=role.id,
+        ),
+    )
+    assert item.validation_status == DraftValidationStatus.VALID
+    assert item.actor_id == actor.id
+    assert item.role_id == role.id
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        DraftItemCreate(item_kind=DraftItemKind.WISH, player_name=None),
+        DraftItemCreate(item_kind=DraftItemKind.DESIGNATION, player_name="玩家甲"),
+    ],
+)
+def test_missing_required_fields_remain_invalid(db_session, payload):
+    theater = Theater(name="测试剧场", default_weekly_template={})
+    db_session.add(theater)
+    db_session.flush()
+    batch = get_or_create_weekly_batch(db_session, theater.id, date(2026, 6, 1))
+    draft = PersistentImportDraft(weekly_batch_id=batch.id, raw_text="")
+    db_session.add(draft)
+    db_session.flush()
+    item = create_manual_item(db_session, draft.id, payload)
+    assert item.validation_status == DraftValidationStatus.INVALID
+    assert item.failure_reason in {"player_name_required", "designation_type_required"}
+
+
+def test_adding_item_reopens_confirmed_draft(db_session):
+    theater = Theater(name="测试剧场", default_weekly_template={})
+    db_session.add(theater)
+    db_session.flush()
+    batch = get_or_create_weekly_batch(db_session, theater.id, date(2026, 6, 1))
+    draft = PersistentImportDraft(
+        weekly_batch_id=batch.id,
+        raw_text="",
+        status=ImportDraftStatus.CONFIRMED,
+    )
+    db_session.add(draft)
+    db_session.flush()
+    db_session.add(
+        ImportDraftItem(
+            import_draft_id=draft.id,
+            item_kind=DraftItemKind.WISH,
+            player_name="已确认玩家",
+            confirmed_at=datetime(2026, 6, 1, 12, 0),
+        )
+    )
+    db_session.commit()
+    create_manual_item(
+        db_session,
+        draft.id,
+        DraftItemCreate(item_kind=DraftItemKind.WISH, player_name="玩家甲"),
+    )
+    db_session.refresh(draft)
+    assert draft.status == ImportDraftStatus.PARTIALLY_CONFIRMED

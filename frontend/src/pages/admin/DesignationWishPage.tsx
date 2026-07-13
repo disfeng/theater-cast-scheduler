@@ -49,9 +49,28 @@ export function DesignationWishPage() {
     const dateObj = new Date(activeBatch.week_start);
     const year = dateObj.getFullYear();
     const month = dateObj.getMonth() + 1; // getMonth is 0-indexed
-    apiClient
-      .getPerformances(token, activeBatch.theater_id, year, month)
-      .then(setPerformances)
+    const weekEnd = new Date(`${activeBatch.week_start}T00:00:00`);
+    weekEnd.setDate(weekEnd.getDate() + 6);
+    const months = [[year, month]];
+    if (weekEnd.getFullYear() !== year || weekEnd.getMonth() + 1 !== month) {
+      months.push([weekEnd.getFullYear(), weekEnd.getMonth() + 1]);
+    }
+    Promise.all(
+      months.map(([itemYear, itemMonth]) =>
+        apiClient.getPerformances(token, activeBatch.theater_id, itemYear, itemMonth),
+      ),
+    )
+      .then((groups) =>
+        setPerformances(
+          groups
+            .flat()
+            .filter(
+              (performance) =>
+                performance.performance_date >= activeBatch.week_start &&
+                performance.performance_date <= formatLocalDate(weekEnd),
+            ),
+        ),
+      )
       .catch((err) => setError(err.message));
   }, [token, activeBatch]);
 
@@ -211,6 +230,16 @@ export function DesignationWishPage() {
     }
   };
 
+  const handleMarkReady = async () => {
+    if (!token || !activeBatch) return;
+    try {
+      setActiveBatch(await apiClient.updateWeeklyBatchStatus(token, activeBatch.id, "ready"));
+      setSuccessMsg("批次已就绪");
+    } catch (err: any) {
+      setError(err.message || "更新批次失败");
+    }
+  };
+
   return (
     <section style={{ maxWidth: "1200px", margin: "0 auto" }}>
       <h2>指定与许愿管理</h2>
@@ -278,6 +307,9 @@ export function DesignationWishPage() {
               当前批次: {theaters.find((t) => t.id === activeBatch.theater_id)?.name} ({activeBatch.week_start})
             </p>
             <p>批次状态: {activeBatch.status}</p>
+            {activeBatch.status === "draft" && (
+              <button type="button" className="button" onClick={handleMarkReady}>标记为就绪</button>
+            )}
 
             <form onSubmit={handleParseText} style={{ display: "grid", gap: "10px" }}>
               <label htmlFor="raw-text-area">群统计文本</label>
@@ -466,7 +498,7 @@ export function DesignationWishPage() {
                               <span style={{ color: "#0f9d58" }}>有效</span>
                             ) : (
                               <span style={{ color: "#d9383a" }} title={item.failure_reason || "解析失败"}>
-                                无效 ({item.failure_reason || "格式/匹配错误"})
+                                无效 ({formatFailureReason(item.failure_reason)})
                               </span>
                             )}
                           </td>
@@ -504,4 +536,24 @@ export function DesignationWishPage() {
       )}
     </section>
   );
+}
+
+function formatFailureReason(reason: string | null): string {
+  const labels: Record<string, string> = {
+    actor_not_found: "未找到演员",
+    role_not_found: "未找到角色",
+    actor_role_capability_missing: "演员不能出演该角色",
+    performance_outside_batch: "场次不在当前批次",
+    player_name_required: "请填写玩家名称",
+    designation_type_required: "请选择指定类型",
+  };
+  if (!reason) return "格式或匹配错误";
+  return `${labels[reason] ?? "校验失败"} [${reason}]`;
+}
+
+function formatLocalDate(value: Date): string {
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, "0");
+  const day = String(value.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }

@@ -13,6 +13,7 @@ from app.schemas.admin_imports import (
     ImportParseRequest,
     WeeklyBatchCreate,
     WeeklyBatchRead,
+    WeeklyBatchStatusUpdate,
 )
 from app.services.admin_imports import (
     DraftItemConflict,
@@ -62,6 +63,26 @@ def get_weekly_batch(
     return batch
 
 
+@router.patch("/weekly-batches/{batch_id}/status", response_model=WeeklyBatchRead)
+def patch_weekly_batch_status(
+    batch_id: int,
+    payload: WeeklyBatchStatusUpdate,
+    _: dict[str, str] = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> WeeklyBatch:
+    batch = db.get(WeeklyBatch, batch_id)
+    if batch is None:
+        raise HTTPException(status_code=404, detail="batch_not_found")
+    if payload.status == batch.status:
+        return batch
+    if batch.status.value != "draft" or payload.status.value != "ready":
+        raise HTTPException(status_code=409, detail="batch_status_transition_invalid")
+    batch.status = payload.status
+    db.commit()
+    db.refresh(batch)
+    return batch
+
+
 @router.post("/import-drafts/parse", response_model=ImportDraftRead)
 def post_import_drafts_parse(
     batch_id: int,
@@ -83,9 +104,9 @@ def get_import_drafts(
 ) -> list[PersistentImportDraft]:
     return list(
         db.scalars(
-            select(PersistentImportDraft).where(
-                PersistentImportDraft.weekly_batch_id == batch_id
-            )
+            select(PersistentImportDraft)
+            .where(PersistentImportDraft.weekly_batch_id == batch_id)
+            .order_by(PersistentImportDraft.created_at.desc(), PersistentImportDraft.id.desc())
         ).all()
     )
 

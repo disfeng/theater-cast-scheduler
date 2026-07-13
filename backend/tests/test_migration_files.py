@@ -18,4 +18,3 @@ def test_import_drafts_migration_declares_tables_columns_and_indexes():
     assert "import_draft_items" in migration
     assert "weekly_batch_id" in migration
     assert "uq_weekly_batches_theater_week" in migration
-

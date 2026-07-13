@@ -5,6 +5,7 @@ import App from "../src/App";
 
 test("designation and wish import parse and resume workflow", async () => {
   const requests: { method: string; path: string; body: any }[] = [];
+  const requestedPaths: string[] = [];
   
   const mockTheaters = [{ id: 1, name: "西幽剧场", default_weekly_template: {} }];
   const mockActors = [
@@ -48,6 +49,7 @@ test("designation and wish import parse and resume workflow", async () => {
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       const path = url.replace("http://localhost:8000", "");
+      requestedPaths.push(path);
       const method = init?.method ?? "GET";
       const body = init?.body ? JSON.parse(String(init.body)) : null;
 
@@ -103,8 +105,13 @@ test("designation and wish import parse and resume workflow", async () => {
   // 2. Select batch info
   await screen.findByText("西幽剧场");
   fireEvent.change(screen.getByLabelText("选择剧场"), { target: { value: "1" } });
-  fireEvent.change(screen.getByLabelText("周一日期"), { target: { value: "2026-06-01" } });
+  fireEvent.change(screen.getByLabelText("周一日期"), { target: { value: "2026-06-29" } });
   fireEvent.click(screen.getByText("创建/打开批次"));
+
+  await waitFor(() => {
+    expect(requestedPaths.some((path) => path.includes("year=2026&month=6"))).toBe(true);
+    expect(requestedPaths.some((path) => path.includes("year=2026&month=7"))).toBe(true);
+  });
 
   // 3. Paste and parse text
   await screen.findByText("导入统计文本");
@@ -130,7 +137,7 @@ test("designation and wish import parse and resume workflow", async () => {
   // Select batch info again
   await screen.findByText("西幽剧场");
   fireEvent.change(screen.getByLabelText("选择剧场"), { target: { value: "1" } });
-  fireEvent.change(screen.getByLabelText("周一日期"), { target: { value: "2026-06-01" } });
+  fireEvent.change(screen.getByLabelText("周一日期"), { target: { value: "2026-06-29" } });
   fireEvent.click(screen.getByText("创建/打开批次"));
 
   // Verify it is restored directly from server (already confirmed status)

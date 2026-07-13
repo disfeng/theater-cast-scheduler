@@ -145,6 +145,10 @@ export class ApiClient {
     return this.get(`/admin/weekly-batches/${batchId}`, token);
   }
 
+  async updateWeeklyBatchStatus(token: string, batchId: number, status: "draft" | "ready"): Promise<WeeklyBatch> {
+    return this.request(`/admin/weekly-batches/${batchId}/status`, token, "PATCH", { status });
+  }
+
   async parseImportDraft(token: string, batchId: number, rawText: string): Promise<ImportDraft> {
     return this.post(`/admin/import-drafts/parse?batch_id=${batchId}`, token, { raw_text: rawText });
   }

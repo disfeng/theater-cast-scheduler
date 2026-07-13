@@ -1,5 +1,6 @@
 from datetime import date, datetime, timedelta
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models.entities import (
@@ -48,7 +49,18 @@ def get_or_create_weekly_batch(db: Session, theater_id: int, week_start: date) -
 
     batch = WeeklyBatch(theater_id=theater_id, week_start=week_start, status=BatchStatus.DRAFT)
     db.add(batch)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        batch = db.scalar(
+            select(WeeklyBatch).where(
+                WeeklyBatch.theater_id == theater_id,
+                WeeklyBatch.week_start == week_start,
+            )
+        )
+        if batch is None:
+            raise
     db.refresh(batch)
     return batch
 
@@ -89,7 +101,9 @@ def parse_import_draft(db: Session, batch_id: int, raw_text: str) -> PersistentI
             import_draft_id=draft.id,
             item_kind=DraftItemKind.DESIGNATION,
             raw_line=sug.raw_line,
-            designation_type=DesignationType.TOP_THREE if sug.suggested_type == "top_three" else DesignationType.PAIRED,
+            designation_type=DesignationType.TOP_THREE
+            if sug.suggested_type == "top_three"
+            else DesignationType.PAIRED,
             player_name=sug.player_name,
             actor_name_raw=sug.actor_name,
             role_name_raw=sug.role_name,
@@ -120,6 +134,15 @@ def _validate_item(db: Session, item: ImportDraftItem, batch: WeeklyBatch | None
         item.failure_reason = None
         return
 
+    if not item.player_name or not item.player_name.strip():
+        item.validation_status = DraftValidationStatus.INVALID
+        item.failure_reason = "player_name_required"
+        return
+    if item.item_kind == DraftItemKind.DESIGNATION and item.designation_type is None:
+        item.validation_status = DraftValidationStatus.INVALID
+        item.failure_reason = "designation_type_required"
+        return
+
     if batch is None:
         draft = db.get(PersistentImportDraft, item.import_draft_id)
         if draft is None:
@@ -132,37 +155,24 @@ def _validate_item(db: Session, item: ImportDraftItem, batch: WeeklyBatch | None
     if item.item_kind == DraftItemKind.WISH:
         item.target_performance_id = None
 
-    # Reset IDs before re-checking
-    item.actor_id = None
-    item.role_id = None
-
-    # Match actor
-    if item.actor_name_raw:
+    # Explicit administrator selections win; raw names are only auto-match fallbacks.
+    actor = db.get(Actor, item.actor_id) if item.actor_id is not None else None
+    if actor is None and item.actor_name_raw:
         actor = db.scalar(select(Actor).where(Actor.display_name == item.actor_name_raw.strip()))
-        if actor:
-            item.actor_id = actor.id
-        else:
-            item.validation_status = DraftValidationStatus.INVALID
-            item.failure_reason = "actor_not_found"
-            return
-    else:
+    if actor is None:
         item.validation_status = DraftValidationStatus.INVALID
         item.failure_reason = "actor_not_found"
         return
+    item.actor_id = actor.id
 
-    # Match role
-    if item.role_name_raw:
+    role = db.get(Role, item.role_id) if item.role_id is not None else None
+    if role is None and item.role_name_raw:
         role = db.scalar(select(Role).where(Role.name == item.role_name_raw.strip()))
-        if role:
-            item.role_id = role.id
-        else:
-            item.validation_status = DraftValidationStatus.INVALID
-            item.failure_reason = "role_not_found"
-            return
-    else:
+    if role is None:
         item.validation_status = DraftValidationStatus.INVALID
         item.failure_reason = "role_not_found"
         return
+    item.role_id = role.id
 
     # Check actor capability
     cap = db.scalar(
@@ -179,7 +189,13 @@ def _validate_item(db: Session, item: ImportDraftItem, batch: WeeklyBatch | None
     # Check performance range for designations
     if item.item_kind == DraftItemKind.DESIGNATION and item.target_performance_id is not None:
         perf = db.get(Performance, item.target_performance_id)
-        if perf is None or perf.theater_id != batch.theater_id or not (batch.week_start <= perf.performance_date <= batch.week_start + timedelta(days=6)):
+        if (
+            perf is None
+            or perf.theater_id != batch.theater_id
+            or not (
+                batch.week_start <= perf.performance_date <= batch.week_start + timedelta(days=6)
+            )
+        ):
             item.validation_status = DraftValidationStatus.INVALID
             item.failure_reason = "performance_outside_batch"
             return
@@ -209,6 +225,12 @@ def create_manual_item(db: Session, draft_id: int, payload: DraftItemCreate) -> 
     db.flush()
 
     _validate_item(db, item)
+    has_confirmed = any(
+        existing.confirmed_at is not None for existing in draft.items if existing.id != item.id
+    )
+    draft.status = (
+        ImportDraftStatus.PARTIALLY_CONFIRMED if has_confirmed else ImportDraftStatus.DRAFT
+    )
     db.commit()
     db.refresh(item)
     return item
@@ -240,26 +262,32 @@ def update_draft_item(db: Session, item_id: int, payload: DraftItemUpdate) -> Im
 
 
 def confirm_draft_item(db: Session, item_id: int) -> ImportDraftItem:
-    item = db.get(ImportDraftItem, item_id)
+    item_reference = db.get(ImportDraftItem, item_id)
+    if item_reference is None:
+        raise LookupError("draft_item_not_found")
+    draft = db.scalar(
+        select(PersistentImportDraft)
+        .where(PersistentImportDraft.id == item_reference.import_draft_id)
+        .with_for_update()
+    )
+    item = db.scalar(select(ImportDraftItem).where(ImportDraftItem.id == item_id).with_for_update())
     if item is None:
         raise LookupError("draft_item_not_found")
 
     if item.confirmed_at is not None:
         return item
 
-    _validate_item(db, item)
-    if item.validation_status != DraftValidationStatus.VALID:
-        raise DraftItemConflict("draft_item_invalid")
-
-    draft = db.get(PersistentImportDraft, item.import_draft_id)
-    batch = db.get(WeeklyBatch, draft.weekly_batch_id)
-
     try:
+        _validate_item(db, item)
+        if item.validation_status != DraftValidationStatus.VALID:
+            raise DraftItemConflict("draft_item_invalid")
+
+        batch = db.get(WeeklyBatch, draft.weekly_batch_id)
         if item.item_kind == DraftItemKind.DESIGNATION:
             designation = Designation(
                 weekly_batch_id=batch.id,
-                designation_type=item.designation_type or DesignationType.UNIVERSAL,
-                player_name=item.player_name or "",
+                designation_type=item.designation_type,
+                player_name=item.player_name,
                 actor_id=item.actor_id,
                 role_id=item.role_id,
                 target_performance_id=item.target_performance_id,
@@ -274,7 +302,7 @@ def confirm_draft_item(db: Session, item_id: int) -> ImportDraftItem:
         elif item.item_kind == DraftItemKind.WISH:
             wish = Wish(
                 weekly_batch_id=batch.id,
-                player_name=item.player_name or "",
+                player_name=item.player_name,
                 actor_id=item.actor_id,
                 role_id=item.role_id,
                 note=item.note,
@@ -287,9 +315,17 @@ def confirm_draft_item(db: Session, item_id: int) -> ImportDraftItem:
 
         # Update draft aggregate status
         db.flush()
-        db.refresh(draft)
-        total_items = len(draft.items)
-        confirmed_count = sum(1 for i in draft.items if i.confirmed_at is not None)
+        locked_items = list(
+            db.scalars(
+                select(ImportDraftItem)
+                .where(ImportDraftItem.import_draft_id == draft.id)
+                .with_for_update()
+            )
+        )
+        total_items = len(locked_items)
+        confirmed_count = sum(
+            1 for draft_item in locked_items if draft_item.confirmed_at is not None
+        )
         if confirmed_count == total_items:
             draft.status = ImportDraftStatus.CONFIRMED
         elif confirmed_count > 0:
@@ -313,25 +349,30 @@ def confirm_valid_items(db: Session, draft_id: int) -> list[dict]:
     results = []
     # Make a copy of list to prevent iteration issues during DB updates
     items_to_confirm = [
-        item for item in draft.items 
+        item
+        for item in draft.items
         if item.validation_status == DraftValidationStatus.VALID and item.confirmed_at is None
     ]
 
     for item in items_to_confirm:
         try:
             confirmed = confirm_draft_item(db, item.id)
-            results.append({
-                "item_id": item.id,
-                "success": True,
-                "designation_id": confirmed.designation_id,
-                "wish_id": confirmed.wish_id,
-            })
+            results.append(
+                {
+                    "item_id": item.id,
+                    "success": True,
+                    "designation_id": confirmed.designation_id,
+                    "wish_id": confirmed.wish_id,
+                }
+            )
         except Exception as exc:
-            results.append({
-                "item_id": item.id,
-                "success": False,
-                "error": str(exc),
-            })
+            results.append(
+                {
+                    "item_id": item.id,
+                    "success": False,
+                    "error": str(exc),
+                }
+            )
     return results
 
 

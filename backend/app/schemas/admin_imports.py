@@ -1,6 +1,13 @@
 from datetime import date, datetime
 from pydantic import BaseModel, ConfigDict
-from app.models.enums import BatchStatus, ImportDraftStatus, DraftItemKind, DraftValidationStatus, DesignationType
+from app.models.enums import (
+    BatchStatus,
+    ImportDraftStatus,
+    DraftItemKind,
+    DraftValidationStatus,
+    DesignationType,
+)
+
 
 class WeeklyBatchCreate(BaseModel):
     theater_id: int
@@ -14,6 +21,10 @@ class WeeklyBatchRead(BaseModel):
     week_start: date
     status: BatchStatus
     created_at: datetime
+
+
+class WeeklyBatchStatusUpdate(BaseModel):
+    status: BatchStatus
 
 
 class ImportParseRequest(BaseModel):
