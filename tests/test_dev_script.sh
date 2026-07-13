@@ -27,12 +27,27 @@ force_stop() {
   wait "$pid" 2>/dev/null || true
 }
 
+stop_recorded_services() {
+  local pid_file
+  local pid
+
+  for pid_file in "$TMP_ROOT"/*/backend-pid "$TMP_ROOT"/*/frontend-pid; do
+    [ -s "$pid_file" ] || continue
+    pid=$(<"$pid_file")
+    case "$pid" in
+      *[!0-9]*|'') continue ;;
+    esac
+    force_stop "$pid"
+  done
+}
+
 cleanup() {
   local pid
 
   for pid in $TEST_PIDS; do
     force_stop "$pid"
   done
+  stop_recorded_services
   rm -rf "$TMP_ROOT"
 }
 trap cleanup EXIT
@@ -110,6 +125,7 @@ wait_for_process_exit() {
   done
   if process_is_running "$pid"; then
     force_stop "$pid"
+    stop_recorded_services
     fail "timed out waiting for $description (PID $pid)"
   fi
 
@@ -132,6 +148,13 @@ assert_process_stopped() {
     force_stop "$pid"
     fail "$message (PID $pid is still running)"
   fi
+}
+
+assert_database_not_created() {
+  local database
+
+  database=$(find "$FAKE_PROJECT" -name fake-startup-test.db -print -quit)
+  [ -z "$database" ] || fail "startup must not create the database ($database)"
 }
 
 make_fake_project() {
@@ -205,7 +228,8 @@ apply_fake_executables() {
     'set -euo pipefail' \
     'if [ "${1:-}" = "install" ] || [ "${1:-}" = "ci" ]; then' \
     "  printf 'frontend-installed\\n' >> \"\$FAKE_EVENTS\"" \
-    '  exit 0' \
+    "  printf 'startup must not install frontend dependencies\\n' >&2" \
+    '  exit 26' \
     'fi' \
     'if [ "${DATABASE_URL:-}" != "sqlite:///fake-startup-test.db" ] || [ "${JWT_SECRET:-}" != "fake-startup-secret" ]; then' \
     "  printf 'environment-not-loaded\\n' >&2" \
@@ -231,19 +255,22 @@ apply_fake_executables() {
 
 start_dev() {
   : > "$RUN_OUTPUT_FILE"
+  set -m
   (
-    cd "$FAKE_PROJECT" &&
-      env \
-        PATH="$FAKE_PROJECT/bin:$PATH" \
-        FAKE_EVENTS="$FAKE_EVENTS" \
-        FAKE_BACKEND_PID="$FAKE_BACKEND_PID" \
-        FAKE_FRONTEND_PID="$FAKE_FRONTEND_PID" \
-        FAKE_MIGRATION_FAIL="${FAKE_MIGRATION_FAIL:-0}" \
-        FAKE_BACKEND_EXIT="${FAKE_BACKEND_EXIT:-0}" \
-        FAKE_FRONTEND_EXIT="${FAKE_FRONTEND_EXIT:-0}" \
-        ./dev.sh
+    trap - INT
+    cd "$FAKE_PROJECT"
+    exec env \
+      PATH="$FAKE_PROJECT/bin:$PATH" \
+      FAKE_EVENTS="$FAKE_EVENTS" \
+      FAKE_BACKEND_PID="$FAKE_BACKEND_PID" \
+      FAKE_FRONTEND_PID="$FAKE_FRONTEND_PID" \
+      FAKE_MIGRATION_FAIL="${FAKE_MIGRATION_FAIL:-0}" \
+      FAKE_BACKEND_EXIT="${FAKE_BACKEND_EXIT:-0}" \
+      FAKE_FRONTEND_EXIT="${FAKE_FRONTEND_EXIT:-0}" \
+      ./dev.sh
   ) > "$RUN_OUTPUT_FILE" 2>&1 &
   DEV_PID=$!
+  set +m
   TEST_PIDS="$TEST_PIDS $DEV_PID"
 }
 
@@ -268,6 +295,24 @@ test_missing_backend_environment() {
   assert_file_not_contains "$FAKE_EVENTS" "frontend-installed" "frontend dependencies must not be installed"
   assert_file_not_contains "$FAKE_EVENTS" "backend-started" "backend must not start"
   assert_file_not_contains "$FAKE_EVENTS" "frontend-started" "frontend must not start"
+  assert_database_not_created
+}
+
+test_missing_frontend_dependencies() {
+  make_fake_project missing-frontend
+  rm -rf "$FAKE_PROJECT/frontend/node_modules"
+
+  run_dev
+
+  assert_nonzero "$RUN_STATUS" "missing frontend dependencies must fail"
+  assert_contains "$RUN_OUTPUT" "npm" "failure must identify the frontend package manager"
+  assert_contains "$RUN_OUTPUT" "install" "failure must mention npm install"
+  [ ! -e "$FAKE_PROJECT/frontend/node_modules" ] || fail "missing frontend dependencies must not be installed"
+  assert_file_not_contains "$FAKE_EVENTS" "backend-installed" "backend dependencies must not be installed"
+  assert_file_not_contains "$FAKE_EVENTS" "frontend-installed" "frontend dependencies must not be installed"
+  assert_file_not_contains "$FAKE_EVENTS" "backend-started" "backend must not start"
+  assert_file_not_contains "$FAKE_EVENTS" "frontend-started" "frontend must not start"
+  assert_database_not_created
 }
 
 test_migration_failure() {
@@ -278,6 +323,7 @@ test_migration_failure() {
   assert_status 23 "$RUN_STATUS" "migration failure status must propagate"
   assert_file_not_contains "$FAKE_EVENTS" "backend-started" "backend must not start after migration failure"
   assert_file_not_contains "$FAKE_EVENTS" "frontend-started" "frontend must not start after migration failure"
+  assert_database_not_created
 }
 
 test_backend_exit_cleans_up_frontend() {
@@ -293,6 +339,7 @@ test_backend_exit_cleans_up_frontend() {
   wait_for_file "$FAKE_FRONTEND_PID"
   frontend_pid=$(<"$FAKE_FRONTEND_PID")
   assert_process_stopped "$frontend_pid" "frontend sibling must be terminated"
+  assert_database_not_created
 }
 
 test_frontend_exit_cleans_up_backend() {
@@ -308,6 +355,7 @@ test_frontend_exit_cleans_up_backend() {
   wait_for_file "$FAKE_BACKEND_PID"
   backend_pid=$(<"$FAKE_BACKEND_PID")
   assert_process_stopped "$backend_pid" "backend sibling must be terminated"
+  assert_database_not_created
 }
 
 test_normal_exit_cleans_up_sibling() {
@@ -323,6 +371,7 @@ test_normal_exit_cleans_up_sibling() {
   wait_for_file "$FAKE_FRONTEND_PID"
   frontend_pid=$(<"$FAKE_FRONTEND_PID")
   assert_process_stopped "$frontend_pid" "normal exit must terminate the sibling"
+  assert_database_not_created
 }
 
 test_signal_cleans_up_both_services() {
@@ -344,9 +393,11 @@ test_signal_cleans_up_both_services() {
 
   assert_process_stopped "$backend_pid" "$signal must stop the backend"
   assert_process_stopped "$frontend_pid" "$signal must stop the frontend"
+  assert_database_not_created
 }
 
 test_missing_backend_environment
+test_missing_frontend_dependencies
 test_migration_failure
 test_backend_exit_cleans_up_frontend
 test_frontend_exit_cleans_up_backend
