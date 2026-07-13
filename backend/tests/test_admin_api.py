@@ -126,3 +126,34 @@ def test_admin_crud_routes_create_and_list_core_data(db_session):
         ]
     finally:
         app.dependency_overrides.clear()
+
+
+import pytest
+from pydantic import ValidationError
+
+
+@pytest.mark.parametrize(
+    "template",
+    [
+        {"holiday": ["early"]},
+        {"monday": ["noon"]},
+        {"monday": ["early", "early"]},
+    ],
+)
+def test_theater_template_rejects_invalid_keys_slots_and_duplicates(template):
+    with pytest.raises(ValidationError):
+        TheaterCreate(name="错误模板", default_weekly_template=template)
+
+
+def test_invalid_capability_replacement_preserves_existing_roles(db_session):
+    first = create_role(db_session, RoleCreate(name="长离", group_name=None))
+    actor = create_actor(db_session, ActorCreate(display_name="小展"))
+    replace_actor_capabilities(db_session, actor.id, [first.id])
+
+    with pytest.raises(LookupError, match="role_not_found"):
+        replace_actor_capabilities(db_session, actor.id, [999])
+    db_session.commit()
+    db_session.refresh(actor)
+
+    assert [item.role_id for item in actor.role_capabilities] == [first.id]
+

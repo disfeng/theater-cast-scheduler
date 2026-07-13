@@ -1,13 +1,24 @@
 from datetime import date
+from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.models.enums import LeaveStatus, PerformanceStatus, RatingLevel
+
+Weekday = Literal["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+Slot = Literal["early", "late"]
 
 
 class TheaterCreate(BaseModel):
     name: str = Field(min_length=1, max_length=120)
-    default_weekly_template: dict[str, list[str]]
+    default_weekly_template: dict[Weekday, list[Slot]]
+
+    @field_validator("default_weekly_template")
+    @classmethod
+    def reject_duplicate_slots(cls, template: dict[Weekday, list[Slot]]):
+        if any(len(slots) != len(set(slots)) for slots in template.values()):
+            raise ValueError("weekly_template_has_duplicate_slots")
+        return template
 
 
 class TheaterRead(TheaterCreate):

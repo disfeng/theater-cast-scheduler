@@ -66,12 +66,13 @@ def replace_actor_capabilities(db: Session, actor_id: int, role_ids: list[int]) 
     actor = db.get(Actor, actor_id)
     if actor is None:
         raise LookupError("actor_not_found")
+    unique_role_ids = sorted(set(role_ids))
+    if any(db.get(Role, role_id) is None for role_id in unique_role_ids):
+        raise LookupError("role_not_found")
     for capability in list(actor.role_capabilities):
         db.delete(capability)
     db.flush()
-    for role_id in sorted(set(role_ids)):
-        if db.get(Role, role_id) is None:
-            raise LookupError("role_not_found")
+    for role_id in unique_role_ids:
         db.add(ActorRoleCapability(actor_id=actor_id, role_id=role_id))
     db.commit()
     db.refresh(actor)
