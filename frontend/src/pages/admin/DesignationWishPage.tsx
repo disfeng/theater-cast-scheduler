@@ -240,6 +240,8 @@ export function DesignationWishPage() {
     }
   };
 
+  const isBatchReadOnly = activeBatch?.status !== "draft";
+
   return (
     <section style={{ maxWidth: "1200px", margin: "0 auto" }}>
       <h2>指定与许愿管理</h2>
@@ -311,22 +313,26 @@ export function DesignationWishPage() {
               <button type="button" className="button" onClick={handleMarkReady}>标记为就绪</button>
             )}
 
-            <form onSubmit={handleParseText} style={{ display: "grid", gap: "10px" }}>
-              <label htmlFor="raw-text-area">群统计文本</label>
-              <textarea
-                id="raw-text-area"
-                aria-label="群统计文本"
-                rows={6}
-                value={rawText}
-                onChange={(e) => setRawText(e.target.value)}
-                placeholder="在此粘贴排班群统计文本..."
-                required
-                style={{ padding: "8px", borderRadius: "4px", border: "1px solid #d9dee7", width: "100%" }}
-              />
-              <button type="submit" className="button" style={{ justifySelf: "start" }}>
-                解析
-              </button>
-            </form>
+            {isBatchReadOnly ? (
+              <p style={{ color: "#666" }}>批次已就绪，导入内容已锁定。</p>
+            ) : (
+              <form onSubmit={handleParseText} style={{ display: "grid", gap: "10px" }}>
+                <label htmlFor="raw-text-area">群统计文本</label>
+                <textarea
+                  id="raw-text-area"
+                  aria-label="群统计文本"
+                  rows={6}
+                  value={rawText}
+                  onChange={(e) => setRawText(e.target.value)}
+                  placeholder="在此粘贴排班群统计文本..."
+                  required
+                  style={{ padding: "8px", borderRadius: "4px", border: "1px solid #d9dee7", width: "100%" }}
+                />
+                <button type="submit" className="button" style={{ justifySelf: "start" }}>
+                  解析
+                </button>
+              </form>
+            )}
           </div>
 
           {/* Draft Item List Workspace */}
@@ -334,14 +340,16 @@ export function DesignationWishPage() {
             <div className="panel" style={{ width: "100%" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
                 <h3>导入草稿 (状态: {draft.status})</h3>
-                <div style={{ display: "flex", gap: "10px" }}>
-                  <button type="button" onClick={handleAddManualItem} className="button" style={{ background: "#6200ee" }}>
-                    手动添加条目
-                  </button>
-                  <button type="button" onClick={handleConfirmAllValid} className="button" style={{ background: "#0f9d58" }}>
-                    确认所有有效项
-                  </button>
-                </div>
+                {!isBatchReadOnly && (
+                  <div style={{ display: "flex", gap: "10px" }}>
+                    <button type="button" onClick={handleAddManualItem} className="button" style={{ background: "#6200ee" }}>
+                      手动添加条目
+                    </button>
+                    <button type="button" onClick={handleConfirmAllValid} className="button" style={{ background: "#0f9d58" }}>
+                      确认所有有效项
+                    </button>
+                  </div>
+                )}
               </div>
 
               <div style={{ overflowX: "auto" }}>
@@ -376,7 +384,7 @@ export function DesignationWishPage() {
                               aria-label="类型"
                               value={fields.item_kind || ""}
                               onChange={(e) => handleFieldChange(item.id, "item_kind", e.target.value)}
-                              disabled={isConfirmed}
+                              disabled={isConfirmed || isBatchReadOnly}
                               style={{ width: "100%", padding: "4px" }}
                             >
                               <option value="wish">许愿</option>
@@ -390,7 +398,7 @@ export function DesignationWishPage() {
                                 aria-label="指定形式"
                                 value={fields.designation_type || ""}
                                 onChange={(e) => handleFieldChange(item.id, "designation_type", e.target.value)}
-                                disabled={isConfirmed}
+                                disabled={isConfirmed || isBatchReadOnly}
                                 style={{ width: "100%", padding: "4px" }}
                               >
                                 <option value="universal">普通指定</option>
@@ -405,7 +413,7 @@ export function DesignationWishPage() {
                               type="text"
                               value={fields.player_name || ""}
                               onChange={(e) => handleFieldChange(item.id, "player_name", e.target.value)}
-                              disabled={isConfirmed}
+                              disabled={isConfirmed || isBatchReadOnly}
                               style={{ width: "100%", padding: "4px" }}
                             />
                           </td>
@@ -415,7 +423,7 @@ export function DesignationWishPage() {
                               type="text"
                               value={fields.actor_name_raw || ""}
                               onChange={(e) => handleFieldChange(item.id, "actor_name_raw", e.target.value)}
-                              disabled={isConfirmed}
+                              disabled={isConfirmed || isBatchReadOnly}
                               style={{ width: "100%", padding: "4px" }}
                             />
                           </td>
@@ -425,7 +433,7 @@ export function DesignationWishPage() {
                               type="text"
                               value={fields.role_name_raw || ""}
                               onChange={(e) => handleFieldChange(item.id, "role_name_raw", e.target.value)}
-                              disabled={isConfirmed}
+                              disabled={isConfirmed || isBatchReadOnly}
                               style={{ width: "100%", padding: "4px" }}
                             />
                           </td>
@@ -434,7 +442,7 @@ export function DesignationWishPage() {
                               aria-label="匹配演员"
                               value={fields.actor_id || ""}
                               onChange={(e) => handleFieldChange(item.id, "actor_id", e.target.value || null)}
-                              disabled={isConfirmed}
+                              disabled={isConfirmed || isBatchReadOnly}
                               style={{ width: "100%", padding: "4px" }}
                             >
                               <option value="">-- 未选择 --</option>
@@ -450,7 +458,7 @@ export function DesignationWishPage() {
                               aria-label="匹配角色"
                               value={fields.role_id || ""}
                               onChange={(e) => handleFieldChange(item.id, "role_id", e.target.value || null)}
-                              disabled={isConfirmed}
+                              disabled={isConfirmed || isBatchReadOnly}
                               style={{ width: "100%", padding: "4px" }}
                             >
                               <option value="">-- 未选择 --</option>
@@ -469,7 +477,7 @@ export function DesignationWishPage() {
                                 onChange={(e) =>
                                   handleFieldChange(item.id, "target_performance_id", e.target.value || null)
                                 }
-                                disabled={isConfirmed}
+                                disabled={isConfirmed || isBatchReadOnly}
                                 style={{ width: "100%", padding: "4px" }}
                               >
                                 <option value="">-- 全周或未指定 --</option>
@@ -487,7 +495,7 @@ export function DesignationWishPage() {
                               type="text"
                               value={fields.note || ""}
                               onChange={(e) => handleFieldChange(item.id, "note", e.target.value)}
-                              disabled={isConfirmed}
+                              disabled={isConfirmed || isBatchReadOnly}
                               style={{ width: "100%", padding: "4px" }}
                             />
                           </td>
@@ -503,7 +511,7 @@ export function DesignationWishPage() {
                             )}
                           </td>
                           <td style={{ padding: "8px" }}>
-                            {!isConfirmed && (
+                            {!isConfirmed && !isBatchReadOnly && (
                               <div style={{ display: "flex", gap: "6px" }}>
                                 <button
                                   type="button"

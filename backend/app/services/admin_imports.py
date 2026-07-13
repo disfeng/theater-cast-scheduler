@@ -30,6 +30,24 @@ class DraftItemConflict(Exception):
     pass
 
 
+def _get_editable_batch(db: Session, batch_id: int) -> WeeklyBatch:
+    batch = db.scalar(
+        select(WeeklyBatch)
+        .where(WeeklyBatch.id == batch_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if batch is None:
+        raise LookupError("batch_not_found")
+    if batch.status != BatchStatus.DRAFT:
+        raise DraftItemConflict("batch_not_editable")
+    return batch
+
+
+def _require_editable_batch(db: Session, draft: PersistentImportDraft) -> WeeklyBatch:
+    return _get_editable_batch(db, draft.weekly_batch_id)
+
+
 def get_or_create_weekly_batch(db: Session, theater_id: int, week_start: date) -> WeeklyBatch:
     if week_start.weekday() != 0:
         raise ValueError("week_start_must_be_monday")
@@ -66,9 +84,7 @@ def get_or_create_weekly_batch(db: Session, theater_id: int, week_start: date) -
 
 
 def parse_import_draft(db: Session, batch_id: int, raw_text: str) -> PersistentImportDraft:
-    batch = db.get(WeeklyBatch, batch_id)
-    if batch is None:
-        raise LookupError("batch_not_found")
+    batch = _get_editable_batch(db, batch_id)
 
     draft = PersistentImportDraft(
         weekly_batch_id=batch_id,
@@ -208,6 +224,7 @@ def create_manual_item(db: Session, draft_id: int, payload: DraftItemCreate) -> 
     draft = db.get(PersistentImportDraft, draft_id)
     if draft is None:
         raise LookupError("draft_not_found")
+    _require_editable_batch(db, draft)
 
     item = ImportDraftItem(
         import_draft_id=draft_id,
@@ -240,6 +257,10 @@ def update_draft_item(db: Session, item_id: int, payload: DraftItemUpdate) -> Im
     item = db.get(ImportDraftItem, item_id)
     if item is None:
         raise LookupError("draft_item_not_found")
+    draft = db.get(PersistentImportDraft, item.import_draft_id)
+    if draft is None:
+        raise LookupError("draft_not_found")
+    _require_editable_batch(db, draft)
 
     # If already confirmed, raise conflict
     if item.confirmed_at is not None:
@@ -262,15 +283,25 @@ def update_draft_item(db: Session, item_id: int, payload: DraftItemUpdate) -> Im
 
 
 def confirm_draft_item(db: Session, item_id: int) -> ImportDraftItem:
-    item_reference = db.get(ImportDraftItem, item_id)
-    if item_reference is None:
+    draft_id = db.scalar(
+        select(ImportDraftItem.import_draft_id).where(ImportDraftItem.id == item_id)
+    )
+    if draft_id is None:
         raise LookupError("draft_item_not_found")
     draft = db.scalar(
         select(PersistentImportDraft)
-        .where(PersistentImportDraft.id == item_reference.import_draft_id)
+        .where(PersistentImportDraft.id == draft_id)
         .with_for_update()
+        .execution_options(populate_existing=True)
     )
-    item = db.scalar(select(ImportDraftItem).where(ImportDraftItem.id == item_id).with_for_update())
+    if draft is None:
+        raise LookupError("draft_not_found")
+    item = db.scalar(
+        select(ImportDraftItem)
+        .where(ImportDraftItem.id == item_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
     if item is None:
         raise LookupError("draft_item_not_found")
 
@@ -278,11 +309,11 @@ def confirm_draft_item(db: Session, item_id: int) -> ImportDraftItem:
         return item
 
     try:
+        batch = _require_editable_batch(db, draft)
         _validate_item(db, item)
         if item.validation_status != DraftValidationStatus.VALID:
             raise DraftItemConflict("draft_item_invalid")
 
-        batch = db.get(WeeklyBatch, draft.weekly_batch_id)
         if item.item_kind == DraftItemKind.DESIGNATION:
             designation = Designation(
                 weekly_batch_id=batch.id,
@@ -345,6 +376,7 @@ def confirm_valid_items(db: Session, draft_id: int) -> list[dict]:
     draft = db.get(PersistentImportDraft, draft_id)
     if draft is None:
         raise LookupError("draft_not_found")
+    _require_editable_batch(db, draft)
 
     results = []
     # Make a copy of list to prevent iteration issues during DB updates

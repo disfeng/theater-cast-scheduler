@@ -2,7 +2,9 @@ from datetime import date, datetime
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
 from app.api.deps import get_db
 from app.main import app
 from app.models.entities import (
@@ -393,21 +395,6 @@ def test_admin_imports_api_workflow(db_session):
         res_get_batch = client.get(f"/admin/weekly-batches/{batch_id}", headers=headers)
         assert res_get_batch.status_code == 200
 
-        res_ready = client.patch(
-            f"/admin/weekly-batches/{batch_id}/status",
-            headers=headers,
-            json={"status": "ready"},
-        )
-        assert res_ready.status_code == 200
-        assert res_ready.json()["status"] == "ready"
-
-        res_reopen = client.patch(
-            f"/admin/weekly-batches/{batch_id}/status",
-            headers=headers,
-            json={"status": "draft"},
-        )
-        assert res_reopen.status_code == 409
-
         # 4. POST /admin/import-drafts/parse
         res_parse = client.post(
             f"/admin/import-drafts/parse?batch_id={batch_id}",
@@ -477,6 +464,29 @@ def test_admin_imports_api_workflow(db_session):
         assert res_inputs.status_code == 200
         assert len(res_inputs.json()["designations"]) == 1
         assert len(res_inputs.json()["wishes"]) == 2
+
+        res_ready = client.patch(
+            f"/admin/weekly-batches/{batch_id}/status",
+            headers=headers,
+            json={"status": "ready"},
+        )
+        assert res_ready.status_code == 200
+        assert res_ready.json()["status"] == "ready"
+
+        res_reopen = client.patch(
+            f"/admin/weekly-batches/{batch_id}/status",
+            headers=headers,
+            json={"status": "draft"},
+        )
+        assert res_reopen.status_code == 409
+
+        res_parse_ready = client.post(
+            f"/admin/import-drafts/parse?batch_id={batch_id}",
+            headers=headers,
+            json={"raw_text": "不应写入"},
+        )
+        assert res_parse_ready.status_code == 409
+        assert res_parse_ready.json()["detail"] == "batch_not_editable"
     finally:
         app.dependency_overrides.clear()
 
@@ -557,3 +567,31 @@ def test_adding_item_reopens_confirmed_draft(db_session):
     )
     db_session.refresh(draft)
     assert draft.status == ImportDraftStatus.PARTIALLY_CONFIRMED
+
+
+def test_stale_identity_map_does_not_duplicate_confirmation(db_session):
+    theater = Theater(name="测试剧场", default_weekly_template={})
+    actor = Actor(display_name="浩泽")
+    role = Role(name="长离")
+    db_session.add_all([theater, actor, role])
+    db_session.flush()
+    db_session.add(ActorRoleCapability(actor_id=actor.id, role_id=role.id))
+    batch = get_or_create_weekly_batch(db_session, theater.id, date(2026, 6, 1))
+    draft = parse_import_draft(
+        db_session,
+        batch.id,
+        "#指定信息\n【虔诚许愿】-浩泽/长离-Jerry",
+    )
+    item = next(item for item in draft.items if item.item_kind == DraftItemKind.WISH)
+    item_id = item.id
+    assert item.confirmed_at is None
+
+    with Session(db_session.bind) as competing_session:
+        first_result = confirm_draft_item(competing_session, item_id)
+        first_wish_id = first_result.wish_id
+
+    assert item.confirmed_at is None
+    second_result = confirm_draft_item(db_session, item_id)
+
+    assert second_result.wish_id == first_wish_id
+    assert len(db_session.scalars(select(Wish)).all()) == 1

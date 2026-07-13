@@ -70,7 +70,12 @@ def patch_weekly_batch_status(
     _: dict[str, str] = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> WeeklyBatch:
-    batch = db.get(WeeklyBatch, batch_id)
+    batch = db.scalar(
+        select(WeeklyBatch)
+        .where(WeeklyBatch.id == batch_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
     if batch is None:
         raise HTTPException(status_code=404, detail="batch_not_found")
     if payload.status == batch.status:
@@ -94,6 +99,8 @@ def post_import_drafts_parse(
         return parse_import_draft(db, batch_id, payload.raw_text)
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except DraftItemConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @router.get("/import-drafts", response_model=list[ImportDraftRead])
@@ -134,6 +141,8 @@ def post_manual_item(
         return create_manual_item(db, draft_id, payload)
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except DraftItemConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @router.patch("/import-draft-items/{item_id}", response_model=DraftItemRead)
@@ -175,6 +184,8 @@ def post_confirm_valid_items(
         return confirm_valid_items(db, draft_id)
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except DraftItemConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @router.get("/weekly-batches/{batch_id}/scheduling-inputs", response_model=BatchSchedulingInputs)

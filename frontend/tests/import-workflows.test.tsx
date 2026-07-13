@@ -77,6 +77,12 @@ test("designation and wish import parse and resume workflow", async () => {
           return new Response(JSON.stringify({ id: 2, theater_id: body.theater_id, week_start: body.week_start, status: "draft", created_at: "2026-06-01" }), { status: 200 });
         }
       }
+      if (path === "/admin/weekly-batches/2/status" && method === "PATCH") {
+        return new Response(
+          JSON.stringify({ id: 2, theater_id: 1, week_start: "2026-06-29", status: "ready", created_at: "2026-06-01" }),
+          { status: 200 },
+        );
+      }
       if (path.startsWith("/admin/import-drafts/parse")) {
         return new Response(JSON.stringify(draftData), { status: 200 });
       }
@@ -126,6 +132,11 @@ test("designation and wish import parse and resume workflow", async () => {
   // Click confirm
   fireEvent.click(screen.getByText("确认"));
   await waitFor(() => expect(screen.getByText("已确认")).toBeInTheDocument());
+
+  fireEvent.click(screen.getByText("标记为就绪"));
+  await screen.findByText("批次已就绪，导入内容已锁定。");
+  expect(screen.queryByLabelText("群统计文本")).not.toBeInTheDocument();
+  expect(screen.queryByText("手动添加条目")).not.toBeInTheDocument();
 
   // 5. Unmount and resume (reload page)
   unmount();
