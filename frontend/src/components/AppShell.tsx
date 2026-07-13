@@ -9,6 +9,7 @@ import { SettingsPage } from "../pages/admin/SettingsPage";
 import { WeeklySchedulingPage } from "../pages/admin/WeeklySchedulingPage";
 import { MyLeavePage } from "../pages/actor/MyLeavePage";
 import { MySchedulePage } from "../pages/actor/MySchedulePage";
+import { DesignationWishPage } from "../pages/admin/DesignationWishPage";
 
 export function AppShell() {
   const { role, logout } = useAuth();
@@ -18,6 +19,7 @@ export function AppShell() {
     ["基础配置", CalendarDays],
     ["演员管理", UserRound],
     ["月度计划", CalendarDays],
+    ["指定与许愿", ClipboardList],
     ["请假审核", ClipboardList],
     ["周排班", ClipboardList],
   ] as const;
@@ -50,6 +52,7 @@ function renderPage(page: string) {
   if (page === "基础配置") return <SettingsPage />;
   if (page === "演员管理") return <ActorsPage />;
   if (page === "月度计划") return <MonthlyPlanPage />;
+  if (page === "指定与许愿") return <DesignationWishPage />;
   if (page === "请假审核") return <RequestsPage />;
   if (page === "周排班") return <WeeklySchedulingPage />;
   if (page === "我的请假") return <MyLeavePage />;

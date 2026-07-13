@@ -1,5 +1,60 @@
 export type Theater = { id: number; name: string; default_weekly_template: Record<string, string[]> };
 export type Role = { id: number; name: string; group_name: string | null };
+export type WeeklyBatch = {
+  id: number;
+  theater_id: number;
+  week_start: string;
+  status: "draft" | "ready" | "scheduled";
+  created_at: string;
+};
+
+export type ImportDraftItem = {
+  id: number;
+  import_draft_id: number;
+  item_kind: "designation" | "wish" | "unresolved";
+  raw_line: string | null;
+  designation_type: "universal" | "top_three" | "paired" | null;
+  player_name: string | null;
+  actor_name_raw: string | null;
+  role_name_raw: string | null;
+  actor_id: number | null;
+  role_id: number | null;
+  target_performance_id: number | null;
+  note: string | null;
+  validation_status: "valid" | "invalid";
+  failure_reason: string | null;
+  confirmed_at: string | null;
+  designation_id: number | null;
+  wish_id: number | null;
+};
+
+export type ImportDraft = {
+  id: number;
+  weekly_batch_id: number;
+  raw_text: string;
+  status: "draft" | "partially_confirmed" | "confirmed";
+  created_at: string;
+  updated_at: string;
+  items: ImportDraftItem[];
+};
+
+export type BatchSchedulingInputs = {
+  designations: {
+    designation_type: "universal" | "top_three" | "paired";
+    player_name: string;
+    role_id: number;
+    actor_id: number;
+    target_performance_id: number | null;
+    submitted_at: string;
+    failure_reason: string | null;
+  }[];
+  wishes: {
+    player_name: string;
+    role_id: number;
+    actor_id: number;
+    note: string | null;
+  }[];
+};
 export type Actor = {
   id: number;
   display_name: string;
@@ -76,6 +131,50 @@ export class ApiClient {
 
   async reviewLeaveRequest(token: string, leaveId: number, status: "approved" | "rejected" | "locked"): Promise<LeaveRequest> {
     return this.post(`/admin/leave-requests/${leaveId}/review`, token, { status });
+  }
+
+  async getWeeklyBatches(token: string): Promise<WeeklyBatch[]> {
+    return this.get("/admin/weekly-batches", token);
+  }
+
+  async createWeeklyBatch(token: string, payload: { theater_id: number; week_start: string }): Promise<WeeklyBatch> {
+    return this.post("/admin/weekly-batches", token, payload);
+  }
+
+  async getWeeklyBatch(token: string, batchId: number): Promise<WeeklyBatch> {
+    return this.get(`/admin/weekly-batches/${batchId}`, token);
+  }
+
+  async parseImportDraft(token: string, batchId: number, rawText: string): Promise<ImportDraft> {
+    return this.post(`/admin/import-drafts/parse?batch_id=${batchId}`, token, { raw_text: rawText });
+  }
+
+  async getImportDraft(token: string, draftId: number): Promise<ImportDraft> {
+    return this.get(`/admin/import-drafts/${draftId}`, token);
+  }
+
+  async getImportDrafts(token: string, batchId: number): Promise<ImportDraft[]> {
+    return this.get(`/admin/import-drafts?batch_id=${batchId}`, token);
+  }
+
+  async createManualItem(token: string, draftId: number, payload: any): Promise<ImportDraftItem> {
+    return this.post(`/admin/import-drafts/${draftId}/items`, token, payload);
+  }
+
+  async updateDraftItem(token: string, itemId: number, payload: any): Promise<ImportDraftItem> {
+    return this.request(`/admin/import-draft-items/${itemId}`, token, "PATCH", payload);
+  }
+
+  async confirmDraftItem(token: string, itemId: number): Promise<ImportDraftItem> {
+    return this.post(`/admin/import-draft-items/${itemId}/confirm`, token, {});
+  }
+
+  async confirmValidItems(token: string, draftId: number): Promise<{ item_id: number; success: boolean; designation_id?: number; wish_id?: number; error?: string }[]> {
+    return this.post(`/admin/import-drafts/${draftId}/confirm-valid`, token, {});
+  }
+
+  async getBatchSchedulingInputs(token: string, batchId: number): Promise<BatchSchedulingInputs> {
+    return this.get(`/admin/weekly-batches/${batchId}/scheduling-inputs`, token);
   }
 
   async updateActor(token: string, actorId: number, payload: Omit<Actor, "id" | "display_name" | "role_ids">): Promise<Actor> {
