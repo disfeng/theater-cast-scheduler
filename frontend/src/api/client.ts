@@ -66,8 +66,8 @@ export class ApiClient {
     return this.post("/admin/monthly-plan/generate", token, payload);
   }
 
-  async getPerformances(token: string, year: number, month: number): Promise<Performance[]> {
-    return this.get(`/admin/performances?year=${year}&month=${month}`, token);
+  async getPerformances(token: string, theaterId: number, year: number, month: number): Promise<Performance[]> {
+    return this.get(`/admin/performances?theater_id=${theaterId}&year=${year}&month=${month}`, token);
   }
 
   async getLeaveRequests(token: string): Promise<LeaveRequest[]> {
@@ -99,7 +99,7 @@ export class ApiClient {
       let message = "请求失败";
       try {
         const body = await response.json();
-        message = body.detail ?? message;
+        message = formatErrorDetail(body.detail, message);
       } catch {}
       throw new Error(message);
     }
@@ -113,6 +113,21 @@ export class ApiClient {
   private async post<T>(path: string, token: string, payload: object): Promise<T> {
     return this.request(path, token, "POST", payload);
   }
+}
+
+function formatErrorDetail(detail: unknown, fallback: string): string {
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail)) {
+    const messages = detail.flatMap((item) => {
+      if (!item || typeof item !== "object") return [];
+      const entry = item as { loc?: unknown; msg?: unknown };
+      if (typeof entry.msg !== "string") return [];
+      const location = Array.isArray(entry.loc) ? entry.loc.join(".") : "";
+      return [location ? `${location}: ${entry.msg}` : entry.msg];
+    });
+    if (messages.length > 0) return messages.join("; ");
+  }
+  return fallback;
 }
 
 export const apiClient = new ApiClient();

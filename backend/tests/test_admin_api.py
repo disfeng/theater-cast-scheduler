@@ -1,6 +1,8 @@
 from datetime import date
 
+import pytest
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 
 from app.api.deps import get_db
 from app.main import app
@@ -128,10 +130,6 @@ def test_admin_crud_routes_create_and_list_core_data(db_session):
         app.dependency_overrides.clear()
 
 
-import pytest
-from pydantic import ValidationError
-
-
 @pytest.mark.parametrize(
     "template",
     [
@@ -156,4 +154,3 @@ def test_invalid_capability_replacement_preserves_existing_roles(db_session):
     db_session.refresh(actor)
 
     assert [item.role_id for item in actor.role_capabilities] == [first.id]
-

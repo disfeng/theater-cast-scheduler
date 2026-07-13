@@ -31,7 +31,11 @@ from app.services.admin_data import (
     review_leave_request,
     update_actor,
 )
-from app.services.monthly_plan import MonthlyPlanConflict, generate_monthly_plan, list_month_performances
+from app.services.monthly_plan import (
+    MonthlyPlanConflict,
+    generate_monthly_plan,
+    list_month_performances,
+)
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -160,12 +164,13 @@ def post_monthly_plan_generate(
 
 @router.get("/performances", response_model=list[PerformanceRead])
 def get_performances(
+    theater_id: int,
     year: int,
     month: int,
     _: dict[str, str] = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> list[Performance]:
-    return list_month_performances(db, year, month)
+    return list_month_performances(db, theater_id, year, month)
 
 
 def _actor_read(actor: Actor) -> ActorRead:

@@ -18,8 +18,16 @@ def _ensure_regeneration_is_safe(db: Session, existing: list[Performance]) -> No
     performance_ids = [item.id for item in existing]
     if not performance_ids:
         return
-    has_assignment = db.scalar(select(ScheduleAssignment.id).where(ScheduleAssignment.performance_id.in_(performance_ids)).limit(1))
-    has_designation = db.scalar(select(Designation.id).where(Designation.target_performance_id.in_(performance_ids)).limit(1))
+    has_assignment = db.scalar(
+        select(ScheduleAssignment.id)
+        .where(ScheduleAssignment.performance_id.in_(performance_ids))
+        .limit(1)
+    )
+    has_designation = db.scalar(
+        select(Designation.id)
+        .where(Designation.target_performance_id.in_(performance_ids))
+        .limit(1)
+    )
     if has_assignment is not None or has_designation is not None:
         raise MonthlyPlanConflict("monthly_plan_has_referenced_performances")
 
@@ -42,7 +50,7 @@ def generate_monthly_plan(
             extract("month", Performance.performance_date) == month,
         )
     ).all()
-    
+
     _ensure_regeneration_is_safe(db, list(existing))
 
     try:
@@ -50,7 +58,9 @@ def generate_monthly_plan(
             db.delete(performance)
         db.flush()
 
-        drafts = generate_month_performances(year, month, theater.default_weekly_template, closed_dates)
+        drafts = generate_month_performances(
+            year, month, theater.default_weekly_template, closed_dates
+        )
         performances = [
             Performance(
                 theater_id=theater_id,
@@ -70,10 +80,13 @@ def generate_monthly_plan(
         raise
 
 
-def list_month_performances(db: Session, year: int, month: int) -> list[Performance]:
+def list_month_performances(
+    db: Session, theater_id: int, year: int, month: int
+) -> list[Performance]:
     statement = (
         select(Performance)
         .where(
+            Performance.theater_id == theater_id,
             extract("year", Performance.performance_date) == year,
             extract("month", Performance.performance_date) == month,
         )

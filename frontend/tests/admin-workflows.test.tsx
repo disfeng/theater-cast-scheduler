@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { expect, test, vi } from "vitest";
 import App from "../src/App";
+import { ApiClient } from "../src/api/client";
 
 test("admin shell exposes settings and actor management pages", async () => {
   vi.stubGlobal(
@@ -30,6 +31,7 @@ test("admin shell exposes settings and actor management pages", async () => {
 test("monthly plan page supports selectable generation and closed dates", async () => {
   let generateBody: any = null;
   let performancesList: any[] = [];
+  const performanceQueries: string[] = [];
 
   vi.stubGlobal(
     "fetch",
@@ -51,6 +53,7 @@ test("monthly plan page supports selectable generation and closed dates", async 
       }
       
       if (path.startsWith("/admin/performances")) {
+        performanceQueries.push(path);
         return new Response(JSON.stringify(performancesList), { status: 200 });
       }
       return new Response(JSON.stringify([]), { status: 200 });
@@ -83,6 +86,9 @@ test("monthly plan page supports selectable generation and closed dates", async 
   });
 
   expect(await screen.findByText("2027-07-01 early")).toBeInTheDocument();
+  expect(performanceQueries).toContain(
+    "/admin/performances?theater_id=1&year=2027&month=7",
+  );
 });
 
 test("theater and role entry workflows", async () => {
@@ -245,3 +251,66 @@ test("actor entry and capability workflows", async () => {
   });
 });
 
+test("api client turns structured validation details into a readable error", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          detail: [{ loc: ["body", "month"], msg: "Input should be less than or equal to 12" }],
+        }),
+        { status: 422 },
+      ),
+    ),
+  );
+
+  await expect(
+    new ApiClient("").generateMonthlyPlan("token", {
+      theater_id: 1,
+      year: 2026,
+      month: 13,
+      closed_dates: [],
+    }),
+  ).rejects.toThrow("body.month: Input should be less than or equal to 12");
+});
+
+test("monthly plan page displays generation conflicts", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input).replace("http://localhost:8000", "");
+      if (path === "/auth/login") {
+        return new Response(JSON.stringify({ access_token: "token", role: "admin" }), {
+          status: 200,
+        });
+      }
+      if (path === "/admin/theaters") {
+        return new Response(
+          JSON.stringify([{ id: 1, name: "西幽剧场", default_weekly_template: {} }]),
+          { status: 200 },
+        );
+      }
+      if (path.startsWith("/admin/performances")) {
+        return new Response(JSON.stringify([]), { status: 200 });
+      }
+      if (path === "/admin/monthly-plan/generate" && init?.method === "POST") {
+        return new Response(
+          JSON.stringify({ detail: "monthly_plan_has_non_draft_performances" }),
+          { status: 409 },
+        );
+      }
+      return new Response(JSON.stringify([]), { status: 200 });
+    }),
+  );
+
+  render(<App />);
+  fireEvent.click(screen.getByText("登录"));
+  await waitFor(() => expect(screen.getByText("月度计划")).toBeInTheDocument());
+  fireEvent.click(screen.getByText("月度计划"));
+  await screen.findByText("西幽剧场");
+  fireEvent.click(screen.getByText("生成月度计划"));
+
+  expect(
+    await screen.findByText("monthly_plan_has_non_draft_performances"),
+  ).toHaveAttribute("role", "alert");
+});

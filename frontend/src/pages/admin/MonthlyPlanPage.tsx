@@ -25,7 +25,10 @@ export function MonthlyPlanPage() {
 
   useEffect(() => {
     if (!token || !theaterId) return;
-    apiClient.getPerformances(token, year, month).then(setPerformances).catch(err => setError(err.message));
+    apiClient
+      .getPerformances(token, Number(theaterId), year, month)
+      .then(setPerformances)
+      .catch((err) => setError(err.message));
   }, [token, theaterId, year, month]);
 
   const handleGenerate = async () => {
