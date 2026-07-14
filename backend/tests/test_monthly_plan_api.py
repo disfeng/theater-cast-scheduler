@@ -1,65 +1,23 @@
-from datetime import date
+from datetime import date, time
+
+import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 
 from app.api.deps import get_db
 from app.main import app
+from app.models.entities import (
+    Performance,
+    Role,
+    ScheduleAssignment,
+    TheaterSlot,
+    TheaterWeeklyTemplateEntry,
+)
+from app.models.enums import PerformanceStatus
 from app.schemas.admin import ActorCreate, TheaterCreate
 from app.services.admin_data import create_actor, create_theater
 from app.services.auth import create_access_token
-from app.models.entities import Designation, Performance, Role, ScheduleAssignment
-from app.models.enums import DesignationType
-from app.models.enums import PerformanceStatus
-
-
-def test_generate_monthly_plan_persists_performances_and_skips_closed_dates(db_session):
-    theater = create_theater(
-        db_session,
-        TheaterCreate(
-            name="西幽剧场",
-            default_weekly_template={
-                "monday": ["early", "late"],
-                "tuesday": ["late"],
-                "wednesday": ["late"],
-                "thursday": ["late"],
-                "friday": ["early", "late"],
-                "saturday": ["early", "late"],
-                "sunday": ["early", "late"],
-            },
-        ),
-    )
-
-    def override_get_db():
-        yield db_session
-
-    app.dependency_overrides[get_db] = override_get_db
-    try:
-        client = TestClient(app)
-        token = create_access_token("admin@example.com", "admin")
-        headers = {"Authorization": f"Bearer {token}"}
-        response = client.post(
-            "/admin/monthly-plan/generate",
-            headers=headers,
-            json={
-                "theater_id": theater.id,
-                "year": 2026,
-                "month": 6,
-                "closed_dates": ["2026-06-02"],
-            },
-        )
-
-        assert response.status_code == 200
-        dates = {(item["performance_date"], item["slot"]) for item in response.json()}
-        assert ("2026-06-01", "early") in dates
-        assert ("2026-06-01", "late") in dates
-        assert ("2026-06-02", "late") not in dates
-        list_response = client.get(
-            f"/admin/performances?theater_id={theater.id}&year=2026&month=6",
-            headers=headers,
-        )
-        assert list_response.status_code == 200
-        assert len(list_response.json()) == len(response.json())
-    finally:
-        app.dependency_overrides.clear()
+from app.services.monthly_plan import MonthlyPlanConflict, replace_monthly_plan
 
 
 def _admin_headers():
@@ -67,98 +25,123 @@ def _admin_headers():
     return {"Authorization": f"Bearer {token}"}
 
 
-def test_monthly_regeneration_rejects_non_draft_performances(db_session):
-    theater = create_theater(
-        db_session, TheaterCreate(name="西幽剧场", default_weekly_template={"monday": ["early"]})
-    )
-    performance = Performance(
-        theater_id=theater.id,
-        performance_date=date(2026, 6, 1),
-        slot="early",
-        status=PerformanceStatus.PUBLISHED,
-    )
-    db_session.add(performance)
+def _configured_theater(db_session, name="西幽剧场", slot_names=("午场", "晚场")):
+    theater = create_theater(db_session, TheaterCreate(name=name))
+    slots = []
+    for index, slot_name in enumerate(slot_names):
+        slot = TheaterSlot(
+            theater_id=theater.id,
+            name=slot_name,
+            start_time=time(14 + index * 5),
+            sort_order=index,
+        )
+        db_session.add(slot)
+        db_session.flush()
+        slots.append(slot)
+    for slot in slots:
+        db_session.add(
+            TheaterWeeklyTemplateEntry(
+                theater_id=theater.id,
+                weekday="monday",
+                theater_slot_id=slot.id,
+            )
+        )
     db_session.commit()
+    return theater, slots
 
+
+def _performance(theater_id, slot, performance_date=date(2026, 6, 1), status=PerformanceStatus.DRAFT):
+    return Performance(
+        theater_id=theater_id,
+        theater_slot_id=slot.id,
+        performance_date=performance_date,
+        slot_name_snapshot=slot.name,
+        start_time_snapshot=slot.start_time,
+        status=status,
+    )
+
+
+def _client(db_session):
     def override_get_db():
         yield db_session
 
     app.dependency_overrides[get_db] = override_get_db
+    return TestClient(app)
+
+
+def test_generate_monthly_plan_persists_snapshots_and_skips_closed_dates(db_session):
+    theater, slots = _configured_theater(db_session)
+    client = _client(db_session)
     try:
-        response = TestClient(app).post(
+        response = client.post(
             "/admin/monthly-plan/generate",
             headers=_admin_headers(),
             json={"theater_id": theater.id, "year": 2026, "month": 6, "closed_dates": []},
         )
-        assert response.status_code == 409
-        assert db_session.get(Performance, performance.id).status == PerformanceStatus.PUBLISHED
+        assert response.status_code == 200
+        june_first = [item for item in response.json() if item["performance_date"] == "2026-06-01"]
+        assert [item["slot_name_snapshot"] for item in june_first] == ["午场", "晚场"]
+        assert [item["theater_slot_id"] for item in june_first] == [slot.id for slot in slots]
+
+        closed = client.post(
+            "/admin/monthly-plan/generate",
+            headers=_admin_headers(),
+            json={
+                "theater_id": theater.id,
+                "year": 2026,
+                "month": 6,
+                "closed_dates": ["2026-06-01"],
+            },
+        )
+        assert closed.status_code == 200
+        assert all(item["performance_date"] != "2026-06-01" for item in closed.json())
     finally:
         app.dependency_overrides.clear()
 
 
-def test_monthly_regeneration_rejects_referenced_draft(db_session):
-    theater = create_theater(
-        db_session, TheaterCreate(name="西幽剧场", default_weekly_template={"monday": ["early"]})
-    )
-    role = Role(name="长离")
-    actor = create_actor(db_session, ActorCreate(display_name="小展"))
-    performance = Performance(
-        theater_id=theater.id, performance_date=date(2026, 6, 1), slot="early"
-    )
-    db_session.add_all([role, performance])
-    db_session.flush()
-    db_session.add(
-        ScheduleAssignment(performance_id=performance.id, role_id=role.id, actor_id=actor.id)
-    )
+def test_monthly_regeneration_rejects_non_draft_or_referenced_performances(db_session):
+    theater, (slot, _) = _configured_theater(db_session)
+    published = _performance(theater.id, slot, status=PerformanceStatus.PUBLISHED)
+    db_session.add(published)
     db_session.commit()
-
-    def override_get_db():
-        yield db_session
-
-    app.dependency_overrides[get_db] = override_get_db
+    client = _client(db_session)
     try:
-        response = TestClient(app).post(
+        response = client.post(
             "/admin/monthly-plan/generate",
             headers=_admin_headers(),
             json={"theater_id": theater.id, "year": 2026, "month": 6, "closed_dates": []},
         )
         assert response.status_code == 409
-        assert db_session.get(Performance, performance.id) is not None
+    finally:
+        app.dependency_overrides.clear()
+
+    published.status = PerformanceStatus.DRAFT
+    role = Role(theater_id=theater.id, name="长离")
+    actor = create_actor(db_session, ActorCreate(display_name="小展"))
+    db_session.add(role)
+    db_session.flush()
+    db_session.add(ScheduleAssignment(performance_id=published.id, role_id=role.id, actor_id=actor.id))
+    db_session.commit()
+    client = _client(db_session)
+    try:
+        response = client.post(
+            "/admin/monthly-plan/generate",
+            headers=_admin_headers(),
+            json={"theater_id": theater.id, "year": 2026, "month": 6, "closed_dates": []},
+        )
+        assert response.status_code == 409
     finally:
         app.dependency_overrides.clear()
 
 
 def test_list_performances_filters_by_theater(db_session):
-    first = create_theater(
-        db_session,
-        TheaterCreate(name="西幽剧场", default_weekly_template={"monday": ["early"]}),
-    )
-    second = create_theater(
-        db_session,
-        TheaterCreate(name="东幽剧场", default_weekly_template={"monday": ["late"]}),
-    )
-    db_session.add_all(
-        [
-            Performance(
-                theater_id=first.id,
-                performance_date=date(2026, 6, 1),
-                slot="early",
-            ),
-            Performance(
-                theater_id=second.id,
-                performance_date=date(2026, 6, 1),
-                slot="late",
-            ),
-        ]
-    )
+    first, (first_slot,) = _configured_theater(db_session, "西幽剧场", ("午场",))
+    second, (second_slot,) = _configured_theater(db_session, "东幽剧场", ("晚场",))
+    db_session.add_all([_performance(first.id, first_slot), _performance(second.id, second_slot)])
     db_session.commit()
-
-    def override_get_db():
-        yield db_session
-
-    app.dependency_overrides[get_db] = override_get_db
+    client = _client(db_session)
     try:
-        response = TestClient(app).get(
+        response = client.get(
             f"/admin/performances?theater_id={first.id}&year=2026&month=6",
             headers=_admin_headers(),
         )
@@ -168,127 +151,141 @@ def test_list_performances_filters_by_theater(db_session):
         app.dependency_overrides.clear()
 
 
-def test_monthly_regeneration_replaces_unreferenced_drafts(db_session):
-    theater = create_theater(
-        db_session,
-        TheaterCreate(name="西幽剧场", default_weekly_template={"monday": ["late"]}),
-    )
-    old = Performance(
-        theater_id=theater.id,
-        performance_date=date(2026, 6, 1),
-        slot="early",
-    )
-    db_session.add(old)
-    db_session.commit()
-
-    def override_get_db():
-        yield db_session
-
-    app.dependency_overrides[get_db] = override_get_db
+def test_create_update_duplicate_and_delete_performance(db_session):
+    theater, (slot,) = _configured_theater(db_session, slot_names=("午场",))
+    client = _client(db_session)
+    payload = {
+        "theater_id": theater.id,
+        "performance_date": "2026-06-15",
+        "theater_slot_id": slot.id,
+    }
     try:
-        response = TestClient(app).post(
-            "/admin/monthly-plan/generate",
+        created = client.post("/admin/performances", headers=_admin_headers(), json=payload)
+        assert created.status_code == 200
+        data = created.json()
+        assert data["slot_name_snapshot"] == "午场"
+        assert data["start_time_snapshot"] == "14:00:00"
+
+        duplicate = client.post("/admin/performances", headers=_admin_headers(), json=payload)
+        assert duplicate.status_code == 409
+
+        updated = client.patch(
+            f"/admin/performances/{data['id']}",
             headers=_admin_headers(),
-            json={"theater_id": theater.id, "year": 2026, "month": 6, "closed_dates": []},
+            json={"performance_date": "2026-06-16"},
         )
-        assert response.status_code == 200
-        assert {item["slot"] for item in response.json()} == {"late"}
-        stored = db_session.query(Performance).filter_by(theater_id=theater.id).all()
-        assert {item.slot for item in stored} == {"late"}
+        assert updated.status_code == 200
+        assert updated.json()["performance_date"] == "2026-06-16"
+
+        deleted = client.delete(f"/admin/performances/{data['id']}", headers=_admin_headers())
+        assert deleted.status_code == 200
+        assert db_session.get(Performance, data["id"]) is None
     finally:
         app.dependency_overrides.clear()
 
 
-def test_monthly_regeneration_rejects_designation_referenced_draft(db_session):
-    theater = create_theater(
+def test_replace_monthly_plan_preserves_existing_and_diffs_slots(db_session):
+    theater, (morning, evening) = _configured_theater(db_session, slot_names=("早场", "晚场"))
+    existing = _performance(theater.id, morning, date(2026, 8, 3))
+    removed = _performance(theater.id, evening, date(2026, 8, 4))
+    db_session.add_all([existing, removed])
+    db_session.commit()
+    existing_id = existing.id
+    removed_id = removed.id
+
+    result = replace_monthly_plan(
         db_session,
-        TheaterCreate(name="西幽剧场", default_weekly_template={"monday": ["early"]}),
+        theater.id,
+        2026,
+        8,
+        {date(2026, 8, 3): [morning.id, evening.id], date(2026, 8, 4): []},
     )
-    role = Role(name="长离")
-    actor = create_actor(db_session, ActorCreate(display_name="小展"))
-    performance = Performance(
-        theater_id=theater.id,
-        performance_date=date(2026, 6, 1),
-        slot="early",
-    )
-    db_session.add_all([role, performance])
-    db_session.flush()
-    db_session.add(
-        Designation(
-            designation_type=DesignationType.UNIVERSAL,
-            player_name="玩家甲",
-            role_id=role.id,
-            actor_id=actor.id,
-            target_performance_id=performance.id,
-            submitted_at=date(2026, 5, 1),
-        )
-    )
+
+    assert db_session.get(Performance, existing_id) is not None
+    assert db_session.get(Performance, removed_id) is None
+    assert {(item.performance_date, item.theater_slot_id) for item in result} == {
+        (date(2026, 8, 3), morning.id),
+        (date(2026, 8, 3), evening.id),
+    }
+
+
+def test_replace_monthly_plan_rejects_invalid_date_and_cross_theater_slot(db_session):
+    theater, (slot,) = _configured_theater(db_session, "西幽剧场", ("早场",))
+    _, (other_slot,) = _configured_theater(db_session, "东幽剧场", ("早场",))
+
+    with pytest.raises(ValueError, match="performance_date_outside_month"):
+        replace_monthly_plan(db_session, theater.id, 2026, 8, {date(2026, 9, 1): [slot.id]})
+    with pytest.raises(ValueError, match="invalid_theater_slot"):
+        replace_monthly_plan(db_session, theater.id, 2026, 8, {date(2026, 8, 1): [other_slot.id]})
+
+
+def test_replace_monthly_plan_conflict_is_atomic(db_session):
+    theater, (morning, evening) = _configured_theater(db_session, slot_names=("早场", "晚场"))
+    existing = _performance(theater.id, morning, date(2026, 8, 3), PerformanceStatus.PUBLISHED)
+    db_session.add(existing)
     db_session.commit()
 
-    def override_get_db():
-        yield db_session
-
-    app.dependency_overrides[get_db] = override_get_db
-    try:
-        response = TestClient(app).post(
-            "/admin/monthly-plan/generate",
-            headers=_admin_headers(),
-            json={"theater_id": theater.id, "year": 2026, "month": 6, "closed_dates": []},
+    with pytest.raises(MonthlyPlanConflict, match="monthly_plan_has_non_draft_performances"):
+        replace_monthly_plan(
+            db_session,
+            theater.id,
+            2026,
+            8,
+            {date(2026, 8, 4): [evening.id]},
         )
-        assert response.status_code == 409
-        assert db_session.get(Performance, performance.id) is not None
+
+    assert db_session.get(Performance, existing.id) is not None
+    assert db_session.scalar(
+        select(Performance).where(
+            Performance.performance_date == date(2026, 8, 4),
+            Performance.theater_slot_id == evening.id,
+        )
+    ) is None
+
+
+def test_replace_monthly_plan_endpoint_saves_calendar(db_session):
+    theater, (morning, evening) = _configured_theater(db_session, slot_names=("早场", "晚场"))
+    client = _client(db_session)
+    try:
+        response = client.put(
+            "/admin/monthly-plan",
+            headers=_admin_headers(),
+            json={
+                "theater_id": theater.id,
+                "year": 2026,
+                "month": 8,
+                "days": [
+                    {"performance_date": "2026-08-03", "theater_slot_ids": [morning.id]},
+                    {"performance_date": "2026-08-04", "theater_slot_ids": [evening.id]},
+                ],
+            },
+        )
+        assert response.status_code == 200
+        assert {(item["performance_date"], item["slot_name_snapshot"]) for item in response.json()} == {
+            ("2026-08-03", "早场"),
+            ("2026-08-04", "晚场"),
+        }
     finally:
         app.dependency_overrides.clear()
 
 
-def test_create_and_delete_performance_endpoints(db_session):
-    theater = create_theater(
-        db_session,
-        TheaterCreate(name="西幽剧场", default_weekly_template={}),
-    )
-
-    def override_get_db():
-        yield db_session
-
-    app.dependency_overrides[get_db] = override_get_db
+def test_replace_monthly_plan_endpoint_rejects_duplicate_dates(db_session):
+    theater, (morning,) = _configured_theater(db_session, slot_names=("早场",))
+    client = _client(db_session)
     try:
-        # 1. Create a performance
-        client = TestClient(app)
-        response = client.post(
-            "/admin/performances",
+        response = client.put(
+            "/admin/monthly-plan",
             headers=_admin_headers(),
             json={
                 "theater_id": theater.id,
-                "performance_date": "2026-06-15",
-                "slot": "early"
-            }
+                "year": 2026,
+                "month": 8,
+                "days": [
+                    {"performance_date": "2026-08-03", "theater_slot_ids": [morning.id]},
+                    {"performance_date": "2026-08-03", "theater_slot_ids": []},
+                ],
+            },
         )
-        assert response.status_code == 200
-        data = response.json()
-        assert data["performance_date"] == "2026-06-15"
-        assert data["slot"] == "early"
-        perf_id = data["id"]
-
-        # 2. Try creating duplicate
-        response = client.post(
-            "/admin/performances",
-            headers=_admin_headers(),
-            json={
-                "theater_id": theater.id,
-                "performance_date": "2026-06-15",
-                "slot": "early"
-            }
-        )
-        assert response.status_code == 400
-
-        # 3. Delete performance
-        response = client.delete(
-            f"/admin/performances/{perf_id}",
-            headers=_admin_headers(),
-        )
-        assert response.status_code == 200
-
-        # Verify it's deleted
-        assert db_session.get(Performance, perf_id) is None
+        assert response.status_code == 422
     finally:
         app.dependency_overrides.clear()

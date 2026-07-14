@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, time
 from typing import Any
 
-from sqlalchemy import JSON, Date, DateTime, Enum, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, Date, DateTime, Enum, ForeignKey, Integer, String, Text, Time, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -36,15 +36,52 @@ class Theater(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(120), unique=True)
-    default_weekly_template: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    slots: Mapped[list[TheaterSlot]] = relationship(
+        back_populates="theater", cascade="all, delete-orphan", order_by="TheaterSlot.sort_order"
+    )
+    weekly_template_entries: Mapped[list[TheaterWeeklyTemplateEntry]] = relationship(
+        back_populates="theater", cascade="all, delete-orphan"
+    )
+
+
+class TheaterSlot(Base):
+    __tablename__ = "theater_slots"
+    __table_args__ = (UniqueConstraint("theater_id", "name", name="uq_theater_slots_theater_name"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    theater_id: Mapped[int] = mapped_column(ForeignKey("theaters.id"), index=True)
+    name: Mapped[str] = mapped_column(String(80))
+    start_time: Mapped[time] = mapped_column(Time)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    theater: Mapped[Theater] = relationship(back_populates="slots")
+
+
+class TheaterWeeklyTemplateEntry(Base):
+    __tablename__ = "theater_weekly_template_entries"
+    __table_args__ = (
+        UniqueConstraint("theater_id", "weekday", "theater_slot_id", name="uq_weekly_template_entry"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    theater_id: Mapped[int] = mapped_column(ForeignKey("theaters.id"), index=True)
+    weekday: Mapped[str] = mapped_column(String(12))
+    theater_slot_id: Mapped[int] = mapped_column(ForeignKey("theater_slots.id"), index=True)
+    theater: Mapped[Theater] = relationship(back_populates="weekly_template_entries")
+    theater_slot: Mapped[TheaterSlot] = relationship()
 
 
 class Role(Base):
     __tablename__ = "roles"
+    __table_args__ = (UniqueConstraint("theater_id", "name", name="uq_roles_theater_name"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    name: Mapped[str] = mapped_column(String(120), unique=True)
+    theater_id: Mapped[int] = mapped_column(ForeignKey("theaters.id"), index=True)
+    name: Mapped[str] = mapped_column(String(120))
     group_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    theater: Mapped[Theater] = relationship()
 
 
 class Actor(Base):
@@ -75,15 +112,24 @@ class ActorRoleCapability(Base):
 
 class Performance(Base):
     __tablename__ = "performances"
+    __table_args__ = (
+        UniqueConstraint(
+            "theater_id", "performance_date", "theater_slot_id",
+            name="uq_performance_theater_date_theater_slot",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     theater_id: Mapped[int] = mapped_column(ForeignKey("theaters.id"))
+    theater_slot_id: Mapped[int] = mapped_column(ForeignKey("theater_slots.id"), index=True)
     performance_date: Mapped[date] = mapped_column(Date, index=True)
-    slot: Mapped[str] = mapped_column(String(20), index=True)
+    slot_name_snapshot: Mapped[str] = mapped_column(String(80))
+    start_time_snapshot: Mapped[time] = mapped_column(Time)
     status: Mapped[PerformanceStatus] = mapped_column(
         Enum(PerformanceStatus), default=PerformanceStatus.DRAFT
     )
     theater: Mapped[Theater] = relationship()
+    theater_slot: Mapped[TheaterSlot] = relationship()
 
 
 class LeaveRequest(Base):

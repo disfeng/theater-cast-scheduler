@@ -8,7 +8,7 @@ from app.api.deps import get_db
 from app.main import app
 from app.models.entities import LeaveRequest
 from app.models.enums import LeaveStatus, RatingLevel
-from app.schemas.admin import ActorCreate, ActorUpdate, RoleCreate, TheaterCreate
+from app.schemas.admin import ActorCreate, ActorUpdate, RoleCreate, TheaterCreate, WeeklyTemplateUpdate
 from app.services.admin_data import (
     create_actor,
     create_role,
@@ -23,14 +23,8 @@ from app.services.auth import create_access_token
 
 
 def test_admin_data_services_create_theaters_roles_and_actor_capabilities(db_session):
-    create_theater(
-        db_session,
-        TheaterCreate(
-            name="西幽剧场",
-            default_weekly_template={"monday": ["early", "late"], "tuesday": ["late"]},
-        ),
-    )
-    role = create_role(db_session, RoleCreate(name="长离", group_name="女位"))
+    theater = create_theater(db_session, TheaterCreate(name="西幽剧场"))
+    role = create_role(db_session, RoleCreate(theater_id=theater.id, name="长离", group_name="女位"))
     actor = create_actor(
         db_session,
         ActorCreate(
@@ -94,12 +88,12 @@ def test_admin_crud_routes_create_and_list_core_data(db_session):
         theater_response = client.post(
             "/admin/theaters",
             headers=headers,
-            json={"name": "西幽剧场", "default_weekly_template": {"monday": ["early", "late"]}},
+            json={"name": "西幽剧场"},
         )
         role_response = client.post(
             "/admin/roles",
             headers=headers,
-            json={"name": "长离", "group_name": "女位"},
+            json={"theater_id": theater_response.json()["id"], "name": "长离", "group_name": "女位"},
         )
         actor_response = client.post(
             "/admin/actors",
@@ -130,21 +124,15 @@ def test_admin_crud_routes_create_and_list_core_data(db_session):
         app.dependency_overrides.clear()
 
 
-@pytest.mark.parametrize(
-    "template",
-    [
-        {"holiday": ["early"]},
-        {"monday": ["noon"]},
-        {"monday": ["early", "early"]},
-    ],
-)
-def test_theater_template_rejects_invalid_keys_slots_and_duplicates(template):
+@pytest.mark.parametrize("template", [{"holiday": [1]}, {"monday": [1, 1]}])
+def test_theater_template_rejects_invalid_keys_and_duplicates(template):
     with pytest.raises(ValidationError):
-        TheaterCreate(name="错误模板", default_weekly_template=template)
+        WeeklyTemplateUpdate(template=template)
 
 
 def test_invalid_capability_replacement_preserves_existing_roles(db_session):
-    first = create_role(db_session, RoleCreate(name="长离", group_name=None))
+    theater = create_theater(db_session, TheaterCreate(name="西幽剧场"))
+    first = create_role(db_session, RoleCreate(theater_id=theater.id, name="长离", group_name=None))
     actor = create_actor(db_session, ActorCreate(display_name="小展"))
     replace_actor_capabilities(db_session, actor.id, [first.id])
 
@@ -154,3 +142,26 @@ def test_invalid_capability_replacement_preserves_existing_roles(db_session):
     db_session.refresh(actor)
 
     assert [item.role_id for item in actor.role_capabilities] == [first.id]
+
+
+def test_theater_slot_template_and_role_lifecycle_routes(db_session):
+    def override_get_db(): yield db_session
+    app.dependency_overrides[get_db] = override_get_db
+    try:
+        client = TestClient(app)
+        headers = {"Authorization": f"Bearer {create_access_token('admin@example.com', 'admin')}"}
+        theater = client.post("/admin/theaters", headers=headers, json={"name": "四场剧场"}).json()
+        slots = [
+            client.post(f"/admin/theaters/{theater['id']}/slots", headers=headers, json={"name": name, "start_time": start, "sort_order": order}).json()
+            for order, (name, start) in enumerate((("午场", "13:00:00"), ("下午场", "16:00:00"), ("晚场", "19:00:00"), ("夜场", "21:30:00")), 1)
+        ]
+        template = client.put(f"/admin/theaters/{theater['id']}/weekly-template", headers=headers, json={"template": {"monday": [slot["id"] for slot in slots]}})
+        role = client.post("/admin/roles", headers=headers, json={"theater_id": theater["id"], "name": "角色甲", "group_name": None})
+
+        assert template.status_code == 200
+        assert template.json()["monday"] == [slot["id"] for slot in slots]
+        assert role.status_code == 200
+        assert client.delete(f"/admin/theater-slots/{slots[0]['id']}", headers=headers).status_code == 409
+        assert client.post(f"/admin/theater-slots/{slots[0]['id']}/archive", headers=headers).json()["is_active"] is False
+    finally:
+        app.dependency_overrides.clear()

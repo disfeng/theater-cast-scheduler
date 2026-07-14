@@ -1,229 +1,137 @@
 <template>
-  <section style="max-width: 1200px; margin: 0 auto;">
-    <PageHeader title="月度计划" description="在此生成并微调月度演出排班表，支持按模板批量生成，也可以单独添加或删除特定场次。" />
-    
-    <div v-if="error" style="padding: 12px; background: #ffeef0; color: #d9383a; border-radius: 6px; margin-bottom: 20px;" role="alert">
-      {{ error }}
-    </div>
+  <section class="monthly-page">
+    <PageHeader title="月度计划" description="直接在日历中开启或关闭每天的演出场次。" />
+    <el-alert v-if="error" :title="error" type="error" show-icon closable @close="error = ''" />
+    <el-alert v-if="success" :title="success" type="success" show-icon closable @close="success = ''" />
 
-    <div v-if="success" style="padding: 12px; background: #e6f4ea; color: #137333; border-radius: 6px; margin-bottom: 20px;">
-      {{ success }}
-    </div>
-
-    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 30px; align-items: start;">
-      
-      <!-- Left Column: Actions Form -->
-      <div style="display: flex; flex-direction: column; gap: 30px;">
-        
-        <!-- Batch Generation Panel -->
-        <div class="panel" style="margin: 0;">
-          <h3>批量生成计划</h3>
-          <div style="display: grid; gap: 16px; margin-top: 10px;">
-            <div style="display: flex; flex-direction: column; gap: 6px;">
-              <label for="theater-select">选择剧场</label>
-              <select id="theater-select" aria-label="选择剧场" v-model="theaterId" style="padding: 8px 12px; border-radius: 6px; background: rgba(0, 0, 0, 0.8); border: 1px solid var(--panel-border); color: var(--text-primary);">
-                <option value="">-- 请选择剧场 --</option>
-                <option v-for="t in theaters" :key="t.id" :value="t.id">{{ t.name }}</option>
-              </select>
-            </div>
-            <div style="display: flex; flex-direction: column; gap: 6px;">
-              <label for="year-input">年份</label>
-              <input id="year-input" aria-label="年份" type="number" v-model.number="year" style="padding: 8px 12px; border-radius: 6px; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--panel-border); color: var(--text-primary);" />
-            </div>
-            <div style="display: flex; flex-direction: column; gap: 6px;">
-              <label for="month-input">月份</label>
-              <input id="month-input" aria-label="月份" type="number" min="1" max="12" v-model.number="month" style="padding: 8px 12px; border-radius: 6px; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--panel-border); color: var(--text-primary);" />
-            </div>
-            <div style="display: flex; flex-direction: column; gap: 6px;">
-              <label for="closed-dates-area">闭店日期</label>
-              <textarea id="closed-dates-area" aria-label="闭店日期" placeholder="YYYY-MM-DD，多日期用逗号或换行分隔" v-model="closedDates" style="padding: 8px 12px; border-radius: 6px; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--panel-border); color: var(--text-primary); min-height: 80px;" />
-            </div>
-            <button type="button" style="padding: 10px; border-radius: 6px; background: var(--primary); color: #fff; border: none; font-weight: 600; cursor: pointer;" @click="handleGenerate">生成月度计划</button>
-          </div>
+    <el-card shadow="never" class="toolbar-card">
+      <div class="toolbar">
+        <div class="toolbar-group">
+          <span class="label">剧场</span>
+          <el-select v-model="selectedTheaterId" style="width: 220px" @change="changeTheater">
+            <el-option v-for="item in theaters" :key="item.id" :label="item.name" :value="item.id" />
+          </el-select>
         </div>
-
-        <!-- Add Custom Single Performance Panel -->
-        <div class="panel" style="margin: 0;">
-          <h3>添加单个场次</h3>
-          <form @submit.prevent="handleAddCustomPerformance" style="display: grid; gap: 16px; margin-top: 10px;">
-            <div style="display: flex; flex-direction: column; gap: 6px;">
-              <label for="custom-date-input">选择日期</label>
-              <input
-                id="custom-date-input"
-                aria-label="选择日期"
-                type="date"
-                v-model="customDate"
-                required
-                style="padding: 8px 12px; border-radius: 6px; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--panel-border); color: var(--text-primary);"
-              />
-            </div>
-            <div style="display: flex; flex-direction: column; gap: 6px;">
-              <label for="custom-slot-select">场次选择</label>
-              <select
-                id="custom-slot-select"
-                aria-label="场次选择"
-                v-model="customSlot"
-                style="padding: 8px 12px; border-radius: 6px; background: rgba(0, 0, 0, 0.8); border: 1px solid var(--panel-border); color: var(--text-primary);"
-              >
-                <option value="early">下午场 (Early)</option>
-                <option value="late">晚场 (Late)</option>
-              </select>
-            </div>
-            <button type="submit" style="padding: 10px; border-radius: 6px; background: var(--primary); color: #fff; border: none; font-weight: 600; cursor: pointer;">确认添加</button>
-          </form>
+        <div class="month-nav">
+          <el-button aria-label="上一月" circle @click="changeMonth(-1)"><el-icon><ArrowLeft /></el-icon></el-button>
+          <strong>{{ year }}年{{ month }}月</strong>
+          <el-button aria-label="下一月" circle @click="changeMonth(1)"><el-icon><ArrowRight /></el-icon></el-button>
         </div>
-
-      </div>
-
-      <!-- Right Column: Performance list grid -->
-      <div class="panel" style="margin: 0;">
-        <h3>本月场次列表 ({{ performances.length }})</h3>
-        <p v-if="performances.length === 0" style="color: var(--text-secondary); margin-top: 10px;">暂无该月份演出场次。</p>
-        <div v-else style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 16px; margin-top: 12px;">
-          <div
-            v-for="performance in performances"
-            :key="performance.id"
-            class="panel"
-            style="padding: 16px; margin: 0; background: rgba(255, 255, 255, 0.02); border: 1px solid var(--panel-border); display: flex; flex-direction: column; justify-content: space-between;"
-          >
-            <div>
-              <div style="font-weight: 600; font-size: 15px; color: var(--text-primary); margin-bottom: 8px;">
-                {{ performance.performance_date }}
-              </div>
-              <div style="display: flex; justify-content: space-between; align-items: center;">
-                <span class="badge badge-success">
-                  {{ performance.slot === "early" ? "下午场" : performance.slot === "late" ? "晚场" : performance.slot }}
-                </span>
-                <span style="font-size: 11px; color: var(--text-secondary);">
-                  {{ performance.status === "draft" ? "草稿" : "已发布" }}
-                </span>
-              </div>
-            </div>
-            
-            <!-- Delete Option -->
-            <button
-              type="button"
-              @click="handleDeletePerformance(performance.id)"
-              style="margin-top: 16px; background: rgba(220, 63, 69, 0.1); border: 1px solid rgba(220, 63, 69, 0.3); color: #bd2f35; padding: 6px 12px; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer; text-align: center;"
-            >
-              删除场次
-            </button>
-          </div>
+        <div class="summary">
+          <span><b>{{ openDays }}</b> 开演天</span><span><b>{{ closedDays }}</b> 闭店天</span><span><b>{{ performanceCount }}</b> 场</span>
+        </div>
+        <div class="actions">
+          <el-button :disabled="!selectedTheaterId" @click="resetFromTemplate">按周模板重置</el-button>
+          <el-button type="primary" :loading="saving" :disabled="!selectedTheaterId" @click="save">生成月度计划</el-button>
         </div>
       </div>
+    </el-card>
 
-    </div>
+    <el-skeleton v-if="loading" :rows="8" animated />
+    <el-empty v-else-if="!theaters.length" description="请先在基础配置中新增剧场" />
+    <el-empty v-else-if="!slots.length" description="该剧场还没有可用场次，请先配置场次" />
+    <MonthlyCalendarEditor
+      v-else
+      v-model="draft"
+      :year="year"
+      :month="month"
+      :slots="slots"
+      :weekly-template="weeklyTemplate"
+      :persisted-dates="persistedDates"
+      @dirty="dirty = true"
+    />
   </section>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, watch } from "vue";
+import { computed, onMounted, ref } from "vue";
+import { ArrowLeft, ArrowRight } from "@element-plus/icons-vue";
+import { ElMessageBox } from "element-plus";
+import { adminApi, type Performance, type Theater, type TheaterSlot, type WeeklyTemplate } from "../../api/admin";
 import { useAuthStore } from "../../auth/store";
-import { adminApi, Performance, Theater } from "../../api/admin";
+import MonthlyCalendarEditor from "../../components/admin/MonthlyCalendarEditor.vue";
 import PageHeader from "../../components/PageHeader.vue";
+import { buildCalendarDraft, nextMonth, serializeDraft, type MonthlyCalendarDraft } from "../../features/monthly-plan/calendarDraft";
 
-const authStore = useAuthStore();
-
-const theaters = ref<Theater[]>([]);
-const performances = ref<Performance[]>([]);
-
-const theaterId = ref<number | "">("");
-const year = ref(2026);
-const month = ref(6);
-const closedDates = ref("");
-
-const customDate = ref("2026-06-01");
-const customSlot = ref("early");
-
-const error = ref<string | null>(null);
-const success = ref<string | null>(null);
-
-const refreshTheaters = async () => {
-  if (!authStore.token) return;
-  try {
-    const res = await adminApi.getTheaters(authStore.token);
-    theaters.value = res;
-    if (res.length > 0 && theaterId.value === "") {
-      theaterId.value = res[0].id;
-    }
-  } catch (err: any) {
-    error.value = err.message;
-  }
+const initial = nextMonth(new Date());
+const auth = useAuthStore();
+const theaters = ref<Theater[]>([]), slots = ref<TheaterSlot[]>([]), performances = ref<Performance[]>([]);
+const weeklyTemplate = ref<WeeklyTemplate>({}), draft = ref<MonthlyCalendarDraft>({});
+const selectedTheaterId = ref<number>(), committedTheaterId = ref<number>();
+const year = ref(initial.year), month = ref(initial.month);
+const loading = ref(true), saving = ref(false), dirty = ref(false), error = ref(""), success = ref("");
+const performanceCount = computed(() => Object.values(draft.value).reduce((sum, ids) => sum + ids.length, 0));
+const persistedDates = computed(() => [...new Set(performances.value.map((item) => item.performance_date))]);
+const openDays = computed(() => Object.values(draft.value).filter((ids) => ids.length).length);
+const closedDays = computed(() => Object.keys(draft.value).length - openDays.value);
+const token = () => auth.token as string;
+const conflictMessages: Record<string, string> = {
+  monthly_plan_has_non_draft_performances: "该月存在已发布场次，无法直接移除。",
+  monthly_plan_has_referenced_performances: "该月存在已排班或已指定场次，请先处理引用。",
 };
 
-const loadPerformances = async () => {
-  if (!authStore.token || !theaterId.value) return;
+async function confirmDiscard() {
+  if (!dirty.value) return true;
+  try { await ElMessageBox.confirm("当前月份有未保存修改，确定放弃？", "切换计划", { type: "warning" }); return true; }
+  catch { return false; }
+}
+async function loadCalendar() {
+  if (!selectedTheaterId.value) return;
+  loading.value = true; error.value = "";
   try {
-    const res = await adminApi.getPerformances(authStore.token, Number(theaterId.value), year.value, month.value);
-    performances.value = res;
-  } catch (err: any) {
-    error.value = err.message;
-  }
-};
-
+    [slots.value, weeklyTemplate.value, performances.value] = await Promise.all([
+      adminApi.getTheaterSlots(token(), selectedTheaterId.value),
+      adminApi.getWeeklyTemplate(token(), selectedTheaterId.value),
+      adminApi.getPerformances(token(), selectedTheaterId.value, year.value, month.value),
+    ]);
+    draft.value = buildCalendarDraft({ year: year.value, month: month.value, template: weeklyTemplate.value, performances: performances.value });
+    dirty.value = false; committedTheaterId.value = selectedTheaterId.value;
+  } catch (err: any) { error.value = err.message || "加载月度计划失败"; }
+  finally { loading.value = false; }
+}
+async function changeMonth(offset: number) {
+  if (!(await confirmDiscard())) return;
+  const value = new Date(year.value, month.value - 1 + offset, 1);
+  year.value = value.getFullYear(); month.value = value.getMonth() + 1;
+  await loadCalendar();
+}
+async function changeTheater(value: number) {
+  if (!(await confirmDiscard())) { selectedTheaterId.value = committedTheaterId.value; return; }
+  selectedTheaterId.value = value; await loadCalendar();
+}
+async function resetFromTemplate() {
+  try { await ElMessageBox.confirm("将整月恢复为默认周模板？", "重置月度计划", { type: "warning" }); }
+  catch { return; }
+  draft.value = buildCalendarDraft({ year: year.value, month: month.value, template: weeklyTemplate.value, performances: [] }); dirty.value = true;
+}
+async function save() {
+  if (!selectedTheaterId.value) return;
+  saving.value = true; error.value = ""; success.value = "";
+  try {
+    const submittedDraft = Object.fromEntries(
+      Object.entries(draft.value).map(([date, slotIds]) => [date, [...slotIds]]),
+    );
+    performances.value = await adminApi.replaceMonthlyPlan(token(), { theater_id: selectedTheaterId.value, year: year.value, month: month.value, days: serializeDraft(draft.value) });
+    draft.value = performances.value.length
+      ? buildCalendarDraft({ year: year.value, month: month.value, template: weeklyTemplate.value, performances: performances.value })
+      : submittedDraft;
+    dirty.value = false; success.value = "月度计划已生成";
+  } catch (err: any) { error.value = conflictMessages[err.message] || err.message || "生成月度计划失败"; }
+  finally { saving.value = false; }
+}
 onMounted(async () => {
-  await refreshTheaters();
-  await loadPerformances();
+  try { theaters.value = await adminApi.getTheaters(token()); selectedTheaterId.value = theaters.value[0]?.id; committedTheaterId.value = selectedTheaterId.value; await loadCalendar(); }
+  catch (err: any) { error.value = err.message || "加载剧场失败"; loading.value = false; }
 });
-
-watch([theaterId, year, month], () => {
-  loadPerformances();
-});
-
-watch([year, month], () => {
-  customDate.value = `${year.value}-${String(month.value).padStart(2, "0")}-01`;
-});
-
-const handleGenerate = async () => {
-  if (!authStore.token || !theaterId.value) return;
-  error.value = null;
-  success.value = null;
-  try {
-    const dates = closedDates.value
-      .split(/[\n,]/)
-      .map((value) => value.trim())
-      .filter(Boolean);
-    const res = await adminApi.generateMonthlyPlan(authStore.token, {
-      theater_id: Number(theaterId.value),
-      year: year.value,
-      month: month.value,
-      closed_dates: dates,
-    });
-    performances.value = res;
-    success.value = "批量生成月度计划成功！";
-  } catch (err: any) {
-    error.value = err.message || "生成失败";
-  }
-};
-
-const handleAddCustomPerformance = async () => {
-  if (!authStore.token || !theaterId.value) return;
-  error.value = null;
-  success.value = null;
-  try {
-    await adminApi.createPerformance(authStore.token, {
-      theater_id: Number(theaterId.value),
-      performance_date: customDate.value,
-      slot: customSlot.value,
-    });
-    success.value = "自定义场次添加成功！";
-    await loadPerformances();
-  } catch (err: any) {
-    error.value = err.message || "添加场次失败";
-  }
-};
-
-const handleDeletePerformance = async (perfId: number) => {
-  if (!authStore.token) return;
-  error.value = null;
-  success.value = null;
-  if (!window.confirm("确定要删除该场次吗？")) return;
-  try {
-    await adminApi.deletePerformance(authStore.token, perfId);
-    success.value = "场次删除成功！";
-    await loadPerformances();
-  } catch (err: any) {
-    error.value = err.message || "删除场次失败";
-  }
-};
 </script>
+
+<style scoped>
+.monthly-page { max-width: 1500px; margin: 0 auto; display: grid; gap: 16px; }
+.toolbar-card :deep(.el-card__body) { padding: 14px 18px; }
+.toolbar { display: flex; align-items: center; gap: 22px; flex-wrap: wrap; }
+.toolbar-group { display: flex; align-items: center; gap: 9px; }.label { color: var(--text-secondary); font-size: 13px; }
+.month-nav { display: flex; align-items: center; gap: 12px; min-width: 180px; justify-content: center; }.month-nav strong { font-size: 18px; }
+.summary { display: flex; gap: 14px; color: var(--text-secondary); font-size: 13px; }.summary b { color: var(--text-primary); font-size: 17px; }
+.actions { margin-left: auto; display: flex; gap: 8px; }
+@media (max-width: 900px) { .toolbar { align-items: flex-end; }.summary { order: 3; width: 100%; }.actions { margin-left: 0; } }
+</style>

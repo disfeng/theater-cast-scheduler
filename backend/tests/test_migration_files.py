@@ -18,3 +18,20 @@ def test_import_drafts_migration_declares_tables_columns_and_indexes():
     assert "import_draft_items" in migration
     assert "weekly_batch_id" in migration
     assert "uq_weekly_batches_theater_week" in migration
+
+
+def test_multi_theater_migration_normalizes_slots_roles_and_performances():
+    migration = Path("migrations/versions/0004_multi_theater_configuration.py").read_text()
+
+    assert 'down_revision: str | None = "0003_add_import_drafts"' in migration
+    assert "theater_slots" in migration
+    assert "theater_weekly_template_entries" in migration
+    assert "theater_slot_id" in migration
+    assert "slot_name_snapshot" in migration
+    assert "start_time_snapshot" in migration
+    assert "uq_roles_theater_name" in migration
+    assert "uq_performance_theater_date_theater_slot" in migration
+    assert 'op.execute(sa.text("DELETE FROM actor_role_capabilities"))' in migration
+    assert 'op.execute(sa.text("DELETE FROM theaters"))' in migration
+    assert 'DELETE FROM users' not in migration
+    assert 'DELETE FROM actors' not in migration

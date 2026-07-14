@@ -74,7 +74,7 @@
       >
         <option :value="null">-- 全周或未指定 --</option>
         <option v-for="perf in performances" :key="perf.id" :value="perf.id">
-          {{ perf.performance_date }} ({{ perf.slot === 'early' ? '下午场' : perf.slot === 'late' ? '晚场' : perf.slot }})
+          {{ perf.performance_date }} ({{ perf.slot_name_snapshot }} {{ perf.start_time_snapshot.slice(0, 5) }})
         </option>
       </select>
       <span v-else style="color: var(--text-secondary); font-size: 13px;">—</span>

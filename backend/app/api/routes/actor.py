@@ -29,7 +29,7 @@ def my_schedule(
     return [
         {
             "date": assignment.performance.performance_date.isoformat(),
-            "slot": assignment.performance.slot,
+            "slot": assignment.performance.slot_name_snapshot,
             "role": assignment.role.name,
             "status": assignment.performance.status.value,
         }

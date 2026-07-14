@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, time
 from calendar import monthrange
 
 
@@ -17,13 +17,15 @@ WEEKDAY_NAMES = {
 @dataclass(frozen=True)
 class PerformanceDraft:
     date: date
-    slot: str
+    theater_slot_id: int
+    slot_name: str
+    start_time: time
 
 
 def generate_month_performances(
     year: int,
     month: int,
-    weekly_template: dict[str, list[str]],
+    weekly_template: dict[str, list[tuple[int, str, time]]],
     closed_dates: set[date],
 ) -> list[PerformanceDraft]:
     _, days_in_month = monthrange(year, month)
@@ -34,7 +36,7 @@ def generate_month_performances(
         if current in closed_dates:
             continue
         weekday = WEEKDAY_NAMES[current.weekday()]
-        for slot in weekly_template.get(weekday, []):
-            drafts.append(PerformanceDraft(date=current, slot=slot))
+        for slot_id, slot_name, start_time in weekly_template.get(weekday, []):
+            drafts.append(PerformanceDraft(current, slot_id, slot_name, start_time))
 
     return drafts

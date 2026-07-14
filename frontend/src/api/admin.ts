@@ -1,7 +1,16 @@
 import { apiClient } from "./client";
 
-export type Theater = { id: number; name: string; default_weekly_template: Record<string, string[]> };
-export type Role = { id: number; name: string; group_name: string | null };
+export type Theater = { id: number; name: string; is_active: boolean };
+export type TheaterSlot = {
+  id: number;
+  theater_id: number;
+  name: string;
+  start_time: string;
+  sort_order: number;
+  is_active: boolean;
+};
+export type WeeklyTemplate = Record<string, number[]>;
+export type Role = { id: number; theater_id: number; name: string; group_name: string | null; is_active: boolean };
 export type WeeklyBatch = {
   id: number;
   theater_id: number;
@@ -72,7 +81,9 @@ export type Performance = {
   id: number;
   theater_id: number;
   performance_date: string;
-  slot: string;
+  theater_slot_id: number;
+  slot_name_snapshot: string;
+  start_time_snapshot: string;
   status: string;
 };
 
@@ -86,20 +97,79 @@ export type LeaveRequest = {
 };
 
 export const adminApi = {
-  async getTheaters(token: string): Promise<Theater[]> {
-    return apiClient.request("/admin/theaters", { token });
+  async getTheaters(token: string, includeInactive = false): Promise<Theater[]> {
+    return apiClient.request(includeInactive ? "/admin/theaters?include_inactive=true" : "/admin/theaters", { token });
   },
 
-  async createTheater(token: string, payload: { name: string; default_weekly_template: Record<string, string[]> }): Promise<Theater> {
+  async createTheater(token: string, payload: { name: string }): Promise<Theater> {
     return apiClient.request("/admin/theaters", { method: "POST", token, body: payload });
   },
 
-  async getRoles(token: string): Promise<Role[]> {
-    return apiClient.request("/admin/roles", { token });
+  async updateTheater(token: string, theaterId: number, payload: { name: string }): Promise<Theater> {
+    return apiClient.request(`/admin/theaters/${theaterId}`, { method: "PATCH", token, body: payload });
   },
 
-  async createRole(token: string, payload: { name: string; group_name: string | null }): Promise<Role> {
+  async deleteTheater(token: string, theaterId: number): Promise<void> {
+    return apiClient.request(`/admin/theaters/${theaterId}`, { method: "DELETE", token });
+  },
+
+  async archiveTheater(token: string, theaterId: number): Promise<Theater> {
+    return apiClient.request(`/admin/theaters/${theaterId}/archive`, { method: "POST", token });
+  },
+
+  async restoreTheater(token: string, theaterId: number): Promise<Theater> {
+    return apiClient.request(`/admin/theaters/${theaterId}/restore`, { method: "POST", token });
+  },
+
+  async getTheaterSlots(token: string, theaterId: number, includeInactive = false): Promise<TheaterSlot[]> {
+    return apiClient.request(`/admin/theaters/${theaterId}/slots?include_inactive=${includeInactive}`, { token });
+  },
+
+  async createTheaterSlot(token: string, theaterId: number, payload: { name: string; start_time: string; sort_order: number }): Promise<TheaterSlot> {
+    return apiClient.request(`/admin/theaters/${theaterId}/slots`, { method: "POST", token, body: payload });
+  },
+
+  async updateTheaterSlot(token: string, slotId: number, payload: { name: string; start_time: string; sort_order: number }): Promise<TheaterSlot> {
+    return apiClient.request(`/admin/theater-slots/${slotId}`, { method: "PATCH", token, body: payload });
+  },
+
+  async deleteTheaterSlot(token: string, slotId: number): Promise<void> {
+    return apiClient.request(`/admin/theater-slots/${slotId}`, { method: "DELETE", token });
+  },
+
+  async archiveTheaterSlot(token: string, slotId: number): Promise<TheaterSlot> {
+    return apiClient.request(`/admin/theater-slots/${slotId}/archive`, { method: "POST", token });
+  },
+
+  async restoreTheaterSlot(token: string, slotId: number): Promise<TheaterSlot> {
+    return apiClient.request(`/admin/theater-slots/${slotId}/restore`, { method: "POST", token });
+  },
+
+  async getWeeklyTemplate(token: string, theaterId: number): Promise<WeeklyTemplate> {
+    return apiClient.request(`/admin/theaters/${theaterId}/weekly-template`, { token });
+  },
+
+  async updateWeeklyTemplate(token: string, theaterId: number, template: WeeklyTemplate): Promise<WeeklyTemplate> {
+    return apiClient.request(`/admin/theaters/${theaterId}/weekly-template`, { method: "PUT", token, body: { template } });
+  },
+
+  async getRoles(token: string, theaterId?: number, includeInactive = false): Promise<Role[]> {
+    if (!theaterId && !includeInactive) return apiClient.request("/admin/roles", { token });
+    const query = new URLSearchParams({ include_inactive: String(includeInactive) });
+    if (theaterId) query.set("theater_id", String(theaterId));
+    return apiClient.request(`/admin/roles?${query}`, { token });
+  },
+
+  async createRole(token: string, payload: { theater_id: number; name: string; group_name: string | null }): Promise<Role> {
     return apiClient.request("/admin/roles", { method: "POST", token, body: payload });
+  },
+
+  async updateRole(token: string, roleId: number, payload: { name: string; group_name: string | null }): Promise<Role> {
+    return apiClient.request(`/admin/roles/${roleId}`, { method: "PATCH", token, body: payload });
+  },
+
+  async deleteRole(token: string, roleId: number): Promise<void> {
+    return apiClient.request(`/admin/roles/${roleId}`, { method: "DELETE", token });
   },
 
   async getActors(token: string): Promise<Actor[]> {
@@ -114,11 +184,15 @@ export const adminApi = {
     return apiClient.request("/admin/monthly-plan/generate", { method: "POST", token, body: payload });
   },
 
+  async replaceMonthlyPlan(token: string, payload: { theater_id: number; year: number; month: number; days: { performance_date: string; theater_slot_ids: number[] }[] }): Promise<Performance[]> {
+    return apiClient.request("/admin/monthly-plan", { method: "PUT", token, body: payload });
+  },
+
   async getPerformances(token: string, theaterId: number, year: number, month: number): Promise<Performance[]> {
     return apiClient.request(`/admin/performances?theater_id=${theaterId}&year=${year}&month=${month}`, { token });
   },
 
-  async createPerformance(token: string, payload: { theater_id: number; performance_date: string; slot: string }): Promise<Performance> {
+  async createPerformance(token: string, payload: { theater_id: number; performance_date: string; theater_slot_id: number }): Promise<Performance> {
     return apiClient.request("/admin/performances", { method: "POST", token, body: payload });
   },
 
@@ -199,4 +273,3 @@ export const actorApi = {
     return apiClient.request("/actor/me/leave-requests", { method: "POST", token, body: payload });
   },
 };
-

@@ -1,165 +1,105 @@
-import { expect, test, beforeEach, vi } from "vitest";
-import { screen, fireEvent, waitFor } from "@testing-library/vue";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { cleanup, fireEvent, screen, waitFor } from "@testing-library/vue";
 import { renderAdminRoute } from "./helpers/render-app";
 
-beforeEach(() => { localStorage.clear(); vi.restoreAllMocks(); });
+const theater = { id: 1, name: "西安幽州剧场", is_active: true };
+const slots = [
+  { id: 1, theater_id: 1, name: "早场", start_time: "10:00:00", sort_order: 0, is_active: true },
+  { id: 2, theater_id: 1, name: "晚场", start_time: "19:00:00", sort_order: 1, is_active: true },
+];
 
-test("monthly plan page supports selectable generation and closed dates", async () => {
-  let generateBody: any = null;
-  let performancesList: any[] = [];
-  const performanceQueries: string[] = [];
-
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const path = String(input).replace(/https?:\/\/localhost:\d+/, "");
-      const method = init?.method ?? "GET";
-      const body = init?.body ? JSON.parse(String(init.body)) : null;
-
-      if (path === "/auth/login") return new Response(JSON.stringify({ access_token: "token", role: "admin" }), { status: 200 });
-      if (path === "/admin/theaters") return new Response(JSON.stringify([{ id: 1, name: "西幽剧场", default_weekly_template: {} }]), { status: 200 });
-      
-      if (path === "/admin/monthly-plan/generate" && method === "POST") {
-        generateBody = body;
-        performancesList = [
-          { id: 10, theater_id: body.theater_id, performance_date: `${body.year}-07-01`, slot: "early", status: "draft" }
-        ];
-        return new Response(JSON.stringify(performancesList), { status: 200 });
-      }
-      
-      if (path.startsWith("/admin/performances")) {
-        performanceQueries.push(path);
-        return new Response(JSON.stringify(performancesList), { status: 200 });
-      }
-      return new Response(JSON.stringify([]), { status: 200 });
-    })
-  );
-
-  const app = await renderAdminRoute("/admin/monthly-plan");
-  await screen.findByText("西幽剧场");
-
-  // Select theater
-  await fireEvent.update(screen.getByLabelText("选择剧场"), "1");
-  // Set year & month
-  await fireEvent.update(screen.getByLabelText("年份"), "2027");
-  await fireEvent.update(screen.getByLabelText("月份"), "7");
-  // Fill closed dates
-  await fireEvent.update(screen.getByLabelText("闭店日期"), "2027-07-02, 2027-07-09");
-  // Generate
-  await fireEvent.click(screen.getByRole("button", { name: "生成月度计划" }));
-
-  await waitFor(() => {
-    expect(generateBody).toEqual({
-      theater_id: 1,
-      year: 2027,
-      month: 7,
-      closed_dates: ["2027-07-02", "2027-07-09"],
-    });
-  });
-
-  expect(await screen.findByText("2027-07-01")).toBeInTheDocument();
-  expect(await screen.findByText("下午场")).toBeInTheDocument();
-  expect(performanceQueries).toContain(
-    "/admin/performances?theater_id=1&year=2027&month=7",
-  );
+beforeEach(() => {
+  localStorage.clear();
+  vi.restoreAllMocks();
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  vi.setSystemTime(new Date(2026, 6, 14));
 });
 
-test("monthly plan page displays generation conflicts", async () => {
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const path = String(input).replace(/https?:\/\/localhost:\d+/, "");
-      if (path === "/auth/login") {
-        return new Response(JSON.stringify({ access_token: "token", role: "admin" }), { status: 200 });
-      }
-      if (path === "/admin/theaters") {
-        return new Response(
-          JSON.stringify([{ id: 1, name: "西幽剧场", default_weekly_template: {} }]),
-          { status: 200 }
-        );
-      }
-      if (path.startsWith("/admin/performances")) {
-        return new Response(JSON.stringify([]), { status: 200 });
-      }
-      if (path === "/admin/monthly-plan/generate" && init?.method === "POST") {
-        return new Response(
-          JSON.stringify({ detail: "monthly_plan_has_non_draft_performances" }),
-          { status: 409 }
-        );
-      }
-      return new Response(JSON.stringify([]), { status: 200 });
-    })
-  );
+afterEach(() => cleanup());
 
-  const app = await renderAdminRoute("/admin/monthly-plan");
-  await screen.findByText("西幽剧场");
+function performance(performanceDate: string, slotId = 1) {
+  const slot = slots.find((item) => item.id === slotId)!;
+  return {
+    id: slotId,
+    theater_id: 1,
+    performance_date: performanceDate,
+    theater_slot_id: slotId,
+    slot_name_snapshot: slot.name,
+    start_time_snapshot: slot.start_time,
+    status: "draft",
+  };
+}
+
+function mockApi(
+  onReplace?: (body: any) => void,
+  replaceConflict = false,
+  existingPerformances: ReturnType<typeof performance>[] = [],
+  replacementPerformances: ReturnType<typeof performance>[] = [],
+) {
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const path = String(input).replace(/https?:\/\/localhost:\d+/, "");
+    const method = init?.method || "GET";
+    if (path === "/admin/theaters") return new Response(JSON.stringify([theater]), { status: 200 });
+    if (path === "/admin/theaters/1/slots?include_inactive=false") return new Response(JSON.stringify(slots), { status: 200 });
+    if (path === "/admin/theaters/1/weekly-template") return new Response(JSON.stringify({ monday: [1, 2] }), { status: 200 });
+    if (path.startsWith("/admin/performances?")) return new Response(JSON.stringify(existingPerformances), { status: 200 });
+    if (path === "/admin/monthly-plan" && method === "PUT") {
+      if (replaceConflict) return new Response(JSON.stringify({ detail: "monthly_plan_has_referenced_performances" }), { status: 409 });
+      const body = JSON.parse(String(init?.body));
+      onReplace?.(body);
+      return new Response(JSON.stringify(replacementPerformances), { status: 200 });
+    }
+    return new Response(JSON.stringify([]), { status: 200 });
+  }));
+}
+
+test("defaults to next month and saves the edited calendar", async () => {
+  let replaceBody: any;
+  mockApi((body) => { replaceBody = body; });
+  await renderAdminRoute("/admin/monthly-plan");
+
+  expect(await screen.findByText("2026年8月")).toBeInTheDocument();
+  await fireEvent.click(await screen.findByRole("button", { name: "8月3日 关闭早场" }));
   await fireEvent.click(screen.getByRole("button", { name: "生成月度计划" }));
 
-  expect(
-    await screen.findByText("monthly_plan_has_non_draft_performances")
-  ).toHaveAttribute("role", "alert");
+  await waitFor(() => expect(replaceBody).toBeTruthy());
+  expect(replaceBody.theater_id).toBe(1);
+  expect(replaceBody.year).toBe(2026);
+  expect(replaceBody.month).toBe(8);
+  expect(replaceBody.days).toContainEqual({ performance_date: "2026-08-03", theater_slot_ids: [2] });
 });
 
-test("monthly plan page supports adding and deleting custom performances", async () => {
-  const requests: { method: string; path: string; body: any }[] = [];
-  
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const path = String(input).replace(/https?:\/\/localhost:\d+/, "");
-      const method = init?.method ?? "GET";
-      const body = init?.body ? JSON.parse(String(init.body)) : null;
+test("marks performances loaded from the backend as persisted", async () => {
+  mockApi(undefined, false, [performance("2026-08-04")]);
+  await renderAdminRoute("/admin/monthly-plan");
 
-      requests.push({ method, path, body });
+  const persistedCell = (await screen.findByRole("button", { name: "8月4日 关闭早场" })).closest(".day-cell");
+  expect(persistedCell).toHaveClass("is-persisted");
+});
 
-      if (path === "/auth/login") {
-        return new Response(JSON.stringify({ access_token: "token", role: "admin" }), { status: 200 });
-      }
-      if (path === "/admin/theaters") {
-        return new Response(JSON.stringify([{ id: 1, name: "西幽剧场", default_weekly_template: {} }]), { status: 200 });
-      }
-      if (path.startsWith("/admin/performances")) {
-        if (method === "GET") {
-          const hasCreated = requests.some(r => r.method === "POST" && r.path === "/admin/performances");
-          const hasDeleted = requests.some(r => r.method === "DELETE" && r.path.startsWith("/admin/performances/"));
-          if (hasCreated && !hasDeleted) {
-            return new Response(JSON.stringify([{ id: 99, theater_id: 1, performance_date: "2026-06-15", slot: "early", status: "draft" }]), { status: 200 });
-          }
-          return new Response(JSON.stringify([]), { status: 200 });
-        }
-        if (method === "POST") {
-          return new Response(JSON.stringify({ id: 99, theater_id: 1, performance_date: "2026-06-15", slot: "early", status: "draft" }), { status: 200 });
-        }
-        if (method === "DELETE") {
-          return new Response(JSON.stringify({ status: "ok" }), { status: 200 });
-        }
-      }
-      return new Response(JSON.stringify([]), { status: 200 });
-    })
-  );
+test("marks template dates as persisted only after a successful save", async () => {
+  mockApi(undefined, false, [], [performance("2026-08-03"), performance("2026-08-03", 2)]);
+  await renderAdminRoute("/admin/monthly-plan");
 
-  const app = await renderAdminRoute("/admin/monthly-plan");
-  await screen.findByText("西幽剧场");
+  const templateCell = (await screen.findByRole("button", { name: "8月3日 关闭早场" })).closest(".day-cell");
+  expect(templateCell).not.toHaveClass("is-persisted");
 
-  // Fill in manual performance creation form
-  await fireEvent.update(screen.getByLabelText("选择日期"), "2026-06-15");
-  await fireEvent.update(screen.getByLabelText("场次选择"), "early");
-  await fireEvent.click(screen.getByRole("button", { name: "确认添加" }));
+  await fireEvent.click(screen.getByRole("button", { name: "生成月度计划" }));
+  await waitFor(() => expect(templateCell).toHaveClass("is-persisted"));
+});
 
-  // Verify added
-  await screen.findByText("自定义场次添加成功！");
-  await screen.findByText("2026-06-15");
+test("switches to the next month from the calendar toolbar", async () => {
+  mockApi();
+  await renderAdminRoute("/admin/monthly-plan");
+  await screen.findByText("2026年8月");
+  await fireEvent.click(screen.getByRole("button", { name: "下一月" }));
+  expect(await screen.findByText("2026年9月")).toBeInTheDocument();
+});
 
-  // Verify list request was sent
-  expect(requests.some(r => r.method === "POST" && r.path === "/admin/performances")).toBe(true);
-
-  // Mock window.confirm
-  vi.spyOn(window, "confirm").mockImplementation(() => true);
-
-  // Delete performance
-  await fireEvent.click(screen.getByRole("button", { name: "删除场次" }));
-
-  // Verify deleted message
-  await screen.findByText("场次删除成功！");
-  expect(requests.some(r => r.method === "DELETE" && r.path === "/admin/performances/99")).toBe(true);
+test("shows a readable conflict without discarding the draft", async () => {
+  mockApi(undefined, true);
+  await renderAdminRoute("/admin/monthly-plan");
+  await screen.findByRole("button", { name: "8月3日 关闭早场" });
+  await fireEvent.click(screen.getByRole("button", { name: "生成月度计划" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("该月存在已排班或已指定场次，请先处理引用。");
 });

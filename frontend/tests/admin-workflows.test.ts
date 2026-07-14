@@ -64,34 +64,75 @@ test("theater and role entry workflows", async () => {
         }
         return new Response(JSON.stringify(rolesList), { status: 200 });
       }
+      if (path.startsWith("/admin/roles?")) return new Response(JSON.stringify(rolesList), { status: 200 });
+      if (path.match(/^\/admin\/theaters\/\d+\/slots/)) return new Response(JSON.stringify([]), { status: 200 });
+      if (path.match(/^\/admin\/theaters\/\d+\/weekly-template/)) return new Response(JSON.stringify({}), { status: 200 });
       return new Response(JSON.stringify([]), { status: 200 });
     })
   );
 
   const app = await renderAdminRoute("/admin/settings");
 
-  // Create theater
+  await fireEvent.click(screen.getByRole("button", { name: "新增剧场" }));
   await fireEvent.update(screen.getByLabelText("剧场名称"), "西幽剧场");
-  await fireEvent.click(screen.getByRole("checkbox", { name: "周一下午场" }));
-  await fireEvent.click(screen.getByRole("button", { name: "保存剧场" }));
+  await fireEvent.click(screen.getByRole("button", { name: "保存" }));
 
-  // Create role
+  await waitFor(() => expect(requests).toContainEqual({ method: "POST", path: "/admin/theaters", body: { name: "西幽剧场" } }));
+  await fireEvent.click(await screen.findByRole("tab", { name: "剧场角色" }));
+  await fireEvent.click(await screen.findByRole("button", { name: "新增角色" }));
   await fireEvent.update(screen.getByLabelText("角色名称"), "长离");
   await fireEvent.update(screen.getByLabelText("角色分组"), "女位");
-  await fireEvent.click(screen.getByRole("button", { name: "保存角色" }));
+  await fireEvent.click(screen.getByRole("button", { name: "保存" }));
 
   await waitFor(() => {
     expect(requests).toContainEqual({
       method: "POST",
       path: "/admin/theaters",
-      body: { name: "西幽剧场", default_weekly_template: { monday: ["early"] } },
+      body: { name: "西幽剧场" },
     });
   });
   expect(requests).toContainEqual({
     method: "POST",
     path: "/admin/roles",
-    body: { name: "长离", group_name: "女位" },
+    body: { theater_id: 1, name: "长离", group_name: "女位" },
   });
+});
+
+test("settings groups theater configuration into focused tabs", async () => {
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+    const path = String(input).replace(/https?:\/\/localhost:\d+/, "");
+    if (path === "/admin/theaters") return new Response(JSON.stringify([{ id: 1, name: "西安幽州剧场", is_active: true }]), { status: 200 });
+    if (path === "/admin/theaters/1/slots?include_inactive=false") return new Response(JSON.stringify([{ id: 1, theater_id: 1, name: "早场", start_time: "12:30:00", sort_order: 0, is_active: true }]), { status: 200 });
+    if (path.startsWith("/admin/roles?") && path.includes("theater_id=1")) return new Response(JSON.stringify([
+      { id: 1, theater_id: 1, name: "柳知雨", group_name: "女", is_active: true },
+      { id: 2, theater_id: 1, name: "谢允昭", group_name: "男", is_active: true },
+    ]), { status: 200 });
+    if (path === "/admin/actors") return new Response(JSON.stringify([
+      { id: 1, display_name: "小展", role_ids: [1] },
+      { id: 2, display_name: "小雨", role_ids: [1, 2] },
+      { id: 3, display_name: "小北", role_ids: [2] },
+    ]), { status: 200 });
+    if (path === "/admin/theaters/1/weekly-template") return new Response(JSON.stringify({ monday: [1] }), { status: 200 });
+    return new Response(JSON.stringify([]), { status: 200 });
+  }));
+
+  const view = await renderAdminRoute("/admin/settings");
+
+  expect(await screen.findByRole("button", { name: "新增场次" })).toBeVisible();
+  expect(screen.queryByRole("button", { name: "保存周模板" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "新增角色" })).not.toBeInTheDocument();
+
+  await fireEvent.click(screen.getByRole("tab", { name: "默认周模板" }));
+  expect(screen.getByRole("button", { name: "保存周模板" })).toBeVisible();
+  expect(view.container.querySelectorAll(".template-day-card")).toHaveLength(7);
+
+  await fireEvent.click(screen.getByRole("tab", { name: "剧场角色" }));
+  expect(screen.getByRole("button", { name: "新增角色" })).toBeVisible();
+  expect(screen.getByRole("columnheader", { name: "出演演员" })).toBeVisible();
+  expect(await screen.findByText("小展、小雨")).toBeVisible();
+  await fireEvent.update(screen.getByLabelText("搜索角色或分组"), "女");
+  expect(await screen.findByText("柳知雨")).toBeInTheDocument();
+  await waitFor(() => expect(screen.queryByText("谢允昭")).not.toBeInTheDocument());
 });
 
 test("actor entry and capability workflows", async () => {
@@ -112,8 +153,17 @@ test("actor entry and capability workflows", async () => {
       if (path === "/auth/login") {
         return new Response(JSON.stringify({ access_token: "token", role: "admin" }), { status: 200 });
       }
+      if (path === "/admin/theaters") {
+        return new Response(JSON.stringify([
+          { id: 1, name: "西安幽州剧场", is_active: true },
+          { id: 2, name: "长安剧场", is_active: true },
+        ]), { status: 200 });
+      }
       if (path === "/admin/roles") {
-        return new Response(JSON.stringify([{ id: 1, name: "长离", group_name: "女位" }]), { status: 200 });
+        return new Response(JSON.stringify([
+          { id: 1, theater_id: 1, name: "长离", group_name: "女位", is_active: true },
+          { id: 2, theater_id: 2, name: "柳知雨", group_name: "女位", is_active: true },
+        ]), { status: 200 });
       }
       if (path === "/admin/actors") {
         if (method === "POST") {
@@ -146,26 +196,38 @@ test("actor entry and capability workflows", async () => {
 
   const app = await renderAdminRoute("/admin/actors");
 
-  // Fill and save actor
+  await fireEvent.click(screen.getByRole("button", { name: "新增演员" }));
+  expect(screen.getByRole("dialog", { name: "新增演员" })).toBeVisible();
   await fireEvent.update(screen.getByLabelText("演员姓名"), "小展");
-  await fireEvent.update(screen.getByLabelText("演员评级"), "normal");
   await fireEvent.update(screen.getByLabelText("最大连场"), "2");
+  await fireEvent.click(await screen.findByRole("checkbox", { name: "西安幽州剧场：长离" }));
   await fireEvent.click(screen.getByRole("button", { name: "保存演员" }));
 
-  // Wait for the new row to render
   await screen.findByText("小展");
+  expect(screen.getByRole("columnheader", { name: "可出演角色" })).toBeVisible();
+  expect(await screen.findByText("西安幽州剧场：长离")).toBeVisible();
 
-  // Edit fields
-  await fireEvent.update(screen.getByLabelText("修改最大连场"), "3");
-  // Check capability role checkbox
-  await fireEvent.click(screen.getByRole("checkbox", { name: "长离" }));
-  await fireEvent.click(screen.getByRole("button", { name: "保存演员设置" }));
+  await fireEvent.update(screen.getByLabelText("搜索演员"), "不存在");
+  await waitFor(() => expect(screen.queryByText("小展")).not.toBeInTheDocument());
+  await fireEvent.update(screen.getByLabelText("搜索演员"), "小展");
+  expect(await screen.findByText("小展")).toBeVisible();
+
+  await fireEvent.click(screen.getByRole("button", { name: "编辑小展" }));
+  expect(screen.getByRole("dialog", { name: "编辑演员" })).toBeVisible();
+  await fireEvent.update(screen.getByLabelText("最大连场"), "3");
+  await fireEvent.click(await screen.findByRole("checkbox", { name: "长安剧场：柳知雨" }));
+  await fireEvent.click(screen.getByRole("button", { name: "保存演员" }));
 
   await waitFor(() => {
     expect(requests).toContainEqual({
       method: "POST",
       path: "/admin/actors",
       body: { display_name: "小展", max_consecutive_performances: 2, rating_level: "normal", low_rating_monthly_cap: null, notes: null },
+    });
+    expect(requests).toContainEqual({
+      method: "PUT",
+      path: "/admin/actors/1/capabilities",
+      body: { role_ids: [1] },
     });
     expect(requests).toContainEqual({
       method: "PATCH",
@@ -175,7 +237,7 @@ test("actor entry and capability workflows", async () => {
     expect(requests).toContainEqual({
       method: "PUT",
       path: "/admin/actors/1/capabilities",
-      body: { role_ids: [1] },
+      body: { role_ids: [1, 2] },
     });
   });
 });

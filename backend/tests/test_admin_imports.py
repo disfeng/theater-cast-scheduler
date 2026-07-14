@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import date, datetime, time
 
 import pytest
 from fastapi.testclient import TestClient
@@ -16,6 +16,7 @@ from app.models.entities import (
     PersistentImportDraft,
     Role,
     Theater,
+    TheaterSlot,
     WeeklyBatch,
     Wish,
 )
@@ -40,7 +41,7 @@ from app.services.auth import create_access_token
 
 
 def test_weekly_batch_and_import_draft_relationships(db_session):
-    theater = Theater(name="测试剧场", default_weekly_template={})
+    theater = Theater(name="测试剧场")
     db_session.add(theater)
     db_session.flush()
 
@@ -70,7 +71,7 @@ def test_weekly_batch_and_import_draft_relationships(db_session):
 
 
 def test_duplicate_weekly_batches_raise_integrity_error(db_session):
-    theater = Theater(name="测试剧场", default_weekly_template={})
+    theater = Theater(name="测试剧场")
     db_session.add(theater)
     db_session.flush()
 
@@ -83,7 +84,7 @@ def test_duplicate_weekly_batches_raise_integrity_error(db_session):
 
 
 def test_get_or_create_weekly_batch_validation_and_idempotency(db_session):
-    theater = Theater(name="测试剧场", default_weekly_template={})
+    theater = Theater(name="测试剧场")
     db_session.add(theater)
     db_session.flush()
 
@@ -101,7 +102,7 @@ def test_get_or_create_weekly_batch_validation_and_idempotency(db_session):
 
 
 def test_parse_import_draft_persists_items(db_session):
-    theater = Theater(name="测试剧场", default_weekly_template={})
+    theater = Theater(name="测试剧场")
     db_session.add(theater)
     db_session.flush()
 
@@ -132,14 +133,14 @@ def test_parse_import_draft_persists_items(db_session):
 
 def test_item_validation_and_corrections(db_session):
     # Setup theater, batch, actor, role, capability
-    theater = Theater(name="测试剧场", default_weekly_template={})
+    theater = Theater(name="测试剧场")
     db_session.add(theater)
     db_session.flush()
 
     batch = get_or_create_weekly_batch(db_session, theater.id, date(2026, 6, 1))
 
     actor = Actor(display_name="浩泽")
-    role = Role(name="长离")
+    role = Role(theater=theater, name="长离")
     db_session.add_all([actor, role])
     db_session.flush()
 
@@ -178,24 +179,37 @@ def test_item_validation_and_corrections(db_session):
 
 
 def test_performance_outside_batch_validation(db_session):
-    theater = Theater(name="测试剧场", default_weekly_template={})
-    other_theater = Theater(name="另一个剧场", default_weekly_template={})
+    theater = Theater(name="测试剧场")
+    other_theater = Theater(name="另一个剧场")
     db_session.add_all([theater, other_theater])
+    db_session.flush()
+
+    slot = TheaterSlot(theater_id=theater.id, name="午场", start_time=time(14))
+    other_slot = TheaterSlot(theater_id=other_theater.id, name="午场", start_time=time(14))
+    db_session.add_all([slot, other_slot])
     db_session.flush()
 
     batch = get_or_create_weekly_batch(db_session, theater.id, date(2026, 6, 1))
 
     # Performance belonging to another theater
     perf_other = Performance(
-        theater_id=other_theater.id, performance_date=date(2026, 6, 1), slot="early"
+        theater_id=other_theater.id,
+        theater_slot_id=other_slot.id,
+        performance_date=date(2026, 6, 1),
+        slot_name_snapshot=other_slot.name,
+        start_time_snapshot=other_slot.start_time,
     )
     # Performance outside Monday to Sunday week range
     perf_outside = Performance(
-        theater_id=theater.id, performance_date=date(2026, 6, 8), slot="early"
+        theater_id=theater.id,
+        theater_slot_id=slot.id,
+        performance_date=date(2026, 6, 8),
+        slot_name_snapshot=slot.name,
+        start_time_snapshot=slot.start_time,
     )
 
     actor = Actor(display_name="浩泽")
-    role = Role(name="长离")
+    role = Role(theater=theater, name="长离")
     db_session.add_all([perf_other, perf_outside, actor, role])
     db_session.flush()
     db_session.add(ActorRoleCapability(actor_id=actor.id, role_id=role.id))
@@ -227,13 +241,13 @@ def test_performance_outside_batch_validation(db_session):
 
 
 def test_partial_confirmation_and_idempotency(db_session):
-    theater = Theater(name="测试剧场", default_weekly_template={})
+    theater = Theater(name="测试剧场")
     db_session.add(theater)
     db_session.flush()
 
     batch = get_or_create_weekly_batch(db_session, theater.id, date(2026, 6, 1))
     actor = Actor(display_name="浩泽")
-    role = Role(name="长离")
+    role = Role(theater=theater, name="长离")
     db_session.add_all([actor, role])
     db_session.flush()
     db_session.add(ActorRoleCapability(actor_id=actor.id, role_id=role.id))
@@ -291,7 +305,7 @@ def test_partial_confirmation_and_idempotency(db_session):
 
 
 def test_batch_scheduling_inputs(db_session):
-    theater = Theater(name="测试剧场", default_weekly_template={})
+    theater = Theater(name="测试剧场")
     db_session.add(theater)
     db_session.flush()
 
@@ -299,7 +313,7 @@ def test_batch_scheduling_inputs(db_session):
     batch2 = get_or_create_weekly_batch(db_session, theater.id, date(2026, 6, 8))
 
     actor = Actor(display_name="浩泽")
-    role = Role(name="长离")
+    role = Role(theater=theater, name="长离")
     db_session.add_all([actor, role])
     db_session.flush()
     db_session.add(ActorRoleCapability(actor_id=actor.id, role_id=role.id))
@@ -360,9 +374,9 @@ def test_batch_scheduling_inputs(db_session):
 
 
 def test_admin_imports_api_workflow(db_session):
-    theater = Theater(name="测试剧场", default_weekly_template={})
+    theater = Theater(name="测试剧场")
     actor = Actor(display_name="浩泽")
-    role = Role(name="长离")
+    role = Role(theater=theater, name="长离")
     db_session.add_all([theater, actor, role])
     db_session.flush()
     db_session.add(ActorRoleCapability(actor_id=actor.id, role_id=role.id))
@@ -492,9 +506,9 @@ def test_admin_imports_api_workflow(db_session):
 
 
 def test_selected_actor_and_role_ids_override_unmatched_raw_names(db_session):
-    theater = Theater(name="测试剧场", default_weekly_template={})
+    theater = Theater(name="测试剧场")
     actor = Actor(display_name="正确演员")
-    role = Role(name="正确角色")
+    role = Role(theater=theater, name="正确角色")
     db_session.add_all([theater, actor, role])
     db_session.flush()
     db_session.add(ActorRoleCapability(actor_id=actor.id, role_id=role.id))
@@ -527,7 +541,7 @@ def test_selected_actor_and_role_ids_override_unmatched_raw_names(db_session):
     ],
 )
 def test_missing_required_fields_remain_invalid(db_session, payload):
-    theater = Theater(name="测试剧场", default_weekly_template={})
+    theater = Theater(name="测试剧场")
     db_session.add(theater)
     db_session.flush()
     batch = get_or_create_weekly_batch(db_session, theater.id, date(2026, 6, 1))
@@ -540,7 +554,7 @@ def test_missing_required_fields_remain_invalid(db_session, payload):
 
 
 def test_adding_item_reopens_confirmed_draft(db_session):
-    theater = Theater(name="测试剧场", default_weekly_template={})
+    theater = Theater(name="测试剧场")
     db_session.add(theater)
     db_session.flush()
     batch = get_or_create_weekly_batch(db_session, theater.id, date(2026, 6, 1))
@@ -570,9 +584,9 @@ def test_adding_item_reopens_confirmed_draft(db_session):
 
 
 def test_stale_identity_map_does_not_duplicate_confirmation(db_session):
-    theater = Theater(name="测试剧场", default_weekly_template={})
+    theater = Theater(name="测试剧场")
     actor = Actor(display_name="浩泽")
-    role = Role(name="长离")
+    role = Role(theater=theater, name="长离")
     db_session.add_all([theater, actor, role])
     db_session.flush()
     db_session.add(ActorRoleCapability(actor_id=actor.id, role_id=role.id))
