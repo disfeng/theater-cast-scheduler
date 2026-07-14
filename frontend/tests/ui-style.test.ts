@@ -35,3 +35,11 @@ test("light secondary buttons do not retain low-contrast dark-theme text", () =>
   });
   expect(offenders).toEqual([]);
 });
+
+test("light workspace content and form controls do not keep dark-theme white text", () => {
+  const offenders = Object.entries(vueSources).flatMap(([path, source]) => {
+    const matches = source.match(/<(?:div|h[1-6]|td|input|select|textarea)\b[^>]*style="[^"]*color:\s*#fff\b[^"]*"/gi);
+    return matches?.map(() => path) ?? [];
+  });
+  expect(offenders).toEqual([]);
+});

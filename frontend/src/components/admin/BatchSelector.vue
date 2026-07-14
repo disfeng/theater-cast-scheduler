@@ -10,7 +10,7 @@
           :value="modelValue.theaterId"
           @change="$emit('update:modelValue', { ...modelValue, theaterId: ($event.target as HTMLSelectElement).value })"
           required
-          style="padding: 8px 12px; border-radius: 6px; background: rgba(0, 0, 0, 0.8); border: 1px solid var(--panel-border); color: #fff;"
+          style="padding: 8px 12px; border-radius: 6px; background: rgba(0, 0, 0, 0.8); border: 1px solid var(--panel-border); color: var(--text-primary);"
         >
           <option value="">-- 请选择剧场 --</option>
           <option v-for="t in theaters" :key="t.id" :value="t.id">{{ t.name }}</option>
@@ -26,7 +26,7 @@
           :value="modelValue.weekStart"
           @input="$emit('update:modelValue', { ...modelValue, weekStart: ($event.target as HTMLInputElement).value })"
           required
-          style="padding: 8px 12px; border-radius: 6px; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--panel-border); color: #fff;"
+          style="padding: 8px 12px; border-radius: 6px; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--panel-border); color: var(--text-primary);"
         />
       </div>
 

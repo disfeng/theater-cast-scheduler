@@ -11,25 +11,25 @@
       <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 20px; margin-bottom: 30px;">
         <div class="panel" style="margin: 0; padding: 20px;">
           <div style="color: var(--text-secondary); font-size: 14px; font-weight: 500;">待审批请假</div>
-          <div style="font-size: 36px; font-weight: 700; margin: 10px 0; color: #fff;">{{ pendingLeaves.length }}</div>
-          <div style="font-size: 12px; color: var(--text-secondary);">需管理员批准 of 请假申请</div>
+          <div style="font-size: 36px; font-weight: 700; margin: 10px 0; color: var(--text-primary);">{{ pendingLeaves.length }}</div>
+          <div style="font-size: 12px; color: var(--text-secondary);">需管理员审批的请假申请</div>
         </div>
 
         <div class="panel" style="margin: 0; padding: 20px;">
           <div style="color: var(--text-secondary); font-size: 14px; font-weight: 500;">本月草稿场次</div>
-          <div style="font-size: 36px; font-weight: 700; margin: 10px 0; color: #fff;">{{ draftPerformancesCount }}</div>
+          <div style="font-size: 36px; font-weight: 700; margin: 10px 0; color: var(--text-primary);">{{ draftPerformancesCount }}</div>
           <div style="font-size: 12px; color: var(--text-secondary);">尚未正式发布的排班场次</div>
         </div>
 
         <div class="panel" style="margin: 0; padding: 20px;">
           <div style="color: var(--text-secondary); font-size: 14px; font-weight: 500;">待导入周批次</div>
-          <div style="font-size: 36px; font-weight: 700; margin: 10px 0; color: #fff;">{{ draftBatches.length }}</div>
+          <div style="font-size: 36px; font-weight: 700; margin: 10px 0; color: var(--text-primary);">{{ draftBatches.length }}</div>
           <div style="font-size: 12px; color: var(--text-secondary);">未锁定或导入中的周排班</div>
         </div>
 
         <div class="panel" style="margin: 0; padding: 20px;">
           <div style="color: var(--text-secondary); font-size: 14px; font-weight: 500;">活跃演员数</div>
-          <div data-metric="actors" style="font-size: 36px; font-weight: 700; margin: 10px 0; color: #fff;">{{ totalActors }}</div>
+          <div data-metric="actors" style="font-size: 36px; font-weight: 700; margin: 10px 0; color: var(--text-primary);">{{ totalActors }}</div>
           <div style="font-size: 12px; color: var(--text-secondary);">当前在册并启用的演员</div>
         </div>
       </div>

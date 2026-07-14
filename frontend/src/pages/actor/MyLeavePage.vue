@@ -21,7 +21,7 @@
             v-model="datesInput"
             placeholder="例如：2026-06-16, 2026-06-17"
             required
-            style="padding: 8px 12px; border-radius: 6px; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--panel-border); color: #fff;"
+            style="padding: 8px 12px; border-radius: 6px; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--panel-border); color: var(--text-primary);"
           />
         </div>
 
@@ -32,7 +32,7 @@
             aria-label="备注"
             v-model="noteInput"
             placeholder="例如：家里有急事 / 生病"
-            style="padding: 8px 12px; border-radius: 6px; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--panel-border); color: #fff;"
+            style="padding: 8px 12px; border-radius: 6px; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--panel-border); color: var(--text-primary);"
           />
         </div>
 

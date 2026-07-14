@@ -21,22 +21,22 @@
           <div style="display: grid; gap: 16px; margin-top: 10px;">
             <div style="display: flex; flex-direction: column; gap: 6px;">
               <label for="theater-select">选择剧场</label>
-              <select id="theater-select" aria-label="选择剧场" v-model="theaterId" style="padding: 8px 12px; border-radius: 6px; background: rgba(0, 0, 0, 0.8); border: 1px solid var(--panel-border); color: #fff;">
+              <select id="theater-select" aria-label="选择剧场" v-model="theaterId" style="padding: 8px 12px; border-radius: 6px; background: rgba(0, 0, 0, 0.8); border: 1px solid var(--panel-border); color: var(--text-primary);">
                 <option value="">-- 请选择剧场 --</option>
                 <option v-for="t in theaters" :key="t.id" :value="t.id">{{ t.name }}</option>
               </select>
             </div>
             <div style="display: flex; flex-direction: column; gap: 6px;">
               <label for="year-input">年份</label>
-              <input id="year-input" aria-label="年份" type="number" v-model.number="year" style="padding: 8px 12px; border-radius: 6px; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--panel-border); color: #fff;" />
+              <input id="year-input" aria-label="年份" type="number" v-model.number="year" style="padding: 8px 12px; border-radius: 6px; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--panel-border); color: var(--text-primary);" />
             </div>
             <div style="display: flex; flex-direction: column; gap: 6px;">
               <label for="month-input">月份</label>
-              <input id="month-input" aria-label="月份" type="number" min="1" max="12" v-model.number="month" style="padding: 8px 12px; border-radius: 6px; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--panel-border); color: #fff;" />
+              <input id="month-input" aria-label="月份" type="number" min="1" max="12" v-model.number="month" style="padding: 8px 12px; border-radius: 6px; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--panel-border); color: var(--text-primary);" />
             </div>
             <div style="display: flex; flex-direction: column; gap: 6px;">
               <label for="closed-dates-area">闭店日期</label>
-              <textarea id="closed-dates-area" aria-label="闭店日期" placeholder="YYYY-MM-DD，多日期用逗号或换行分隔" v-model="closedDates" style="padding: 8px 12px; border-radius: 6px; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--panel-border); color: #fff; min-height: 80px;" />
+              <textarea id="closed-dates-area" aria-label="闭店日期" placeholder="YYYY-MM-DD，多日期用逗号或换行分隔" v-model="closedDates" style="padding: 8px 12px; border-radius: 6px; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--panel-border); color: var(--text-primary); min-height: 80px;" />
             </div>
             <button type="button" style="padding: 10px; border-radius: 6px; background: var(--primary); color: #fff; border: none; font-weight: 600; cursor: pointer;" @click="handleGenerate">生成月度计划</button>
           </div>
@@ -54,7 +54,7 @@
                 type="date"
                 v-model="customDate"
                 required
-                style="padding: 8px 12px; border-radius: 6px; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--panel-border); color: #fff;"
+                style="padding: 8px 12px; border-radius: 6px; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--panel-border); color: var(--text-primary);"
               />
             </div>
             <div style="display: flex; flex-direction: column; gap: 6px;">
@@ -63,7 +63,7 @@
                 id="custom-slot-select"
                 aria-label="场次选择"
                 v-model="customSlot"
-                style="padding: 8px 12px; border-radius: 6px; background: rgba(0, 0, 0, 0.8); border: 1px solid var(--panel-border); color: #fff;"
+                style="padding: 8px 12px; border-radius: 6px; background: rgba(0, 0, 0, 0.8); border: 1px solid var(--panel-border); color: var(--text-primary);"
               >
                 <option value="early">下午场 (Early)</option>
                 <option value="late">晚场 (Late)</option>
@@ -87,7 +87,7 @@
             style="padding: 16px; margin: 0; background: rgba(255, 255, 255, 0.02); border: 1px solid var(--panel-border); display: flex; flex-direction: column; justify-content: space-between;"
           >
             <div>
-              <div style="font-weight: 600; font-size: 15px; color: #fff; margin-bottom: 8px;">
+              <div style="font-weight: 600; font-size: 15px; color: var(--text-primary); margin-bottom: 8px;">
                 {{ performance.performance_date }}
               </div>
               <div style="display: flex; justify-content: space-between; align-items: center;">

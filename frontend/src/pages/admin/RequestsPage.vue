@@ -27,7 +27,7 @@
           </thead>
           <tbody>
             <tr v-for="request in requests" :key="request.id" style="border-bottom: 1px solid var(--panel-border);">
-              <td style="padding: 12px; font-weight: 600; color: #fff;">{{ request.actor_name }}</td>
+              <td style="padding: 12px; font-weight: 600; color: var(--text-primary);">{{ request.actor_name }}</td>
               <td style="padding: 12px;">{{ request.leave_date }}</td>
               <td style="padding: 12px;">
                 <span

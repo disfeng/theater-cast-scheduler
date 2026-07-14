@@ -22,7 +22,7 @@
              </thead>
              <tbody>
                <tr v-for="(item, idx) in scheduleList" :key="idx" style="border-bottom: 1px solid var(--panel-border);">
-                 <td style="padding: 12px; font-weight: 500; color: #fff;">{{ item.date }}</td>
+                 <td style="padding: 12px; font-weight: 500; color: var(--text-primary);">{{ item.date }}</td>
                  <td style="padding: 12px;">
                    <span class="badge badge-success">
                      {{ item.slot === "early" ? "下午场" : item.slot === "late" ? "晚场" : item.slot }}

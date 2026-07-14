@@ -25,7 +25,7 @@
                 v-model="theaterName"
                 placeholder="例如：西安幽州剧场"
                 required
-                style="padding: 8px 12px; border-radius: 6px; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--panel-border); color: #fff;"
+                style="padding: 8px 12px; border-radius: 6px; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--panel-border); color: var(--text-primary);"
               />
             </div>
 
@@ -79,7 +79,7 @@
                 v-model="roleName"
                 placeholder="例如：长离"
                 required
-                style="padding: 8px 12px; border-radius: 6px; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--panel-border); color: #fff;"
+                style="padding: 8px 12px; border-radius: 6px; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--panel-border); color: var(--text-primary);"
               />
             </div>
             <div style="display: flex; flex-direction: column; gap: 6px;">
@@ -88,7 +88,7 @@
                 id="role-group-input"
                 v-model="groupName"
                 placeholder="例如：女位 / 男位 / 辅助"
-                style="padding: 8px 12px; border-radius: 6px; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--panel-border); color: #fff;"
+                style="padding: 8px 12px; border-radius: 6px; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--panel-border); color: var(--text-primary);"
               />
             </div>
             <button type="submit" style="margin-top: 8px; padding: 10px; border-radius: 6px; background: var(--primary); color: #fff; border: none; font-weight: 600; cursor: pointer;">保存角色</button>
@@ -111,7 +111,7 @@
               class="panel"
               style="padding: 16px; margin: 0; background: rgba(255, 255, 255, 0.02); border: 1px solid var(--panel-border);"
             >
-              <div style="font-weight: 600; font-size: 16px; color: #fff; margin-bottom: 6px;">
+              <div style="font-weight: 600; font-size: 16px; color: var(--text-primary); margin-bottom: 6px;">
                 {{ theater.name }}
               </div>
               <div style="font-size: 13px; color: var(--text-secondary); line-height: 1.5;">

@@ -20,7 +20,7 @@
               v-model="displayName"
               placeholder="例如：小展"
               required
-              style="padding: 8px 12px; border-radius: 6px; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--panel-border); color: #fff;"
+              style="padding: 8px 12px; border-radius: 6px; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--panel-border); color: var(--text-primary);"
             />
           </div>
 
@@ -30,7 +30,7 @@
               id="actor-rating-select"
               aria-label="演员评级"
               v-model="ratingLevel"
-              style="padding: 8px 12px; border-radius: 6px; background: rgba(0, 0, 0, 0.8); border: 1px solid var(--panel-border); color: #fff;"
+              style="padding: 8px 12px; border-radius: 6px; background: rgba(0, 0, 0, 0.8); border: 1px solid var(--panel-border); color: var(--text-primary);"
             >
               <option value="high">高</option>
               <option value="normal">普通</option>
@@ -49,7 +49,7 @@
               max="3"
               v-model.number="maxConsecutive"
               required
-              style="padding: 8px 12px; border-radius: 6px; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--panel-border); color: #fff;"
+              style="padding: 8px 12px; border-radius: 6px; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--panel-border); color: var(--text-primary);"
             />
           </div>
 
@@ -60,7 +60,7 @@
               type="number"
               min="0"
               v-model.number="monthlyCap"
-              style="padding: 8px 12px; border-radius: 6px; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--panel-border); color: #fff;"
+              style="padding: 8px 12px; border-radius: 6px; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--panel-border); color: var(--text-primary);"
             />
           </div>
 
@@ -69,7 +69,7 @@
             <input
               id="actor-notes-input"
               v-model="notes"
-              style="padding: 8px 12px; border-radius: 6px; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--panel-border); color: #fff;"
+              style="padding: 8px 12px; border-radius: 6px; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--panel-border); color: var(--text-primary);"
             />
           </div>
 

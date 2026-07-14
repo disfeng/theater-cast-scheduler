@@ -1,6 +1,6 @@
 <template>
   <div style="border: 1px solid var(--panel-border); padding: 20px; border-radius: 12px; background: rgba(255, 255, 255, 0.01);">
-    <h4 style="margin-bottom: 16px; color: #fff;">{{ actor.display_name }}</h4>
+    <h4 style="margin-bottom: 16px; color: var(--text-primary);">{{ actor.display_name }}</h4>
     <div style="display: grid; gap: 16px; grid-template-columns: 1fr 1fr; margin-bottom: 16px;">
       <div style="display: flex; flex-direction: column; gap: 6px;">
         <label :for="'edit-max-consecutive-' + actor.id">修改最大连场</label>
@@ -11,7 +11,7 @@
           min="1"
           max="3"
           v-model.number="maxConsecutive"
-          style="padding: 8px 12px; border-radius: 6px; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--panel-border); color: #fff;"
+          style="padding: 8px 12px; border-radius: 6px; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--panel-border); color: var(--text-primary);"
         />
       </div>
       
@@ -20,7 +20,7 @@
         <select
           :id="'edit-rating-' + actor.id"
           v-model="ratingLevel"
-          style="padding: 8px 12px; border-radius: 6px; background: rgba(0, 0, 0, 0.8); border: 1px solid var(--panel-border); color: #fff;"
+          style="padding: 8px 12px; border-radius: 6px; background: rgba(0, 0, 0, 0.8); border: 1px solid var(--panel-border); color: var(--text-primary);"
         >
           <option value="high">高</option>
           <option value="normal">普通</option>
@@ -36,7 +36,7 @@
           type="number"
           min="0"
           v-model.number="monthlyCap"
-          style="padding: 8px 12px; border-radius: 6px; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--panel-border); color: #fff;"
+          style="padding: 8px 12px; border-radius: 6px; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--panel-border); color: var(--text-primary);"
         />
       </div>
 
@@ -45,7 +45,7 @@
         <input
           :id="'edit-notes-' + actor.id"
           v-model="notes"
-          style="padding: 8px 12px; border-radius: 6px; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--panel-border); color: #fff;"
+          style="padding: 8px 12px; border-radius: 6px; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--panel-border); color: var(--text-primary);"
         />
       </div>
     </div>

@@ -73,7 +73,7 @@
               v-model="rawText"
               placeholder="请粘贴微信群内的指定与许愿统计文本，例如：&#10;#指定信息&#10;【虔诚许愿】-小展/长离-Jennifer"
               required
-              style="padding: 12px; border-radius: 8px; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--panel-border); color: #fff; min-height: 120px; font-family: monospace; font-size: 14px;"
+              style="padding: 12px; border-radius: 8px; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--panel-border); color: var(--text-primary); min-height: 120px; font-family: monospace; font-size: 14px;"
             />
           </div>
           <div style="display: flex; justify-content: flex-end;">

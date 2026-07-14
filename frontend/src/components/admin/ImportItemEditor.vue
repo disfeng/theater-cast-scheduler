@@ -5,7 +5,7 @@
         aria-label="类型"
         v-model="fields.item_kind"
         :disabled="isConfirmed || isBatchReadOnly"
-        style="width: 100%; padding: 6px; border-radius: 4px; background: rgba(0, 0, 0, 0.8); border: 1px solid var(--panel-border); color: #fff;"
+        style="width: 100%; padding: 6px; border-radius: 4px; background: rgba(0, 0, 0, 0.8); border: 1px solid var(--panel-border); color: var(--text-primary);"
       >
         <option value="wish">许愿</option>
         <option value="designation">指定</option>
@@ -17,7 +17,7 @@
         type="text"
         v-model="fields.player_name"
         :disabled="isConfirmed || isBatchReadOnly"
-        style="width: 100%; padding: 6px; border-radius: 4px; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--panel-border); color: #fff;"
+        style="width: 100%; padding: 6px; border-radius: 4px; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--panel-border); color: var(--text-primary);"
       />
     </td>
     <td style="padding: 8px;">
@@ -26,7 +26,7 @@
         type="text"
         v-model="fields.actor_name_raw"
         :disabled="isConfirmed || isBatchReadOnly"
-        style="width: 100%; padding: 6px; border-radius: 4px; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--panel-border); color: #fff;"
+        style="width: 100%; padding: 6px; border-radius: 4px; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--panel-border); color: var(--text-primary);"
       />
     </td>
     <td style="padding: 8px;">
@@ -35,7 +35,7 @@
         type="text"
         v-model="fields.role_name_raw"
         :disabled="isConfirmed || isBatchReadOnly"
-        style="width: 100%; padding: 6px; border-radius: 4px; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--panel-border); color: #fff;"
+        style="width: 100%; padding: 6px; border-radius: 4px; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--panel-border); color: var(--text-primary);"
       />
     </td>
     <td style="padding: 8px;">
@@ -43,7 +43,7 @@
         aria-label="匹配演员"
         v-model="fields.actor_id"
         :disabled="isConfirmed || isBatchReadOnly"
-        style="width: 100%; padding: 6px; border-radius: 4px; background: rgba(0, 0, 0, 0.8); border: 1px solid var(--panel-border); color: #fff;"
+        style="width: 100%; padding: 6px; border-radius: 4px; background: rgba(0, 0, 0, 0.8); border: 1px solid var(--panel-border); color: var(--text-primary);"
       >
         <option :value="null">-- 未选择 --</option>
         <option v-for="act in actors" :key="act.id" :value="act.id">
@@ -56,7 +56,7 @@
         aria-label="匹配角色"
         v-model="fields.role_id"
         :disabled="isConfirmed || isBatchReadOnly"
-        style="width: 100%; padding: 6px; border-radius: 4px; background: rgba(0, 0, 0, 0.8); border: 1px solid var(--panel-border); color: #fff;"
+        style="width: 100%; padding: 6px; border-radius: 4px; background: rgba(0, 0, 0, 0.8); border: 1px solid var(--panel-border); color: var(--text-primary);"
       >
         <option :value="null">-- 未选择 --</option>
         <option v-for="rl in roles" :key="rl.id" :value="rl.id">
@@ -70,7 +70,7 @@
         aria-label="匹配场次"
         v-model="fields.target_performance_id"
         :disabled="isConfirmed || isBatchReadOnly"
-        style="width: 100%; padding: 6px; border-radius: 4px; background: rgba(0, 0, 0, 0.8); border: 1px solid var(--panel-border); color: #fff;"
+        style="width: 100%; padding: 6px; border-radius: 4px; background: rgba(0, 0, 0, 0.8); border: 1px solid var(--panel-border); color: var(--text-primary);"
       >
         <option :value="null">-- 全周或未指定 --</option>
         <option v-for="perf in performances" :key="perf.id" :value="perf.id">
@@ -85,7 +85,7 @@
         type="text"
         v-model="fields.note"
         :disabled="isConfirmed || isBatchReadOnly"
-        style="width: 100%; padding: 6px; border-radius: 4px; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--panel-border); color: #fff;"
+        style="width: 100%; padding: 6px; border-radius: 4px; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--panel-border); color: var(--text-primary);"
       />
     </td>
     <td style="padding: 8px;">
