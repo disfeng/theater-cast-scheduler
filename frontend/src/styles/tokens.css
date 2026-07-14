@@ -1,19 +1,25 @@
-@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap');
-
 :root {
-  --bg-gradient: linear-gradient(135deg, #070a13 0%, #0d1222 50%, #151636 100%);
-  --panel-bg: rgba(17, 22, 39, 0.7);
-  --panel-border: rgba(255, 255, 255, 0.08);
-  --panel-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.5);
-  --sidebar-bg: #030611;
-  --text-primary: #f3f4f6;
-  --text-secondary: #9ca3af;
-  --primary: #6366f1;
-  --primary-hover: #4f46e5;
-  --accent: #a855f7;
-  --success: #10b981;
-  --danger: #ef4444;
-  --input-bg: rgba(31, 41, 55, 0.7);
-  --input-border: rgba(75, 85, 99, 0.5);
-  --font-family: 'Outfit', Inter, ui-sans-serif, system-ui, sans-serif;
+  --el-color-primary: #2f6fed;
+  --el-color-success: #16a36a;
+  --el-color-warning: #e58a1f;
+  --el-color-danger: #dc3f45;
+  --el-border-radius-base: 7px;
+
+  --workspace-bg: #f3f6fa;
+  --panel-bg: #ffffff;
+  --panel-border: #dfe5ee;
+  --panel-shadow: 0 1px 3px rgba(20, 35, 60, 0.08);
+  --sidebar-bg: #18233a;
+  --sidebar-active: #2f6fed;
+  --text-primary: #172033;
+  --text-secondary: #667085;
+  --primary: #2f6fed;
+  --primary-hover: #245ed0;
+  --accent: #2f6fed;
+  --success: #16a36a;
+  --warning: #e58a1f;
+  --danger: #dc3f45;
+  --input-bg: #ffffff;
+  --input-border: #cfd7e3;
+  --font-family: Inter, "PingFang SC", "Microsoft YaHei", system-ui, -apple-system, sans-serif;
 }

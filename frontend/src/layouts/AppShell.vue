@@ -1,83 +1,105 @@
 <template>
-  <el-container style="min-height: 100vh;">
-    <el-aside width="260px" style="background: var(--sidebar-bg); border-right: 1px solid var(--panel-border);">
-      <div style="padding: 24px; text-align: center; border-bottom: 1px solid var(--panel-border);">
-        <h3 style="margin: 0; font-weight: 700; color: #fff; letter-spacing: 0.5px;">剧场卡司排班</h3>
+  <el-container class="app-shell">
+    <el-aside :width="asideWidth" class="sidebar" :class="{ 'is-open': mobileOpen }">
+      <div class="brand">
+        <span class="brand-mark">剧</span>
+        <strong v-show="!collapsed">剧场卡司排班</strong>
       </div>
-      
+
       <el-menu
         :default-active="activePath"
+        :collapse="collapsed && !isMobile"
         router
         background-color="transparent"
-        text-color="var(--text-secondary)"
-        active-text-color="#fff"
-        style="border: none; padding: 20px 10px;"
+        text-color="#aeb9cc"
+        active-text-color="#ffffff"
+        class="sidebar-menu"
+        @select="mobileOpen = false"
       >
         <template v-if="authStore.role === 'admin'">
-          <el-menu-item index="/admin/dashboard">
-            <span style="font-weight: 500;">工作台</span>
-          </el-menu-item>
-          <el-menu-item index="/admin/settings">
-            <span style="font-weight: 500;">基础配置</span>
-          </el-menu-item>
-          <el-menu-item index="/admin/actors">
-            <span style="font-weight: 500;">演员管理</span>
-          </el-menu-item>
-          <el-menu-item index="/admin/monthly-plan">
-            <span style="font-weight: 500;">月度计划</span>
-          </el-menu-item>
-          <el-menu-item index="/admin/designations-wishes">
-            <span style="font-weight: 500;">指定与许愿</span>
-          </el-menu-item>
-          <el-menu-item index="/admin/leave-requests">
-            <span style="font-weight: 500;">请假审批</span>
-          </el-menu-item>
-          <el-menu-item index="/admin/weekly-scheduling">
-            <span style="font-weight: 500;">周排班</span>
-          </el-menu-item>
+          <el-menu-item index="/admin/dashboard"><span>工作台</span></el-menu-item>
+          <el-menu-item index="/admin/settings"><span>基础配置</span></el-menu-item>
+          <el-menu-item index="/admin/actors"><span>演员管理</span></el-menu-item>
+          <el-menu-item index="/admin/monthly-plan"><span>月度计划</span></el-menu-item>
+          <el-menu-item index="/admin/designations-wishes"><span>指定与许愿</span></el-menu-item>
+          <el-menu-item index="/admin/leave-requests"><span>请假审批</span></el-menu-item>
+          <el-menu-item index="/admin/weekly-scheduling"><span>周排班</span></el-menu-item>
         </template>
-        
-        <template v-if="authStore.role === 'actor'">
-          <el-menu-item index="/actor/schedule">
-            <span style="font-weight: 500;">我的排期</span>
-          </el-menu-item>
-          <el-menu-item index="/actor/leave">
-            <span style="font-weight: 500;">我的请假</span>
-          </el-menu-item>
+        <template v-else>
+          <el-menu-item index="/actor/schedule"><span>我的排期</span></el-menu-item>
+          <el-menu-item index="/actor/leave"><span>我的请假</span></el-menu-item>
         </template>
       </el-menu>
     </el-aside>
-    
-    <el-container>
-      <el-header style="background: rgba(13, 18, 34, 0.4); border-bottom: 1px solid var(--panel-border); display: flex; align-items: center; justify-content: flex-end; padding: 0 30px; backdrop-filter: blur(8px);">
-        <div style="display: flex; align-items: center; gap: 16px;">
-          <span style="font-size: 14px; color: var(--text-secondary);">
-            {{ authStore.role === 'admin' ? '管理员' : '演员' }}
-          </span>
-          <el-button type="danger" plain size="small" @click="handleLogout">退出登录</el-button>
+
+    <div v-if="isMobile && mobileOpen" class="sidebar-mask" @click="mobileOpen = false" />
+
+    <el-container class="workspace">
+      <el-header class="topbar">
+        <el-button text class="menu-toggle" aria-label="切换导航" @click="toggleSidebar">☰</el-button>
+        <div class="topbar-actions">
+          <span class="role-label">{{ authStore.role === 'admin' ? '管理员' : '演员' }}</span>
+          <el-button size="small" @click="handleLogout">退出登录</el-button>
         </div>
       </el-header>
-      
-      <el-main style="padding: 40px; background: rgba(7, 10, 19, 0.2);">
-        <RouterView />
-      </el-main>
+      <el-main class="workspace-main"><RouterView /></el-main>
     </el-container>
   </el-container>
 </template>
 
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useAuthStore } from "../auth/store";
 
 const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
-
+const collapsed = ref(false);
+const mobileOpen = ref(false);
+const isMobile = ref(false);
 const activePath = computed(() => route.path);
+const asideWidth = computed(() => isMobile.value ? "0" : collapsed.value ? "76px" : "240px");
 
-const handleLogout = () => {
+function syncViewport() {
+  isMobile.value = window.innerWidth <= 900;
+  if (!isMobile.value) mobileOpen.value = false;
+}
+
+function toggleSidebar() {
+  if (isMobile.value) mobileOpen.value = !mobileOpen.value;
+  else collapsed.value = !collapsed.value;
+}
+
+function handleLogout() {
   authStore.logout();
-  router.push("/login");
-};
+  void router.replace("/login");
+}
+
+onMounted(() => { syncViewport(); window.addEventListener("resize", syncViewport); });
+onBeforeUnmount(() => window.removeEventListener("resize", syncViewport));
 </script>
+
+<style scoped>
+.app-shell { min-height: 100vh; }
+.sidebar { background: var(--sidebar-bg); transition: width .2s ease; overflow: hidden; z-index: 20; }
+.brand { height: 64px; display: flex; align-items: center; gap: 11px; padding: 0 18px; color: #fff; white-space: nowrap; border-bottom: 1px solid rgba(255,255,255,.08); }
+.brand-mark { flex: 0 0 36px; height: 36px; display: grid; place-items: center; border-radius: 9px; background: var(--sidebar-active); font-weight: 700; }
+.sidebar-menu { border: 0; padding: 14px 10px; }
+.sidebar-menu :deep(.el-menu-item) { margin: 4px 0; border-radius: 7px; }
+.sidebar-menu :deep(.el-menu-item.is-active) { background: var(--sidebar-active); }
+.workspace { min-width: 0; }
+.topbar { height: 64px; display: flex; align-items: center; justify-content: space-between; padding: 0 24px; background: #fff; border-bottom: 1px solid var(--panel-border); }
+.menu-toggle { font-size: 20px; color: var(--text-primary); }
+.topbar-actions { display: flex; align-items: center; gap: 14px; }
+.role-label { color: var(--text-secondary); font-size: 14px; }
+.workspace-main { padding: 28px; background: var(--workspace-bg); overflow-x: hidden; }
+.sidebar-mask { display: none; }
+@media (max-width: 900px) {
+  .sidebar { position: fixed; inset: 0 auto 0 0; width: 240px !important; transform: translateX(-100%); }
+  .sidebar.is-open { transform: translateX(0); }
+  .sidebar-mask { display: block; position: fixed; inset: 0; z-index: 15; background: rgba(15,23,42,.42); }
+  .workspace-main { padding: 18px 14px; }
+  .topbar { padding: 0 14px; }
+}
+</style>

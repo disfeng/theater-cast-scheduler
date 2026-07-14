@@ -2,16 +2,6 @@ import { createRouter, createWebHistory, RouteRecordRaw } from "vue-router";
 import { useAuthStore } from "../auth/store";
 import AppShell from "../layouts/AppShell.vue";
 import LoginPage from "../pages/LoginPage.vue";
-import NotFoundPage from "../pages/NotFoundPage.vue";
-import DashboardPage from "../pages/admin/DashboardPage.vue";
-import SettingsPage from "../pages/admin/SettingsPage.vue";
-import ActorsPage from "../pages/admin/ActorsPage.vue";
-import MonthlyPlanPage from "../pages/admin/MonthlyPlanPage.vue";
-import DesignationWishPage from "../pages/admin/DesignationWishPage.vue";
-import RequestsPage from "../pages/admin/RequestsPage.vue";
-import WeeklySchedulingPage from "../pages/admin/WeeklySchedulingPage.vue";
-import MySchedulePage from "../pages/actor/MySchedulePage.vue";
-import MyLeavePage from "../pages/actor/MyLeavePage.vue";
 
 const routes: RouteRecordRaw[] = [
   {
@@ -35,13 +25,13 @@ const routes: RouteRecordRaw[] = [
     meta: { requiresAuth: true, role: "admin" },
     children: [
       { path: "", redirect: "/admin/dashboard" },
-      { path: "dashboard", name: "admin-dashboard", component: DashboardPage },
-      { path: "settings", name: "admin-settings", component: SettingsPage },
-      { path: "actors", name: "admin-actors", component: ActorsPage },
-      { path: "monthly-plan", name: "admin-monthly-plan", component: MonthlyPlanPage },
-      { path: "designations-wishes", name: "admin-designations-wishes", component: DesignationWishPage },
-      { path: "leave-requests", name: "admin-leave-requests", component: RequestsPage },
-      { path: "weekly-scheduling", name: "admin-weekly-scheduling", component: WeeklySchedulingPage },
+      { path: "dashboard", name: "admin-dashboard", component: () => import("../pages/admin/DashboardPage.vue") },
+      { path: "settings", name: "admin-settings", component: () => import("../pages/admin/SettingsPage.vue") },
+      { path: "actors", name: "admin-actors", component: () => import("../pages/admin/ActorsPage.vue") },
+      { path: "monthly-plan", name: "admin-monthly-plan", component: () => import("../pages/admin/MonthlyPlanPage.vue") },
+      { path: "designations-wishes", name: "admin-designations-wishes", component: () => import("../pages/admin/DesignationWishPage.vue") },
+      { path: "leave-requests", name: "admin-leave-requests", component: () => import("../pages/admin/RequestsPage.vue") },
+      { path: "weekly-scheduling", name: "admin-weekly-scheduling", component: () => import("../pages/admin/WeeklySchedulingPage.vue") },
     ],
   },
   {
@@ -50,14 +40,17 @@ const routes: RouteRecordRaw[] = [
     meta: { requiresAuth: true, role: "actor" },
     children: [
       { path: "", redirect: "/actor/schedule" },
-      { path: "schedule", name: "actor-schedule", component: MySchedulePage },
-      { path: "leave", name: "actor-leave", component: MyLeavePage },
+      { path: "schedule", name: "actor-schedule", component: () => import("../pages/actor/MySchedulePage.vue") },
+      { path: "leave", name: "actor-leave", component: () => import("../pages/actor/MyLeavePage.vue") },
     ],
   },
   {
     path: "/:pathMatch(.*)*",
-    name: "not-found",
-    component: NotFoundPage,
+    redirect: () => {
+      const authStore = useAuthStore();
+      if (!authStore.isAuthenticated) return "/login";
+      return authStore.role === "actor" ? "/actor/schedule" : "/admin/dashboard";
+    },
   },
 ];
 

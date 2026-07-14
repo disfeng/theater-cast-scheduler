@@ -6,7 +6,14 @@ export class ApiError extends Error {
 }
 
 export class ApiClient {
-  constructor(private readonly baseUrl = "http://localhost:7004") {}
+  constructor(
+    private readonly baseUrl = "http://localhost:7004",
+    private authErrorHandler?: (status: 401 | 403) => void,
+  ) {}
+
+  setAuthErrorHandler(handler: (status: 401 | 403) => void) {
+    this.authErrorHandler = handler;
+  }
 
   async login(email: string, password: string): Promise<{ access_token: string; role: "admin" | "actor" }> {
     return this.request("/auth/login", {
@@ -49,6 +56,9 @@ export class ApiClient {
           message = formatErrorDetail(errBody.detail, message);
         }
       } catch {}
+      if (response.status === 401 || response.status === 403) {
+        this.authErrorHandler?.(response.status);
+      }
       throw new ApiError(response.status, message);
     }
 
