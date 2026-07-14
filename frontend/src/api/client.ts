@@ -1,228 +1,59 @@
-export type Theater = { id: number; name: string; default_weekly_template: Record<string, string[]> };
-export type Role = { id: number; name: string; group_name: string | null };
-export type WeeklyBatch = {
-  id: number;
-  theater_id: number;
-  week_start: string;
-  status: "draft" | "ready" | "scheduled";
-  created_at: string;
-};
-
-export type ImportDraftItem = {
-  id: number;
-  import_draft_id: number;
-  item_kind: "designation" | "wish" | "unresolved";
-  raw_line: string | null;
-  designation_type: "universal" | "top_three" | "paired" | null;
-  player_name: string | null;
-  actor_name_raw: string | null;
-  role_name_raw: string | null;
-  actor_id: number | null;
-  role_id: number | null;
-  target_performance_id: number | null;
-  note: string | null;
-  validation_status: "valid" | "invalid";
-  failure_reason: string | null;
-  confirmed_at: string | null;
-  designation_id: number | null;
-  wish_id: number | null;
-};
-
-export type ImportDraft = {
-  id: number;
-  weekly_batch_id: number;
-  raw_text: string;
-  status: "draft" | "partially_confirmed" | "confirmed";
-  created_at: string;
-  updated_at: string;
-  items: ImportDraftItem[];
-};
-
-export type BatchSchedulingInputs = {
-  designations: {
-    designation_type: "universal" | "top_three" | "paired";
-    player_name: string;
-    role_id: number;
-    actor_id: number;
-    target_performance_id: number | null;
-    submitted_at: string;
-    failure_reason: string | null;
-  }[];
-  wishes: {
-    player_name: string;
-    role_id: number;
-    actor_id: number;
-    note: string | null;
-  }[];
-};
-export type Actor = {
-  id: number;
-  display_name: string;
-  max_consecutive_performances: number;
-  rating_level: "high" | "normal" | "low" | "suspended";
-  low_rating_monthly_cap: number | null;
-  notes: string | null;
-  role_ids: number[];
-};
-export type Performance = {
-  id: number;
-  theater_id: number;
-  performance_date: string;
-  slot: string;
-  status: string;
-};
-export type LeaveRequest = {
-  id: number;
-  actor_id: number;
-  actor_name: string;
-  leave_date: string;
-  status: string;
-  note: string | null;
-};
+export class ApiError extends Error {
+  constructor(public readonly status: number, message: string) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
 
 export class ApiClient {
   constructor(private readonly baseUrl = "http://localhost:7004") {}
 
   async login(email: string, password: string): Promise<{ access_token: string; role: "admin" | "actor" }> {
-    const response = await fetch(`${this.baseUrl}/auth/login`, {
+    return this.request("/auth/login", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, password }),
+      body: { email, password },
     });
-    if (!response.ok) throw new Error("登录失败");
-    return response.json();
   }
 
-  async getTheaters(token: string): Promise<Theater[]> {
-    return this.get("/admin/theaters", token);
-  }
+  async request<T>(
+    path: string,
+    options: {
+      method?: string;
+      token?: string | null;
+      body?: any;
+    } = {}
+  ): Promise<T> {
+    const { method = "GET", token, body } = options;
+    const url = `${this.baseUrl}${path}`;
+    const headers: Record<string, string> = {};
 
-  async createTheater(token: string, payload: { name: string; default_weekly_template: Record<string, string[]> }): Promise<Theater> {
-    return this.post("/admin/theaters", token, payload);
-  }
+    if (token) {
+      headers["Authorization"] = `Bearer ${token}`;
+    }
 
-  async getRoles(token: string): Promise<Role[]> {
-    return this.get("/admin/roles", token);
-  }
+    if (body !== undefined && body !== null) {
+      headers["Content-Type"] = "application/json";
+    }
 
-  async createRole(token: string, payload: { name: string; group_name: string | null }): Promise<Role> {
-    return this.post("/admin/roles", token, payload);
-  }
-
-  async getActors(token: string): Promise<Actor[]> {
-    return this.get("/admin/actors", token);
-  }
-
-  async createActor(token: string, payload: Omit<Actor, "id" | "role_ids">): Promise<Actor> {
-    return this.post("/admin/actors", token, payload);
-  }
-
-  async generateMonthlyPlan(token: string, payload: { theater_id: number; year: number; month: number; closed_dates: string[] }): Promise<Performance[]> {
-    return this.post("/admin/monthly-plan/generate", token, payload);
-  }
-
-  async getPerformances(token: string, theaterId: number, year: number, month: number): Promise<Performance[]> {
-    return this.get(`/admin/performances?theater_id=${theaterId}&year=${year}&month=${month}`, token);
-  }
-
-  async createPerformance(token: string, payload: { theater_id: number; performance_date: string; slot: string }): Promise<Performance> {
-    return this.post("/admin/performances", token, payload);
-  }
-
-  async deletePerformance(token: string, performanceId: number): Promise<{ status: string }> {
-    return this.request(`/admin/performances/${performanceId}`, token, "DELETE");
-  }
-
-  async getLeaveRequests(token: string): Promise<LeaveRequest[]> {
-    return this.get("/admin/leave-requests", token);
-  }
-
-  async reviewLeaveRequest(token: string, leaveId: number, status: "approved" | "rejected" | "locked"): Promise<LeaveRequest> {
-    return this.post(`/admin/leave-requests/${leaveId}/review`, token, { status });
-  }
-
-  async getWeeklyBatches(token: string): Promise<WeeklyBatch[]> {
-    return this.get("/admin/weekly-batches", token);
-  }
-
-  async createWeeklyBatch(token: string, payload: { theater_id: number; week_start: string }): Promise<WeeklyBatch> {
-    return this.post("/admin/weekly-batches", token, payload);
-  }
-
-  async getWeeklyBatch(token: string, batchId: number): Promise<WeeklyBatch> {
-    return this.get(`/admin/weekly-batches/${batchId}`, token);
-  }
-
-  async updateWeeklyBatchStatus(token: string, batchId: number, status: "draft" | "ready"): Promise<WeeklyBatch> {
-    return this.request(`/admin/weekly-batches/${batchId}/status`, token, "PATCH", { status });
-  }
-
-  async parseImportDraft(token: string, batchId: number, rawText: string): Promise<ImportDraft> {
-    return this.post(`/admin/import-drafts/parse?batch_id=${batchId}`, token, { raw_text: rawText });
-  }
-
-  async getImportDraft(token: string, draftId: number): Promise<ImportDraft> {
-    return this.get(`/admin/import-drafts/${draftId}`, token);
-  }
-
-  async getImportDrafts(token: string, batchId: number): Promise<ImportDraft[]> {
-    return this.get(`/admin/import-drafts?batch_id=${batchId}`, token);
-  }
-
-  async createManualItem(token: string, draftId: number, payload: any): Promise<ImportDraftItem> {
-    return this.post(`/admin/import-drafts/${draftId}/items`, token, payload);
-  }
-
-  async updateDraftItem(token: string, itemId: number, payload: any): Promise<ImportDraftItem> {
-    return this.request(`/admin/import-draft-items/${itemId}`, token, "PATCH", payload);
-  }
-
-  async confirmDraftItem(token: string, itemId: number): Promise<ImportDraftItem> {
-    return this.post(`/admin/import-draft-items/${itemId}/confirm`, token, {});
-  }
-
-  async confirmValidItems(token: string, draftId: number): Promise<{ item_id: number; success: boolean; designation_id?: number; wish_id?: number; error?: string }[]> {
-    return this.post(`/admin/import-drafts/${draftId}/confirm-valid`, token, {});
-  }
-
-  async getBatchSchedulingInputs(token: string, batchId: number): Promise<BatchSchedulingInputs> {
-    return this.get(`/admin/weekly-batches/${batchId}/scheduling-inputs`, token);
-  }
-
-  async updateActor(token: string, actorId: number, payload: Omit<Actor, "id" | "display_name" | "role_ids">): Promise<Actor> {
-    return this.request(`/admin/actors/${actorId}`, token, "PATCH", payload);
-  }
-
-  async replaceActorCapabilities(token: string, actorId: number, roleIds: number[]): Promise<Actor> {
-    return this.request(`/admin/actors/${actorId}/capabilities`, token, "PUT", { role_ids: roleIds });
-  }
-
-  private async request<T>(path: string, token: string, method: string, payload?: object): Promise<T> {
-    const response = await fetch(`${this.baseUrl}${path}`, {
+    const response = await fetch(url, {
       method,
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
-      body: payload ? JSON.stringify(payload) : undefined,
+      headers,
+      body: body !== undefined && body !== null ? JSON.stringify(body) : undefined,
     });
+
     if (!response.ok) {
       let message = "请求失败";
       try {
-        const body = await response.json();
-        message = formatErrorDetail(body.detail, message);
+        const errBody = await response.json();
+        if (errBody && errBody.detail) {
+          message = formatErrorDetail(errBody.detail, message);
+        }
       } catch {}
-      throw new Error(message);
+      throw new ApiError(response.status, message);
     }
-    return response.json();
-  }
 
-  private async get<T>(path: string, token: string): Promise<T> {
-    return this.request(path, token, "GET");
-  }
-
-  private async post<T>(path: string, token: string, payload: object): Promise<T> {
-    return this.request(path, token, "POST", payload);
+    const text = await response.text();
+    return text ? JSON.parse(text) : ({} as T);
   }
 }
 

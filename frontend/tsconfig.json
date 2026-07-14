@@ -14,7 +14,8 @@
     "resolveJsonModule": true,
     "isolatedModules": true,
     "noEmit": true,
-    "jsx": "react-jsx"
+    "jsx": "preserve"
   },
-  "include": ["src", "tests"]
+  "include": ["src", "tests", "src/**/*.vue"],
+  "exclude": ["src/**/*.tsx", "tests/**/*.tsx"]
 }

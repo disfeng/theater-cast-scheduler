@@ -31,3 +31,6 @@ coverage/
 
 # Local planning and design documents
 docs/
+
+# Local visual brainstorming artifacts
+.superpowers/
