@@ -17,17 +17,17 @@
         @select="mobileOpen = false"
       >
         <template v-if="authStore.role === 'admin'">
-          <el-menu-item index="/admin/dashboard"><span>工作台</span></el-menu-item>
-          <el-menu-item index="/admin/settings"><span>基础配置</span></el-menu-item>
-          <el-menu-item index="/admin/actors"><span>演员管理</span></el-menu-item>
-          <el-menu-item index="/admin/monthly-plan"><span>月度计划</span></el-menu-item>
-          <el-menu-item index="/admin/designations-wishes"><span>指定与许愿</span></el-menu-item>
-          <el-menu-item index="/admin/leave-requests"><span>请假审批</span></el-menu-item>
-          <el-menu-item index="/admin/weekly-scheduling"><span>周排班</span></el-menu-item>
+          <el-menu-item index="/admin/dashboard"><el-icon><DataBoard /></el-icon><template #title>工作台</template></el-menu-item>
+          <el-menu-item index="/admin/settings"><el-icon><Setting /></el-icon><template #title>基础配置</template></el-menu-item>
+          <el-menu-item index="/admin/actors"><el-icon><User /></el-icon><template #title>演员管理</template></el-menu-item>
+          <el-menu-item index="/admin/monthly-plan"><el-icon><Calendar /></el-icon><template #title>月度计划</template></el-menu-item>
+          <el-menu-item index="/admin/designations-wishes"><el-icon><MagicStick /></el-icon><template #title>指定与许愿</template></el-menu-item>
+          <el-menu-item index="/admin/leave-requests"><el-icon><DocumentChecked /></el-icon><template #title>请假审批</template></el-menu-item>
+          <el-menu-item index="/admin/weekly-scheduling"><el-icon><Grid /></el-icon><template #title>周排班</template></el-menu-item>
         </template>
         <template v-else>
-          <el-menu-item index="/actor/schedule"><span>我的排期</span></el-menu-item>
-          <el-menu-item index="/actor/leave"><span>我的请假</span></el-menu-item>
+          <el-menu-item index="/actor/schedule"><el-icon><Clock /></el-icon><template #title>我的排期</template></el-menu-item>
+          <el-menu-item index="/actor/leave"><el-icon><Memo /></el-icon><template #title>我的请假</template></el-menu-item>
         </template>
       </el-menu>
     </el-aside>
@@ -50,6 +50,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
+import { Calendar, Clock, DataBoard, DocumentChecked, Grid, MagicStick, Memo, Setting, User } from "@element-plus/icons-vue";
 import { useAuthStore } from "../auth/store";
 
 const route = useRoute();

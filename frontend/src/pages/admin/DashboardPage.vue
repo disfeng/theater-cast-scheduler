@@ -60,7 +60,7 @@
                         type="button"
                         @click="handleReviewLeave(leave.id, 'approved', leave.actor_name)"
                         :aria-label="'批准' + leave.actor_name + '的请假'"
-                        style="padding: 6px 12px; background: rgba(16, 185, 129, 0.2); border: 1px solid rgba(16, 185, 129, 0.4); color: #34d399; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600;"
+                        style="padding: 6px 12px; background: rgba(16, 163, 106, 0.12); border: 1px solid rgba(16, 163, 106, 0.35); color: #087a49; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600;"
                       >
                         批准
                       </button>
@@ -68,7 +68,7 @@
                         type="button"
                         @click="handleReviewLeave(leave.id, 'rejected', leave.actor_name)"
                         :aria-label="'拒绝' + leave.actor_name + '的请假'"
-                        style="padding: 6px 12px; background: rgba(239, 68, 68, 0.2); border: 1px solid rgba(239, 68, 68, 0.4); color: #f87171; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600;"
+                        style="padding: 6px 12px; background: rgba(220, 63, 69, 0.1); border: 1px solid rgba(220, 63, 69, 0.3); color: #bd2f35; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600;"
                       >
                         拒绝
                       </button>

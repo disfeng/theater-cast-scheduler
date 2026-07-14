@@ -104,7 +104,7 @@
             <button
               type="button"
               @click="handleDeletePerformance(performance.id)"
-              style="margin-top: 16px; background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.25); color: #f87171; padding: 6px 12px; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer; text-align: center;"
+              style="margin-top: 16px; background: rgba(220, 63, 69, 0.1); border: 1px solid rgba(220, 63, 69, 0.3); color: #bd2f35; padding: 6px 12px; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer; text-align: center;"
             >
               删除场次
             </button>
