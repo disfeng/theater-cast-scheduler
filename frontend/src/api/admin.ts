@@ -190,3 +190,13 @@ export const adminApi = {
     return apiClient.request(`/admin/actors/${actorId}/capabilities`, { method: "PUT", token, body: { role_ids: roleIds } });
   },
 };
+
+export const actorApi = {
+  async getSchedule(token: string): Promise<any[]> {
+    return apiClient.request("/actor/me/schedule", { token });
+  },
+  async submitLeave(token: string, payload: { dates: string[]; note?: string | null }): Promise<any> {
+    return apiClient.request("/actor/me/leave-requests", { method: "POST", token, body: payload });
+  },
+};
+
