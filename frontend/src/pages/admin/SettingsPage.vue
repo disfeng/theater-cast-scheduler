@@ -174,7 +174,7 @@ onMounted(() => refreshTheaters().catch(report));
 </script>
 
 <style scoped>
-.settings-page { max-width: 1240px; margin: 0 auto; display: grid; gap: 16px; }
+.settings-page { width: 100%; display: grid; gap: 16px; }
 .overview-card :deep(.el-card__body) { padding: 16px 20px; }
 .overview { display: flex; align-items: center; gap: 24px; min-height: 40px; }
 .theater-picker { display: flex; align-items: center; gap: 10px; }

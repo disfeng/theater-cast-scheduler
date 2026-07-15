@@ -1,5 +1,5 @@
 export class ApiError extends Error {
-  constructor(public readonly status: number, message: string) {
+  constructor(public readonly status: number, message: string, public readonly detail?: unknown) {
     super(message);
     this.name = "ApiError";
   }
@@ -50,16 +50,18 @@ export class ApiClient {
 
     if (!response.ok) {
       let message = "请求失败";
+      let detail: unknown;
       try {
         const errBody = await response.json();
         if (errBody && errBody.detail) {
+          detail = errBody.detail;
           message = formatErrorDetail(errBody.detail, message);
         }
       } catch {}
       if (response.status === 401 || response.status === 403) {
         this.authErrorHandler?.(response.status);
       }
-      throw new ApiError(response.status, message);
+      throw new ApiError(response.status, message, detail);
     }
 
     const text = await response.text();

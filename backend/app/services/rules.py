@@ -3,9 +3,6 @@ from datetime import date
 from app.schemas.scheduling import AssignmentCandidate, PerformanceSlot, RuleViolation
 
 
-SLOT_ORDER = {"early": 0, "late": 1}
-
-
 def validate_candidate(
     candidate: AssignmentCandidate,
     existing_assignments: list[AssignmentCandidate],
@@ -47,29 +44,48 @@ def would_exceed_consecutive_limit(
     target_slot: PerformanceSlot,
     existing_slots: dict[int, list[PerformanceSlot]],
     max_consecutive: int,
+    ordered_timeline: list[PerformanceSlot] | None = None,
 ) -> bool:
-    actor_slots = sorted(
-        [*existing_slots.get(actor_id, []), target_slot],
-        key=lambda item: (item.date, SLOT_ORDER[item.slot]),
+    return consecutive_limit_state(
+        actor_id,
+        target_slot,
+        existing_slots,
+        max_consecutive,
+        ordered_timeline,
+    ) == "exceeded"
+
+
+def consecutive_limit_state(
+    actor_id: int,
+    target_slot: PerformanceSlot,
+    existing_slots: dict[int, list[PerformanceSlot]],
+    max_consecutive: int,
+    ordered_timeline: list[PerformanceSlot] | None = None,
+) -> str | None:
+    actor_slots = [*existing_slots.get(actor_id, []), target_slot]
+    timeline_by_id = {
+        slot.id: slot for slot in [*(ordered_timeline or []), *actor_slots]
+    }
+    timeline = sorted(
+        timeline_by_id.values(),
+        key=lambda item: (item.date, item.start_time, item.sort_order, item.id),
     )
+    index_by_id = {slot.id: index for index, slot in enumerate(timeline)}
+    actor_indexes = sorted({index_by_id[slot.id] for slot in actor_slots})
     longest = 0
     current = 0
-    previous: PerformanceSlot | None = None
+    previous_index: int | None = None
 
-    for slot in actor_slots:
-        if previous is None or _is_next_consecutive(previous, slot):
+    for index in actor_indexes:
+        if previous_index is None or index == previous_index + 1:
             current += 1
         else:
             current = 1
         longest = max(longest, current)
-        previous = slot
+        previous_index = index
 
-    return longest > max_consecutive
-
-
-def _is_next_consecutive(previous: PerformanceSlot, current: PerformanceSlot) -> bool:
-    if previous.date == current.date:
-        return previous.slot == "early" and current.slot == "late"
-    if (current.date - previous.date).days == 1:
-        return previous.slot == "late" and current.slot == "early"
-    return False
+    if longest > max_consecutive:
+        return "exceeded"
+    if longest == max_consecutive:
+        return "reached"
+    return None

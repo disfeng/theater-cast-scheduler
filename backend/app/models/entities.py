@@ -1,9 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime, time
-from typing import Any
-
-from sqlalchemy import Boolean, Date, DateTime, Enum, ForeignKey, Integer, String, Text, Time, UniqueConstraint
+from sqlalchemy import JSON, Boolean, Date, DateTime, Enum, ForeignKey, Integer, String, Text, Time, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -180,9 +178,15 @@ class Wish(Base):
 
 class ScheduleAssignment(Base):
     __tablename__ = "schedule_assignments"
-    __table_args__ = (UniqueConstraint("performance_id", "role_id"),)
+    __table_args__ = (
+        UniqueConstraint(
+            "weekly_batch_id", "performance_id", "role_id",
+            name="uq_schedule_assignment_batch_slot",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    weekly_batch_id: Mapped[int] = mapped_column(ForeignKey("weekly_batches.id"), index=True)
     performance_id: Mapped[int] = mapped_column(ForeignKey("performances.id"), index=True)
     role_id: Mapped[int] = mapped_column(ForeignKey("roles.id"), index=True)
     actor_id: Mapped[int] = mapped_column(ForeignKey("actors.id"), index=True)
@@ -190,6 +194,8 @@ class ScheduleAssignment(Base):
     locked: Mapped[bool] = mapped_column(default=False)
     requires_approval: Mapped[bool] = mapped_column(default=False)
     approved: Mapped[bool] = mapped_column(default=False)
+    conflict_codes: Mapped[list[str]] = mapped_column(JSON, default=list)
+    weekly_batch: Mapped[WeeklyBatch] = relationship(back_populates="assignments")
     performance: Mapped[Performance] = relationship()
     role: Mapped[Role] = relationship()
     actor: Mapped[Actor] = relationship()
@@ -204,8 +210,14 @@ class WeeklyBatch(Base):
     week_start: Mapped[date] = mapped_column(Date, index=True)
     status: Mapped[BatchStatus] = mapped_column(Enum(BatchStatus), default=BatchStatus.DRAFT)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    published_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    version: Mapped[int] = mapped_column(Integer, default=1)
 
     theater: Mapped[Theater] = relationship()
+    assignments: Mapped[list[ScheduleAssignment]] = relationship(
+        back_populates="weekly_batch", cascade="all, delete-orphan"
+    )
 
 
 class PersistentImportDraft(Base):

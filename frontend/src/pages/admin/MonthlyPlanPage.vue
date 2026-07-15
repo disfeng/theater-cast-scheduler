@@ -126,7 +126,7 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.monthly-page { max-width: 1500px; margin: 0 auto; display: grid; gap: 16px; }
+.monthly-page { width: 100%; display: grid; gap: 16px; }
 .toolbar-card :deep(.el-card__body) { padding: 14px 18px; }
 .toolbar { display: flex; align-items: center; gap: 22px; flex-wrap: wrap; }
 .toolbar-group { display: flex; align-items: center; gap: 9px; }.label { color: var(--text-secondary); font-size: 13px; }

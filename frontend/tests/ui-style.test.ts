@@ -43,3 +43,19 @@ test("light workspace content and form controls do not keep dark-theme white tex
   });
   expect(offenders).toEqual([]);
 });
+
+test("admin pages use one full-width content alignment inside the shell padding", () => {
+  const shell = vueSources["../src/layouts/AppShell.vue"];
+  expect(shell).toContain(".workspace-main { padding: 28px;");
+  expect(shell).toContain(".workspace-main { padding: 18px 14px;");
+
+  const adminPages = Object.entries(vueSources).filter(([path]) => path.includes("/pages/admin/"));
+  const constrained = adminPages.flatMap(([path, source]) =>
+    /(?:settings|actors|monthly|scheduling)-page\s*\{[^}]*max-width:\s*\d+px/.test(source) ? [path] : [],
+  );
+  expect(constrained).toEqual([]);
+  for (const page of ["DashboardPage.vue", "DesignationWishPage.vue", "RequestsPage.vue"]) {
+    const source = Object.entries(vueSources).find(([path]) => path.endsWith(page))?.[1];
+    expect(source).toContain('class="page-container"');
+  }
+});

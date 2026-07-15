@@ -120,7 +120,11 @@ def test_monthly_regeneration_rejects_non_draft_or_referenced_performances(db_se
     actor = create_actor(db_session, ActorCreate(display_name="小展"))
     db_session.add(role)
     db_session.flush()
-    db_session.add(ScheduleAssignment(performance_id=published.id, role_id=role.id, actor_id=actor.id))
+    from app.models.entities import WeeklyBatch
+    batch = WeeklyBatch(theater_id=theater.id, week_start=date(2026, 7, 6))
+    db_session.add(batch)
+    db_session.flush()
+    db_session.add(ScheduleAssignment(weekly_batch_id=batch.id, performance_id=published.id, role_id=role.id, actor_id=actor.id))
     db_session.commit()
     client = _client(db_session)
     try:

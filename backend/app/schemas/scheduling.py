@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, time
 from app.models.enums import DesignationType
 
 
@@ -8,6 +8,8 @@ class PerformanceSlot:
     id: int
     date: date
     slot: str
+    start_time: time = time.min
+    sort_order: int = 0
 
 
 @dataclass(frozen=True)

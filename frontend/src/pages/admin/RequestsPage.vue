@@ -1,5 +1,5 @@
 <template>
-  <section style="max-width: 1000px; margin: 0 auto;">
+  <section class="page-container">
     <PageHeader title="请假审核" description="审批演员的请假申请，批准后的请假将在排班算法中作为硬约束考虑。" />
 
     <div v-if="error" style="padding: 12px; background: #ffeef0; color: #d9383a; border-radius: 6px; margin-bottom: 20px;" role="alert">

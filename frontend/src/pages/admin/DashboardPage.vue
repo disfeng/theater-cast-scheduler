@@ -1,5 +1,5 @@
 <template>
-  <section style="max-width: 1200px; margin: 0 auto;">
+  <section class="page-container">
     <PageHeader title="工作台" description="欢迎回来！这里汇总了你需要复核、审批和导入的待办事项。" />
 
     <div v-if="success" style="padding: 12px; background: #e6f4ea; color: #137333; border-radius: 6px; margin-bottom: 20px;">

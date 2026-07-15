@@ -6,8 +6,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db, require_user
-from app.models.entities import Actor, LeaveRequest, ScheduleAssignment, User
-from app.models.enums import LeaveStatus, UserRole
+from app.models.entities import Actor, LeaveRequest, ScheduleAssignment, User, WeeklyBatch
+from app.models.enums import BatchStatus, LeaveStatus, UserRole
 
 router = APIRouter(prefix="/actor", tags=["actor"])
 
@@ -24,7 +24,16 @@ def my_schedule(
 ) -> list[dict[str, str]]:
     actor = _get_or_create_actor_user(db, user["sub"])
     assignments = db.scalars(
-        select(ScheduleAssignment).where(ScheduleAssignment.actor_id == actor.id)
+        select(ScheduleAssignment)
+        .join(WeeklyBatch, ScheduleAssignment.weekly_batch_id == WeeklyBatch.id)
+        .where(
+            ScheduleAssignment.actor_id == actor.id,
+            WeeklyBatch.status == BatchStatus.SCHEDULED,
+        )
+        .order_by(
+            ScheduleAssignment.performance_id,
+            ScheduleAssignment.role_id,
+        )
     ).all()
     return [
         {

@@ -1,5 +1,5 @@
 <template>
-     <section style="max-width: 1000px; margin: 0 auto;">
+     <section class="page-container">
        <PageHeader title="我的排班" description="查看已发布班次和管理员允许展示的草稿班次。" />
 
        <div v-if="error" style="padding: 12px; background: #ffeef0; color: #d9383a; border-radius: 6px; margin-bottom: 20px;" role="alert">

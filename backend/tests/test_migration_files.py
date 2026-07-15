@@ -35,3 +35,17 @@ def test_multi_theater_migration_normalizes_slots_roles_and_performances():
     assert 'op.execute(sa.text("DELETE FROM theaters"))' in migration
     assert 'DELETE FROM users' not in migration
     assert 'DELETE FROM actors' not in migration
+
+
+def test_weekly_scheduling_migration_versions_assignments_and_batches():
+    migration = Path("migrations/versions/0005_weekly_scheduling_workspace.py").read_text()
+
+    assert 'down_revision: str | None = "0004_multi_theater_configuration"' in migration
+    assert "weekly_batch_id" in migration
+    assert "conflict_codes" in migration
+    assert "version" in migration
+    assert "updated_at" in migration
+    assert "published_at" in migration
+    assert "uq_schedule_assignment_batch_slot" in migration
+    assert 'sa.Column("conflict_codes", sa.JSON(), nullable=True)' in migration
+    assert 'server_default="[]"' not in migration

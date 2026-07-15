@@ -96,6 +96,32 @@ export type LeaveRequest = {
   note: string | null;
 };
 
+export type ScheduleAssignment = {
+  performance_id: number;
+  role_id: number;
+  actor_id: number;
+  source: "manual" | "recommended";
+  conflict_codes?: string[];
+};
+export type ScheduleConflict = {
+  code: string; message: string; performance_id: number | null; role_id: number | null; actor_id: number | null;
+};
+export type WeeklyScheduleWorkspace = {
+  theater_id: number; week_start: string; week_end: string; batch_id: number | null;
+  status: "uncreated" | "draft" | "ready" | "scheduled"; version: number;
+  updated_at: string | null; published_at: string | null;
+  performances: { id: number; performance_date: string; slot_name: string; start_time: string; sort_order: number }[];
+  roles: { id: number; name: string; group_name: string | null }[];
+  actors: { id: number; display_name: string; rating_level: string; max_consecutive_performances: number; low_rating_monthly_cap: number | null; role_ids: number[]; weekly_count: number; monthly_count: number }[];
+  assignments: ScheduleAssignment[]; conflicts: ScheduleConflict[]; conflict_summary: Record<string, number>;
+  warnings: ScheduleConflict[]; warning_summary: Record<string, number>;
+  empty_slots: { performance_id: number; role_id: number }[];
+  unsatisfied_designations: Record<string, unknown>[]; unsatisfied_wishes: Record<string, unknown>[];
+};
+export type ScheduleMutation = {
+  theater_id: number; week_start: string; expected_version: number; assignments: ScheduleAssignment[]; confirm_conflicts?: boolean;
+};
+
 export const adminApi = {
   async getTheaters(token: string, includeInactive = false): Promise<Theater[]> {
     return apiClient.request(includeInactive ? "/admin/theaters?include_inactive=true" : "/admin/theaters", { token });
@@ -262,6 +288,26 @@ export const adminApi = {
 
   async replaceActorCapabilities(token: string, actorId: number, roleIds: number[]): Promise<Actor> {
     return apiClient.request(`/admin/actors/${actorId}/capabilities`, { method: "PUT", token, body: { role_ids: roleIds } });
+  },
+
+  async getWeeklyScheduleWorkspace(token: string, theaterId: number, weekStart: string): Promise<WeeklyScheduleWorkspace> {
+    return apiClient.request(`/admin/weekly-schedules/workspace?theater_id=${theaterId}&week_start=${weekStart}`, { token });
+  },
+
+  async recommendWeeklySchedule(token: string, payload: ScheduleMutation): Promise<WeeklyScheduleWorkspace> {
+    return apiClient.request("/admin/weekly-schedules/recommend", { method: "POST", token, body: payload });
+  },
+
+  async validateWeeklySchedule(token: string, payload: ScheduleMutation): Promise<{ conflicts: ScheduleConflict[]; warnings: ScheduleConflict[]; empty_slots: { performance_id: number; role_id: number }[] }> {
+    return apiClient.request("/admin/weekly-schedules/validate", { method: "POST", token, body: payload });
+  },
+
+  async saveWeeklyScheduleDraft(token: string, payload: ScheduleMutation): Promise<WeeklyScheduleWorkspace> {
+    return apiClient.request("/admin/weekly-schedules/draft", { method: "PUT", token, body: payload });
+  },
+
+  async publishWeeklySchedule(token: string, payload: ScheduleMutation): Promise<WeeklyScheduleWorkspace> {
+    return apiClient.request("/admin/weekly-schedules/publish", { method: "POST", token, body: payload });
   },
 };
 

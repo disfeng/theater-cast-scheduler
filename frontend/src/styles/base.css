@@ -27,7 +27,7 @@ input:focus, select:focus, textarea:focus {
   box-shadow: 0 0 0 3px rgba(47, 111, 237, 0.12);
 }
 
-.page-container { width: min(100%, 1280px); margin: 0 auto; }
+.page-container { width: 100%; max-width: none; margin: 0; }
 
 .panel {
   width: 100%;

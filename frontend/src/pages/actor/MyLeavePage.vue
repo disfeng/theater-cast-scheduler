@@ -1,5 +1,5 @@
 <template>
-  <section style="max-width: 800px; margin: 0 auto;">
+  <section class="page-container">
     <PageHeader title="我的请假" description="按月提交整天请假，查看审核状态。" />
 
     <div v-if="error" style="padding: 12px; background: #ffeef0; color: #d9383a; border-radius: 6px; margin-bottom: 20px;" role="alert">

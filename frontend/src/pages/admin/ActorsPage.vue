@@ -88,7 +88,7 @@ onMounted(refreshData);
 </script>
 
 <style scoped>
-.actors-page { max-width: 1320px; margin: 0 auto; display: grid; gap: 16px; }
+.actors-page { width: 100%; display: grid; gap: 16px; }
 .actors-card :deep(.el-card__body) { padding: 0; }
 .actors-toolbar { min-height: 72px; padding: 14px 18px; display: flex; align-items: center; justify-content: space-between; gap: 16px; border-bottom: 1px solid #e7ebf1; }
 .actors-toolbar > div:first-child { display: flex; align-items: baseline; gap: 9px; white-space: nowrap; }

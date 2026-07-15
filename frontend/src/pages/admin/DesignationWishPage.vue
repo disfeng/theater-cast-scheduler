@@ -1,5 +1,5 @@
 <template>
-  <section style="max-width: 1200px; margin: 0 auto;">
+  <section class="page-container">
     <PageHeader title="指定与许愿" description="在此录入每周微信群内的指定场次与许愿信息。支持群统计文本一键解析，自动匹配演员和角色，并校验冲突。" />
 
     <div v-if="error" style="padding: 12px; background: #ffeef0; color: #d9383a; border-radius: 6px; margin-bottom: 20px;" role="alert">

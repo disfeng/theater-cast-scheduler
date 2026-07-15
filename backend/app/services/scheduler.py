@@ -40,6 +40,7 @@ def generate_week_schedule(
     designations: list[DesignationInput],
     wishes: list[WishInput],
     suspended_actor_ids: set[int] | None = None,
+    ordered_timeline: list[PerformanceSlot] | None = None,
 ) -> ScheduleResult:
     assignments: dict[tuple[int, int], AssignmentCandidate] = {}
     explanations: dict[tuple[int, int, int], list[RuleViolation]] = {}
@@ -59,6 +60,7 @@ def generate_week_schedule(
             mutable_actor_slots,
             max_consecutive,
             suspended_actor_ids,
+            ordered_timeline or performances,
         )
         if violations:
             raise SchedulingRuleError("锁定排班违反硬规则", violations)
@@ -96,6 +98,7 @@ def generate_week_schedule(
                 mutable_actor_slots,
                 max_consecutive,
                 suspended_actor_ids,
+                ordered_timeline or performances,
             )
             explanations[(performance.id, designation.role_id, designation.actor_id)] = violations
             if violations:
@@ -125,6 +128,7 @@ def generate_week_schedule(
                 assignments,
                 wishes,
                 suspended_actor_ids,
+                ordered_timeline or performances,
             )
             if best_candidate is not None:
                 _place(best_candidate, assignments, mutable_monthly_counts, mutable_actor_slots)
@@ -160,6 +164,7 @@ def _best_candidate(
     assignments: dict[tuple[int, int], AssignmentCandidate],
     wishes: list[WishInput],
     suspended_actor_ids: set[int],
+    ordered_timeline: list[PerformanceSlot],
 ) -> AssignmentCandidate | None:
     valid: list[tuple[int, AssignmentCandidate]] = []
     for actor_id in actor_ids:
@@ -174,6 +179,7 @@ def _best_candidate(
             actor_slots,
             max_consecutive,
             suspended_actor_ids,
+            ordered_timeline,
         )
         if violations:
             continue
@@ -195,6 +201,7 @@ def _violations_for_candidate(
     actor_slots: dict[int, list[PerformanceSlot]],
     max_consecutive: dict[int, int],
     suspended_actor_ids: set[int],
+    ordered_timeline: list[PerformanceSlot],
 ) -> list[RuleViolation]:
     violations = validate_candidate(
         candidate,
@@ -210,6 +217,7 @@ def _violations_for_candidate(
         candidate.performance,
         actor_slots,
         max_consecutive.get(candidate.actor_id, 3),
+        ordered_timeline=ordered_timeline,
     ):
         violations.append(RuleViolation("consecutive_limit_exceeded", "超过演员个人最大连场数"))
     return violations
