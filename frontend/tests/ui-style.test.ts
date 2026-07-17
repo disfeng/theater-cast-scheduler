@@ -59,3 +59,11 @@ test("admin pages use one full-width content alignment inside the shell padding"
     expect(source).toContain('class="page-container"');
   }
 });
+
+test("weekly scheduling uses the original single-week role matrix", () => {
+  const source = vueSources["../src/pages/admin/WeeklySchedulingPage.vue"];
+  expect(source).not.toContain(".toolbar-primary::after");
+  expect(source).toContain('class="schedule-matrix"');
+  expect(source).toContain('class="matrix-scroll"');
+  expect(source).not.toContain('class="month-weeks"');
+});

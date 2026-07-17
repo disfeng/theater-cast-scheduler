@@ -88,6 +88,21 @@ def test_consecutive_limit_reports_reached_before_exceeded():
     assert consecutive_limit_state(1, timeline[3], {1: timeline[:3]}, 3, timeline) == "exceeded"
 
 
+def test_consecutive_limit_does_not_leak_an_earlier_streak_to_a_disconnected_target():
+    timeline = [
+        PerformanceSlot(index, date(2026, 8, 1 + index), f"slot-{index}", time(12), index)
+        for index in range(5)
+    ]
+
+    assert consecutive_limit_state(
+        1,
+        timeline[4],
+        {1: timeline[:3]},
+        3,
+        timeline,
+    ) is None
+
+
 def test_consecutive_limit_uses_full_four_slot_timeline_and_resets_on_gap():
     timeline = [
         PerformanceSlot(1, date(2026, 7, 18), "早场", time(10), 0),

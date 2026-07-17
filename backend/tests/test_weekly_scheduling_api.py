@@ -273,3 +273,195 @@ def test_validate_counts_assignments_from_adjacent_draft_batch_for_consecutive_w
         }]
     finally:
         app.dependency_overrides.clear()
+
+
+def test_context_validation_detects_unsaved_cross_week_warning_and_conflict(db_session):
+    theater, actors, roles, performances = _seed_workspace(db_session)
+    actors[0].max_consecutive_performances = 2
+    dates = [date(2026, 8, 2), date(2026, 8, 3), date(2026, 8, 4)]
+    context_performances = [Performance(
+        theater_id=theater.id,
+        theater_slot_id=performances[0].theater_slot_id,
+        performance_date=performance_date,
+        slot_name_snapshot="早场",
+        start_time_snapshot=time(12, 30),
+    ) for performance_date in dates]
+    db_session.add_all(context_performances)
+    db_session.commit()
+    client, headers = _client(db_session)
+    def assignment(performance):
+        return {
+            "performance_id": performance.id,
+            "role_id": roles[0].id,
+            "actor_id": actors[0].id,
+            "source": "manual",
+        }
+
+    try:
+        response = client.post("/admin/weekly-schedules/validate-context", headers=headers, json={
+            "theater_id": theater.id,
+            "weeks": [
+                {"week_start": "2026-07-27", "assignments": [assignment(context_performances[0])]},
+                {"week_start": "2026-08-03", "assignments": [
+                    assignment(context_performances[1]),
+                    assignment(context_performances[2]),
+                ]},
+            ],
+        })
+
+        assert response.status_code == 200
+        body = response.json()
+        assert any(
+            item["code"] == "consecutive_limit_reached"
+            and item["performance_id"] == context_performances[1].id
+            for item in body["warnings"]
+        )
+        assert any(
+            item["code"] == "consecutive_limit_exceeded"
+            and item["performance_id"] == context_performances[2].id
+            for item in body["conflicts"]
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_context_validation_marks_only_the_third_and_fourth_consecutive_assignments(db_session):
+    theater, actors, roles, performances = _seed_workspace(db_session)
+    slot_ids = [performances[0].theater_slot_id, performances[1].theater_slot_id]
+    consecutive_performances = [Performance(
+        theater_id=theater.id,
+        theater_slot_id=slot_ids[index % 2],
+        performance_date=date(2026, 8, 3 + index // 2),
+        slot_name_snapshot=f"第{index + 1}场",
+        start_time_snapshot=time(12 if index % 2 == 0 else 19, 30),
+    ) for index in range(4)]
+    db_session.add_all(consecutive_performances)
+    db_session.commit()
+    client, headers = _client(db_session)
+
+    try:
+        response = client.post("/admin/weekly-schedules/validate-context", headers=headers, json={
+            "theater_id": theater.id,
+            "weeks": [{
+                "week_start": "2026-08-03",
+                "assignments": [{
+                    "performance_id": performance.id,
+                    "role_id": roles[0].id,
+                    "actor_id": actors[0].id,
+                    "source": "manual",
+                } for performance in consecutive_performances],
+            }],
+        })
+
+        assert response.status_code == 200
+        body = response.json()
+        assert [(item["code"], item["performance_id"]) for item in body["warnings"]] == [
+            ("consecutive_limit_reached", consecutive_performances[2].id),
+        ]
+        assert [(item["code"], item["performance_id"]) for item in body["conflicts"]] == [
+            ("consecutive_limit_exceeded", consecutive_performances[3].id),
+        ]
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_context_validation_replaces_saved_assignments_for_supplied_weeks(db_session):
+    theater, actors, roles, performances = _seed_workspace(db_session)
+    actors[0].max_consecutive_performances = 2
+    sunday = Performance(
+        theater_id=theater.id,
+        theater_slot_id=performances[0].theater_slot_id,
+        performance_date=date(2026, 8, 2),
+        slot_name_snapshot="晚场",
+        start_time_snapshot=time(19, 30),
+    )
+    monday = Performance(
+        theater_id=theater.id,
+        theater_slot_id=performances[0].theater_slot_id,
+        performance_date=date(2026, 8, 3),
+        slot_name_snapshot="早场",
+        start_time_snapshot=time(12, 30),
+    )
+    db_session.add_all([sunday, monday])
+    db_session.flush()
+    batch = WeeklyBatch(theater_id=theater.id, week_start=date(2026, 7, 27), status=BatchStatus.READY)
+    db_session.add(batch)
+    db_session.flush()
+    db_session.add(ScheduleAssignment(
+        weekly_batch_id=batch.id,
+        performance_id=sunday.id,
+        role_id=roles[0].id,
+        actor_id=actors[0].id,
+        source="manual",
+    ))
+    db_session.commit()
+    client, headers = _client(db_session)
+
+    try:
+        response = client.post("/admin/weekly-schedules/validate-context", headers=headers, json={
+            "theater_id": theater.id,
+            "weeks": [
+                {"week_start": "2026-07-27", "assignments": []},
+                {"week_start": "2026-08-03", "assignments": [{
+                    "performance_id": monday.id,
+                    "role_id": roles[0].id,
+                    "actor_id": actors[0].id,
+                    "source": "manual",
+                }]},
+            ],
+        })
+
+        assert response.status_code == 200
+        assert response.json()["warnings"] == []
+        assert response.json()["conflicts"] == []
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_recommend_uses_unsaved_adjacent_week_context(db_session):
+    theater, actors, roles, performances = _seed_workspace(db_session)
+    actors[0].max_consecutive_performances = 1
+    db_session.add(ActorRoleCapability(actor_id=actors[1].id, role_id=roles[0].id))
+    sunday = Performance(
+        theater_id=theater.id,
+        theater_slot_id=performances[0].theater_slot_id,
+        performance_date=date(2026, 8, 2),
+        slot_name_snapshot="晚场",
+        start_time_snapshot=time(19, 30),
+    )
+    monday = Performance(
+        theater_id=theater.id,
+        theater_slot_id=performances[0].theater_slot_id,
+        performance_date=date(2026, 8, 3),
+        slot_name_snapshot="早场",
+        start_time_snapshot=time(12, 30),
+    )
+    db_session.add_all([sunday, monday])
+    db_session.commit()
+    client, headers = _client(db_session)
+
+    try:
+        response = client.post("/admin/weekly-schedules/recommend", headers=headers, json={
+            "theater_id": theater.id,
+            "week_start": "2026-08-03",
+            "expected_version": 0,
+            "assignments": [],
+            "context_weeks": [{
+                "week_start": "2026-07-27",
+                "assignments": [{
+                    "performance_id": sunday.id,
+                    "role_id": roles[0].id,
+                    "actor_id": actors[0].id,
+                    "source": "manual",
+                }],
+            }],
+        })
+
+        assert response.status_code == 200
+        monday_role = next(
+            row for row in response.json()["assignments"]
+            if row["performance_id"] == monday.id and row["role_id"] == roles[0].id
+        )
+        assert monday_role["actor_id"] == actors[1].id
+    finally:
+        app.dependency_overrides.clear()

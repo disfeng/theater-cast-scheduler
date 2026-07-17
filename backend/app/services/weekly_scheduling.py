@@ -17,7 +17,7 @@ from app.models.entities import (
 )
 from app.models.enums import BatchStatus, DesignationType, LeaveStatus, PerformanceStatus, RatingLevel
 from app.schemas.scheduling import AssignmentCandidate, PerformanceSlot
-from app.schemas.weekly_scheduling import AssignmentInput, ScheduleMutationRequest
+from app.schemas.weekly_scheduling import AssignmentInput, MultiWeekValidationRequest, ScheduleMutationRequest
 from app.services.rules import consecutive_limit_state, validate_candidate
 
 
@@ -49,13 +49,15 @@ def _week_end(week_start: date) -> date:
     return week_start + timedelta(days=6)
 
 
-def _performances(db: Session, theater_id: int, start: date | None = None, end: date | None = None) -> list[Performance]:
+def _performances(db: Session, theater_id: int | None, start: date | None = None, end: date | None = None) -> list[Performance]:
     statement = (
         select(Performance)
-        .where(Performance.theater_id == theater_id, Performance.status != PerformanceStatus.CANCELLED)
+        .where(Performance.status != PerformanceStatus.CANCELLED)
         .options(selectinload(Performance.theater_slot))
         .order_by(Performance.performance_date, Performance.start_time_snapshot, Performance.id)
     )
+    if theater_id is not None:
+        statement = statement.where(Performance.theater_id == theater_id)
     if start is not None:
         statement = statement.where(Performance.performance_date >= start)
     if end is not None:
@@ -77,19 +79,24 @@ def _actors(db: Session) -> list[Actor]:
     return list(db.scalars(select(Actor).options(selectinload(Actor.role_capabilities)).order_by(Actor.id)))
 
 
-def validate_schedule(db: Session, payload: ScheduleMutationRequest) -> dict[str, object]:
-    end = _week_end(payload.week_start)
-    theater = db.get(Theater, payload.theater_id)
+def _validate_assignments(
+    db: Session,
+    theater_id: int,
+    assignments: list[AssignmentInput],
+    scope_performances: list[Performance],
+    replaced_week_starts: set[date],
+    context_assignments: list[AssignmentInput] | None = None,
+) -> dict[str, object]:
+    theater = db.get(Theater, theater_id)
     if theater is None:
         raise LookupError("theater_not_found")
-    week_performances = _performances(db, payload.theater_id, payload.week_start, end)
-    performance_by_id = {item.id: item for item in week_performances}
-    roles = list(db.scalars(select(Role).where(Role.theater_id == payload.theater_id, Role.is_active.is_(True)).order_by(Role.id)))
+    performance_by_id = {item.id: item for item in scope_performances}
+    roles = list(db.scalars(select(Role).where(Role.theater_id == theater_id, Role.is_active.is_(True)).order_by(Role.id)))
     role_by_id = {item.id: item for item in roles}
     actors = _actors(db)
     actor_by_id = {item.id: item for item in actors}
     keys: set[tuple[int, int]] = set()
-    for item in payload.assignments:
+    for item in assignments:
         key = (item.performance_id, item.role_id)
         if key in keys:
             raise ValueError("duplicate_assignment_slot")
@@ -101,7 +108,7 @@ def validate_schedule(db: Session, payload: ScheduleMutationRequest) -> dict[str
         if item.actor_id not in actor_by_id:
             raise ValueError("actor_not_found")
 
-    timeline_models = _performances(db, payload.theater_id)
+    timeline_models = _performances(db, None)
     timeline = [_slot(item) for item in timeline_models]
     timeline_by_id = {item.id: item for item in timeline}
     saved_assignments = list(db.scalars(
@@ -111,9 +118,14 @@ def validate_schedule(db: Session, payload: ScheduleMutationRequest) -> dict[str
     ))
     existing_actor_slots: dict[int, list[PerformanceSlot]] = defaultdict(list)
     monthly_counts: dict[tuple[int, int, int], int] = Counter()
-    current_batch = db.scalar(select(WeeklyBatch).where(WeeklyBatch.theater_id == payload.theater_id, WeeklyBatch.week_start == payload.week_start))
+    replaced_batch_ids = set(db.scalars(
+        select(WeeklyBatch.id).where(
+            WeeklyBatch.theater_id == theater_id,
+            WeeklyBatch.week_start.in_(replaced_week_starts),
+        )
+    )) if replaced_week_starts else set()
     for assignment in saved_assignments:
-        if current_batch and assignment.weekly_batch_id == current_batch.id:
+        if assignment.weekly_batch_id in replaced_batch_ids:
             continue
         if assignment.performance_id in timeline_by_id:
             existing_actor_slots[assignment.actor_id].append(timeline_by_id[assignment.performance_id])
@@ -137,7 +149,27 @@ def validate_schedule(db: Session, payload: ScheduleMutationRequest) -> dict[str
     placed: list[AssignmentCandidate] = []
     current_actor_slots = {key: list(value) for key, value in existing_actor_slots.items()}
     current_counts = dict(monthly_counts)
-    for item in payload.assignments:
+    for item in context_assignments or []:
+        performance = timeline_by_id.get(item.performance_id)
+        if performance is None or next(
+            row.theater_id for row in timeline_models if row.id == item.performance_id
+        ) != theater_id:
+            raise ValueError("context_performance_outside_theater")
+        if item.role_id not in role_by_id:
+            raise ValueError("context_role_outside_theater")
+        if item.actor_id not in actor_by_id:
+            raise ValueError("context_actor_not_found")
+        current_actor_slots.setdefault(item.actor_id, []).append(performance)
+        context_month_key = (item.actor_id, performance.date.year, performance.date.month)
+        current_counts[context_month_key] = current_counts.get(context_month_key, 0) + 1
+    ordered_assignments = sorted(assignments, key=lambda item: (
+        timeline_by_id[item.performance_id].date,
+        timeline_by_id[item.performance_id].start_time,
+        timeline_by_id[item.performance_id].sort_order,
+        item.performance_id,
+        item.role_id,
+    ))
+    for item in ordered_assignments:
         candidate = AssignmentCandidate(item.actor_id, item.role_id, timeline_by_id[item.performance_id])
         actor = actor_by_id[item.actor_id]
         month_key = (item.actor_id, candidate.performance.date.year, candidate.performance.date.month)
@@ -187,10 +219,49 @@ def validate_schedule(db: Session, payload: ScheduleMutationRequest) -> dict[str
 
     empty_slots = [
         {"performance_id": performance.id, "role_id": role.id}
-        for performance in week_performances for role in roles
+        for performance in scope_performances for role in roles
         if (performance.id, role.id) not in keys
     ]
     return {"conflicts": conflicts, "warnings": warnings, "empty_slots": empty_slots}
+
+
+def validate_schedule(db: Session, payload: ScheduleMutationRequest) -> dict[str, object]:
+    end = _week_end(payload.week_start)
+    week_performances = _performances(db, payload.theater_id, payload.week_start, end)
+    context_week_starts = {week.week_start for week in payload.context_weeks}
+    if payload.week_start in context_week_starts or len(context_week_starts) != len(payload.context_weeks):
+        raise ValueError("duplicate_week_context")
+    return _validate_assignments(
+        db,
+        payload.theater_id,
+        payload.assignments,
+        week_performances,
+        {payload.week_start, *context_week_starts},
+        [assignment for week in payload.context_weeks for assignment in week.assignments],
+    )
+
+
+def validate_schedule_context(db: Session, payload: MultiWeekValidationRequest) -> dict[str, object]:
+    week_starts = [week.week_start for week in payload.weeks]
+    if len(week_starts) != len(set(week_starts)):
+        raise ValueError("duplicate_week_context")
+    scope_performances: list[Performance] = []
+    assignments: list[AssignmentInput] = []
+    for week in payload.weeks:
+        scope_performances.extend(_performances(
+            db,
+            payload.theater_id,
+            week.week_start,
+            _week_end(week.week_start),
+        ))
+        assignments.extend(week.assignments)
+    return _validate_assignments(
+        db,
+        payload.theater_id,
+        assignments,
+        scope_performances,
+        set(week_starts),
+    )
 
 
 def get_workspace(db: Session, theater_id: int, week_start: date) -> dict[str, object]:

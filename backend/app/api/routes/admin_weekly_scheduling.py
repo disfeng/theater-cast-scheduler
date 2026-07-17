@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db, require_admin
-from app.schemas.weekly_scheduling import ScheduleMutationRequest, WeeklyScheduleWorkspaceRead
+from app.schemas.weekly_scheduling import MultiWeekValidationRequest, ScheduleMutationRequest, WeeklyScheduleWorkspaceRead
 from app.services.weekly_scheduling import (
     ConflictsRequireConfirmation,
     IncompletePerformancesError,
@@ -13,6 +13,7 @@ from app.services.weekly_scheduling import (
     persist_schedule,
     recommend_schedule,
     validate_schedule,
+    validate_schedule_context,
 )
 
 router = APIRouter(prefix="/admin/weekly-schedules", tags=["admin-weekly-scheduling"])
@@ -47,6 +48,11 @@ def workspace(theater_id: int, week_start: date, _: dict = Depends(require_admin
 @router.post("/validate")
 def validate(payload: ScheduleMutationRequest, _: dict = Depends(require_admin), db: Session = Depends(get_db)):
     return _handle(lambda: validate_schedule(db, payload))
+
+
+@router.post("/validate-context")
+def validate_context(payload: MultiWeekValidationRequest, _: dict = Depends(require_admin), db: Session = Depends(get_db)):
+    return _handle(lambda: validate_schedule_context(db, payload))
 
 
 @router.post("/recommend", response_model=WeeklyScheduleWorkspaceRead)

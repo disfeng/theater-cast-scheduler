@@ -71,21 +71,16 @@ def consecutive_limit_state(
         key=lambda item: (item.date, item.start_time, item.sort_order, item.id),
     )
     index_by_id = {slot.id: index for index, slot in enumerate(timeline)}
-    actor_indexes = sorted({index_by_id[slot.id] for slot in actor_slots})
-    longest = 0
-    current = 0
-    previous_index: int | None = None
+    actor_indexes = {index_by_id[slot.id] for slot in actor_slots}
+    target_index = index_by_id[target_slot.id]
+    target_run = 0
+    index = target_index
+    while index in actor_indexes:
+        target_run += 1
+        index -= 1
 
-    for index in actor_indexes:
-        if previous_index is None or index == previous_index + 1:
-            current += 1
-        else:
-            current = 1
-        longest = max(longest, current)
-        previous_index = index
-
-    if longest > max_consecutive:
+    if target_run > max_consecutive:
         return "exceeded"
-    if longest == max_consecutive:
+    if target_run == max_consecutive:
         return "reached"
     return None

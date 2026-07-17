@@ -119,7 +119,13 @@ export type WeeklyScheduleWorkspace = {
   unsatisfied_designations: Record<string, unknown>[]; unsatisfied_wishes: Record<string, unknown>[];
 };
 export type ScheduleMutation = {
-  theater_id: number; week_start: string; expected_version: number; assignments: ScheduleAssignment[]; confirm_conflicts?: boolean;
+  theater_id: number; week_start: string; expected_version: number; assignments: ScheduleAssignment[];
+  context_weeks?: ScheduleWeekContext[]; confirm_conflicts?: boolean;
+};
+export type ScheduleWeekContext = { week_start: string; assignments: ScheduleAssignment[] };
+export type ScheduleValidationResult = {
+  conflicts: ScheduleConflict[]; warnings: ScheduleConflict[];
+  empty_slots: { performance_id: number; role_id: number }[];
 };
 
 export const adminApi = {
@@ -300,6 +306,10 @@ export const adminApi = {
 
   async validateWeeklySchedule(token: string, payload: ScheduleMutation): Promise<{ conflicts: ScheduleConflict[]; warnings: ScheduleConflict[]; empty_slots: { performance_id: number; role_id: number }[] }> {
     return apiClient.request("/admin/weekly-schedules/validate", { method: "POST", token, body: payload });
+  },
+
+  async validateScheduleContext(token: string, payload: { theater_id: number; weeks: ScheduleWeekContext[] }): Promise<ScheduleValidationResult> {
+    return apiClient.request("/admin/weekly-schedules/validate-context", { method: "POST", token, body: payload });
   },
 
   async saveWeeklyScheduleDraft(token: string, payload: ScheduleMutation): Promise<WeeklyScheduleWorkspace> {

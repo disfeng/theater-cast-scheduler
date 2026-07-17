@@ -11,11 +11,29 @@ class AssignmentInput(BaseModel):
     source: Literal["manual", "recommended"] = "manual"
 
 
+class ScheduleWeekContext(BaseModel):
+    week_start: date
+    assignments: list[AssignmentInput]
+
+    @field_validator("week_start")
+    @classmethod
+    def monday_only(cls, value: date) -> date:
+        if value.weekday() != 0:
+            raise ValueError("week_start_must_be_monday")
+        return value
+
+
+class MultiWeekValidationRequest(BaseModel):
+    theater_id: int
+    weeks: list[ScheduleWeekContext]
+
+
 class ScheduleMutationRequest(BaseModel):
     theater_id: int
     week_start: date
     expected_version: int | None = None
     assignments: list[AssignmentInput]
+    context_weeks: list[ScheduleWeekContext] = Field(default_factory=list)
     confirm_conflicts: bool = False
 
     @field_validator("week_start")
