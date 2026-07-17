@@ -135,6 +135,34 @@ test("settings groups theater configuration into focused tabs", async () => {
   await waitFor(() => expect(screen.queryByText("谢允昭")).not.toBeInTheDocument());
 });
 
+test("AI parser settings keep the stored mask separate from a replacement key", async () => {
+  const requests: any[] = [];
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const path = String(input).replace(/https?:\/\/localhost:\d+/, "");
+    if (path === "/admin/theaters" || path === "/admin/actors") return new Response("[]");
+    if (path === "/admin/system-settings/ai-parser" && (init?.method || "GET") === "GET") return new Response(JSON.stringify({ enabled: true, endpoint: "https://provider.example/v1", api_key_masked: "••••••••", model_name: "model-a", timeout_seconds: 12, prompt_version: "board-v1", last_test_ok: null, last_test_message: null, last_tested_at: null }));
+    if (path === "/admin/system-settings/ai-parser" && init?.method === "PUT") { requests.push(JSON.parse(String(init.body))); return new Response(JSON.stringify({ enabled: true, endpoint: "https://provider.example/v1", api_key_masked: "••••••••", model_name: "model-b", timeout_seconds: 20, prompt_version: "board-v1", last_test_ok: null, last_test_message: null, last_tested_at: null })); }
+    if (path.endsWith("/ai-parser/test")) { requests.push("tested"); return new Response(JSON.stringify({ ok: true, message: "connection_ok" })); }
+    return new Response("[]");
+  }));
+  await renderAdminRoute("/admin/settings");
+  await fireEvent.click(screen.getByRole("tab", { name: "系统设置" }));
+  expect(await screen.findByText("已保存：••••••••")).toBeVisible();
+  await fireEvent.update(screen.getByLabelText("模型名称"), "model-b");
+  await fireEvent.update(screen.getByLabelText("API Key"), "replacement-secret");
+  await fireEvent.click(screen.getByRole("button", { name: "保存 AI 配置" }));
+  await waitFor(() => expect(requests[0].api_key).toBe("replacement-secret"));
+  expect(requests[0]).not.toHaveProperty("api_key_masked");
+  expect(requests[0]).not.toHaveProperty("prompt_version");
+  expect(requests[0]).not.toHaveProperty("last_test_message");
+  await waitFor(() => expect(screen.getByLabelText("API Key")).toHaveValue(""));
+  await fireEvent.click(screen.getByRole("button", { name: "保存 AI 配置" }));
+  await waitFor(() => expect(requests).toHaveLength(2));
+  expect(requests[1]).not.toHaveProperty("api_key");
+  await fireEvent.click(screen.getByRole("button", { name: "测试连接" }));
+  await waitFor(() => expect(requests).toContain("tested"));
+});
+
 test("actor entry and capability workflows", async () => {
   const requests: { method: string; path: string; body: any }[] = [];
   const actorsList: any[] = [];

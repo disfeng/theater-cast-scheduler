@@ -1,6 +1,6 @@
 <template>
   <el-container class="app-shell">
-    <el-aside :width="asideWidth" class="sidebar" :class="{ 'is-open': mobileOpen }">
+    <el-aside :width="asideWidth" class="sidebar" :class="{ 'is-open': mobileOpen, 'is-collapsed': collapsed && !isMobile }">
       <div class="brand">
         <span class="brand-mark">剧</span>
         <strong v-show="!collapsed">剧场卡司排班</strong>
@@ -22,6 +22,7 @@
           <el-menu-item index="/admin/actors"><el-icon><User /></el-icon><template #title>演员管理</template></el-menu-item>
           <el-menu-item index="/admin/monthly-plan"><el-icon><Calendar /></el-icon><template #title>月度计划</template></el-menu-item>
           <el-menu-item index="/admin/designations-wishes"><el-icon><MagicStick /></el-icon><template #title>指定与许愿</template></el-menu-item>
+          <el-menu-item index="/admin/entitlements"><el-icon><Ticket /></el-icon><template #title>权益管理</template></el-menu-item>
           <el-menu-item index="/admin/leave-requests"><el-icon><DocumentChecked /></el-icon><template #title>请假审批</template></el-menu-item>
           <el-menu-item index="/admin/weekly-scheduling"><el-icon><Grid /></el-icon><template #title>周排班</template></el-menu-item>
         </template>
@@ -50,7 +51,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { Calendar, Clock, DataBoard, DocumentChecked, Grid, MagicStick, Memo, Setting, User } from "@element-plus/icons-vue";
+import { Calendar, Clock, DataBoard, DocumentChecked, Grid, MagicStick, Memo, Setting, Ticket, User } from "@element-plus/icons-vue";
 import { useAuthStore } from "../auth/store";
 
 const route = useRoute();
@@ -89,6 +90,10 @@ onBeforeUnmount(() => window.removeEventListener("resize", syncViewport));
 .sidebar-menu { border: 0; padding: 14px 10px; }
 .sidebar-menu :deep(.el-menu-item) { margin: 4px 0; border-radius: 7px; }
 .sidebar-menu :deep(.el-menu-item.is-active) { background: var(--sidebar-active); }
+.sidebar.is-collapsed .brand { justify-content: center; padding: 0; }
+.sidebar-menu.el-menu--collapse { width: 100%; box-sizing: border-box; }
+.sidebar-menu.el-menu--collapse :deep(.el-menu-item) { width: 100%; justify-content: center; padding: 0 !important; }
+.sidebar-menu.el-menu--collapse :deep(.el-menu-item .el-icon) { margin: 0; }
 .workspace { min-width: 0; }
 .topbar { height: 64px; display: flex; align-items: center; justify-content: space-between; padding: 0 24px; background: #fff; border-bottom: 1px solid var(--panel-border); }
 .menu-toggle { font-size: 20px; color: var(--text-primary); }

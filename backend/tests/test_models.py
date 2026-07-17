@@ -1,9 +1,16 @@
-from datetime import date, time
+from datetime import date, datetime, time
+
+import pytest
+from sqlalchemy.exc import IntegrityError
 
 from app.models.entities import (
     Actor,
     ActorRoleCapability,
+    EntitlementItem,
+    EntitlementItemType,
+    EntitlementLedgerEntry,
     Performance,
+    PlayerProfile,
     Role,
     ScheduleAssignment,
     Theater,
@@ -11,6 +18,110 @@ from app.models.entities import (
     TheaterWeeklyTemplateEntry,
     WeeklyBatch,
 )
+from app.models.enums import EntitlementEventType, EntitlementItemStatus
+
+
+def test_player_can_own_a_typed_entitlement_item(db_session):
+    player = PlayerProfile(display_name="Jennifer", normalized_name="jennifer")
+    top_three_type = EntitlementItemType(
+        code="top_three",
+        display_name="榜单前三指定",
+        priority=2,
+        default_validity_months=3,
+    )
+    item = EntitlementItem(
+        serial_number="DT-202604-0001",
+        owner=player,
+        item_type=top_three_type,
+        source_month=date(2026, 4, 1),
+        source_label="四月热力榜",
+        granted_at=datetime(2026, 5, 3, 10),
+        expires_at=datetime(2026, 8, 3, 10),
+        status=EntitlementItemStatus.AVAILABLE,
+    )
+
+    assert item.owner is player
+    assert item.item_type.code == "top_three"
+
+    db_session.add(item)
+    db_session.commit()
+    db_session.expire_all()
+
+    persisted = db_session.get(EntitlementItem, item.id)
+    assert persisted is not None
+    assert persisted.owner.display_name == "Jennifer"
+    assert persisted.item_type.code == "top_three"
+
+
+def _persist_entitlement_with_ledger(db_session):
+    item = EntitlementItem(
+        serial_number="DT-202604-LEDGER",
+        owner=PlayerProfile(display_name="Ledger Owner", normalized_name="ledger owner"),
+        item_type=EntitlementItemType(
+            code="ledger_test",
+            display_name="Ledger Test",
+            priority=0,
+            default_validity_months=1,
+        ),
+        source_month=date(2026, 4, 1),
+        source_label="Ledger Test",
+        granted_at=datetime(2026, 5, 1),
+        expires_at=datetime(2026, 6, 1),
+        status=EntitlementItemStatus.AVAILABLE,
+    )
+    entry = EntitlementLedgerEntry(
+        item=item,
+        event_type=EntitlementEventType.GRANTED,
+        occurred_at=datetime(2026, 5, 1),
+    )
+    db_session.add(entry)
+    db_session.commit()
+    return item, entry
+
+
+def test_ledger_entry_cannot_be_orphaned_by_collection_mutation(db_session):
+    item, entry = _persist_entitlement_with_ledger(db_session)
+
+    item.ledger_entries.remove(entry)
+    with pytest.raises(RuntimeError, match="entitlement ledger entries are append-only"):
+        db_session.flush()
+    db_session.rollback()
+
+    assert db_session.get(EntitlementLedgerEntry, entry.id) is not None
+
+
+def test_persisted_ledger_entry_cannot_be_updated(db_session):
+    _, entry = _persist_entitlement_with_ledger(db_session)
+
+    entry.note = "rewritten history"
+    with pytest.raises(RuntimeError, match="entitlement ledger entries are append-only"):
+        db_session.flush()
+    db_session.rollback()
+
+    assert db_session.get(EntitlementLedgerEntry, entry.id).note is None
+
+
+def test_persisted_ledger_entry_cannot_be_deleted(db_session):
+    _, entry = _persist_entitlement_with_ledger(db_session)
+
+    db_session.delete(entry)
+    with pytest.raises(RuntimeError, match="entitlement ledger entries are append-only"):
+        db_session.flush()
+    db_session.rollback()
+
+    assert db_session.get(EntitlementLedgerEntry, entry.id) is not None
+
+
+def test_item_deletion_cannot_erase_ledger_history(db_session):
+    item, entry = _persist_entitlement_with_ledger(db_session)
+
+    db_session.delete(item)
+    with pytest.raises(IntegrityError):
+        db_session.flush()
+    db_session.rollback()
+
+    assert db_session.get(EntitlementItem, item.id) is not None
+    assert db_session.get(EntitlementLedgerEntry, entry.id) is not None
 
 
 def test_actor_can_have_multiple_role_capabilities(db_session):
@@ -24,10 +135,12 @@ def test_actor_can_have_multiple_role_capabilities(db_session):
     db_session.add_all([role_a, role_b])
     db_session.flush()
 
-    db_session.add_all([
-        ActorRoleCapability(actor_id=actor.id, role_id=role_a.id),
-        ActorRoleCapability(actor_id=actor.id, role_id=role_b.id),
-    ])
+    db_session.add_all(
+        [
+            ActorRoleCapability(actor_id=actor.id, role_id=role_a.id),
+            ActorRoleCapability(actor_id=actor.id, role_id=role_b.id),
+        ]
+    )
     db_session.commit()
 
     refreshed = db_session.get(Actor, actor.id)
@@ -49,10 +162,14 @@ def test_theater_supports_ordered_slots_and_relational_weekly_template(db_sessio
     ]
     db_session.add_all(slots)
     db_session.flush()
-    db_session.add_all([
-        TheaterWeeklyTemplateEntry(theater_id=theater.id, weekday="monday", theater_slot_id=slot.id)
-        for slot in slots
-    ])
+    db_session.add_all(
+        [
+            TheaterWeeklyTemplateEntry(
+                theater_id=theater.id, weekday="monday", theater_slot_id=slot.id
+            )
+            for slot in slots
+        ]
+    )
     db_session.commit()
 
     refreshed = db_session.get(Theater, theater.id)

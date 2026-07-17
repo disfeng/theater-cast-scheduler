@@ -30,6 +30,7 @@ const routes: RouteRecordRaw[] = [
       { path: "actors", name: "admin-actors", component: () => import("../pages/admin/ActorsPage.vue") },
       { path: "monthly-plan", name: "admin-monthly-plan", component: () => import("../pages/admin/MonthlyPlanPage.vue") },
       { path: "designations-wishes", name: "admin-designations-wishes", component: () => import("../pages/admin/DesignationWishPage.vue") },
+      { path: "entitlements", name: "admin-entitlements", component: () => import("../pages/admin/EntitlementManagementPage.vue") },
       { path: "leave-requests", name: "admin-leave-requests", component: () => import("../pages/admin/RequestsPage.vue") },
       { path: "weekly-scheduling", name: "admin-weekly-scheduling", component: () => import("../pages/admin/WeeklySchedulingPage.vue") },
     ],

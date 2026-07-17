@@ -1,6 +1,7 @@
 import re
 
 from app.schemas.imports import DesignationSuggestion, ImportDraft, PlayerDraft, WishDraft
+from app.schemas.performance_boards import ParsedPerformancePlayer
 
 
 SECTION_MARKERS = {
@@ -18,7 +19,9 @@ def parse_group_board(text: str) -> ImportDraft:
         line = raw_line.strip()
         if not line:
             continue
-        marker = next((value for key, value in SECTION_MARKERS.items() if line.startswith(key)), None)
+        marker = next(
+            (value for key, value in SECTION_MARKERS.items() if line.startswith(key)), None
+        )
         if marker:
             current = marker
             continue
@@ -50,13 +53,23 @@ def parse_group_board(text: str) -> ImportDraft:
 
 def _parse_wish(line: str) -> WishDraft | None:
     match = re.search(r"】-?\s*([^/]+)/([^-（(]+)-([^（(\s]+)\s*(.*)$", line)
-    if not match:
+    if match:
+        return WishDraft(
+            actor_name=match.group(1).strip(),
+            role_name=match.group(2).strip(),
+            player_name=match.group(3).strip(),
+            raw_note=match.group(4).strip(" ()（）"),
+            raw_line=line,
+        )
+    parenthesized = re.search(r"】\s*-?\s*([^/]+)/([^（(]+)[（(]([^，,）)]+)[，,]\s*(.*?)[）)]\s*$", line)
+    if not parenthesized:
         return None
     return WishDraft(
-        actor_name=match.group(1).strip(),
-        role_name=match.group(2).strip(),
-        player_name=match.group(3).strip(),
-        raw_note=match.group(4).strip(" ()（）"),
+        actor_name=parenthesized.group(1).strip(),
+        role_name=parenthesized.group(2).strip(),
+        player_name=parenthesized.group(3).strip(),
+        raw_note=parenthesized.group(4).strip(),
+        raw_line=line,
     )
 
 
@@ -64,25 +77,51 @@ def _parse_top_three(line: str) -> DesignationSuggestion | None:
     match = re.search(r"热力榜三-([^/]+)/([^（(]+)", line)
     if not match:
         return None
+    owner_match = re.search(r"[（(][^）)]*?-([^）)]+)[）)]\s*$", line)
     return DesignationSuggestion(
         actor_name=match.group(1).strip(),
         role_name=match.group(2).strip(),
-        player_name=None,
+        player_name=owner_match.group(1).strip() if owner_match else None,
         suggested_type="top_three",
         raw_line=line,
     )
 
 
 def _parse_player(line: str) -> PlayerDraft | None:
-    match = re.search(r"【([^】]+)】([^（(：:]+)(?:[（(]([^）)]+)[）)])?[：:]\s*(.+)$", line)
-    if not match:
+    parsed = parse_player_registration(line)
+    if parsed is None:
         return None
     return PlayerDraft(
-        label=match.group(1).strip(),
-        role_name=match.group(2).strip(),
-        relation=match.group(3).strip() if match.group(3) else None,
-        player_name=match.group(4).strip(),
+        label=parsed.player_character_name,
+        role_name=parsed.paired_role_name,
+        relation=parsed.relation_label,
+        player_name=parsed.player_name,
     )
+
+
+def parse_player_registration(line: str) -> ParsedPerformancePlayer | None:
+    match = re.fullmatch(
+        r"\s*【([^】]+)】([^（(：:]+)(?:[（(]([^）)]+)[）)])?[：:]\s*(.+?)\s*",
+        line,
+    )
+    if not match:
+        return None
+    player_name = match.group(4).strip()
+    theater_visit_ordinal = character_visit_ordinal = None
+    suffix = re.fullmatch(r"(.+)-(\d+)-(\d+)", player_name)
+    if suffix:
+        player_name = suffix.group(1).strip()
+        theater_visit_ordinal = int(suffix.group(2))
+        character_visit_ordinal = int(suffix.group(3))
+    return ParsedPerformancePlayer(
+        player_name=player_name,
+        player_character_name=match.group(1).strip(),
+        paired_role_name=match.group(2).strip(),
+        relation_label=match.group(3).strip() if match.group(3) else None,
+        theater_visit_ordinal=theater_visit_ordinal,
+        character_visit_ordinal=character_visit_ordinal,
+    )
+
 
 def _parse_notes(lines: list[str]) -> dict[str, str]:
     notes: dict[str, str] = {}

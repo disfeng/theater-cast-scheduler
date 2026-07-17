@@ -42,6 +42,9 @@ class WishInput:
     role_id: int
     actor_id: int
     note: str | None = None
+    performance_id: int | None = None
+    performance_player_id: int | None = None
+    failure_reason: str | None = None
 
 
 @dataclass(frozen=True)

@@ -1,3 +1,4 @@
+import { fireEvent } from "@testing-library/vue";
 import { expect, test } from "vitest";
 import { renderActorRoute, renderAdminRoute } from "./helpers/render-app";
 
@@ -11,7 +12,7 @@ test("admin navigation gives every menu item an icon", async () => {
   const { container } = await renderAdminRoute("/admin/weekly-scheduling");
   const items = container.querySelectorAll(".sidebar-menu .el-menu-item");
   const icons = container.querySelectorAll(".sidebar-menu .el-menu-item .el-icon");
-  expect(items.length).toBe(7);
+  expect(items.length).toBe(8);
   expect(icons.length).toBe(items.length);
 });
 
@@ -21,6 +22,17 @@ test("actor navigation gives every menu item an icon", async () => {
   const icons = container.querySelectorAll(".sidebar-menu .el-menu-item .el-icon");
   expect(items.length).toBe(2);
   expect(icons.length).toBe(items.length);
+});
+
+test("collapsed sidebar centers its brand and menu icons on one axis", async () => {
+  const { container } = await renderAdminRoute("/admin/weekly-scheduling");
+  await fireEvent.click(container.querySelector<HTMLButtonElement>('[aria-label="切换导航"]')!);
+
+  expect(container.querySelector(".sidebar")).toHaveClass("is-collapsed");
+  const source = vueSources["../src/layouts/AppShell.vue"];
+  expect(source).toContain(".sidebar.is-collapsed .brand");
+  expect(source).toContain(".sidebar-menu.el-menu--collapse");
+  expect(source).toContain("justify-content: center");
 });
 
 test("light secondary buttons do not retain low-contrast dark-theme text", () => {

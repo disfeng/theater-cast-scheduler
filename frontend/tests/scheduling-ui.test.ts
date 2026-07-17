@@ -57,6 +57,38 @@ test("loads a theater week and exposes the role assignment matrix", async () => 
   expect(app.router.currentRoute.value.fullPath).toBe("/admin/weekly-scheduling");
 });
 
+test("renders a predesignation as a locked cell with a detail link", async () => {
+  const scrollIntoView = vi.fn(); Element.prototype.scrollIntoView = scrollIntoView;
+  const locked = {
+    ...workspace,
+    assignments: [{ performance_id: 10, role_id: 20, actor_id: 30, source: "recommended", locked: true,
+      designation_id: 77, designation_type: "universal", owner_player_name: "玩家A", beneficiary_player_name: "玩家B", entitlement_serial: "UNI-77" }],
+    empty_slots: [],
+  };
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+    const url = new URL(String(input));
+    if (url.pathname === "/admin/theaters") return new Response(JSON.stringify([{ id: 1, name: "西安幽州剧场", is_active: true }]), { status: 200 });
+    if (url.pathname === "/admin/weekly-schedules/workspace") {
+      return new Response(JSON.stringify(url.searchParams.get("week_start") === "2026-12-28" ? locked : monthWorkspace(url.searchParams.get("week_start")!)), { status: 200 });
+    }
+    if (["/admin/actors", "/admin/roles"].includes(url.pathname)) return new Response(JSON.stringify([]), { status: 200 });
+    if (url.pathname === "/admin/designations") return Response.json([{
+      id: 77, version: 1, usage_type: "self", lifecycle_status: "predesignated", verification_status: "not_required",
+      designation_type: "universal", beneficiary_name: "玩家B", owner_name: "玩家A", performance_label: "2027-01-01 晚场",
+      actor_name: "小展", role_name: "柳知雨", available_items: [], status_history: [], action: "none", conflict: null,
+    }]);
+    return new Response(JSON.stringify([]), { status: 200 });
+  }));
+  const app = await renderAdminRoute("/admin/weekly-scheduling");
+  const select = await screen.findByRole("combobox", { name: "1月1日 晚场 柳知雨" });
+  expect(select).toBeDisabled();
+  const detail = screen.getByRole("button", { name: "查看指定 77 详情" });
+  expect(detail).toHaveTextContent("预指定锁定 · 万能道具");
+  expect(detail).toHaveTextContent("持有人 玩家A"); expect(detail).toHaveTextContent("使用玩家 玩家B"); expect(detail).toHaveTextContent("UNI-77");
+  await fireEvent.click(screen.getByRole("button", { name: "查看指定 77 详情" }));
+  await waitFor(() => expect(app.router.currentRoute.value.query).toMatchObject({ performance_id: "10", review_tab: "designations", designation_id: "77" }));
+});
+
 test("renders the compact two-row toolbar", async () => {
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
     const path = String(input).replace(/https?:\/\/localhost:\d+/, "");
@@ -208,6 +240,99 @@ test("shows a blocking dialog when publishing a partially assigned performance",
   expect(screen.getByRole("button", { name: "返回补充" })).toBeInTheDocument();
   expect(screen.queryByText("有演出场次尚未完成全部角色安排，无法发布")).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "确认发布" })).not.toBeInTheDocument();
+});
+
+test("unmet confirmation shows exact refund and submits the server token and operation key", async () => {
+  const bodies: any[]=[];
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url=new URL(String(input));
+    if(url.pathname==="/admin/theaters")return Response.json([{id:1,name:"西安幽州剧场",is_active:true}]);
+    if(url.pathname==="/admin/weekly-schedules/workspace")return Response.json(requestedWorkspace(input));
+    if(url.pathname==="/admin/weekly-schedules/publish"){
+      const body=JSON.parse(String(init?.body));bodies.push(body);
+      if(!body.confirmation_token)return Response.json({detail:{code:"unmet_designations_require_confirmation",
+        confirmation_token:"confirm-token",idempotency_key:"publish-operation",
+        designations:[{id:77,player_name:"使用玩家B",failure_reason:"actor_on_leave",entitlement_serial:"UNI-77",
+          refund_target:"持有人A",refund_status:"expired"}]}},{status:409});
+      return Response.json({...workspace,status:"scheduled",version:1});
+    }
+    return Response.json({conflicts:[],warnings:[],empty_slots:[]});
+  }));
+  await renderAdminRoute("/admin/weekly-scheduling");await screen.findByText("柳知雨");
+  await fireEvent.click(screen.getByRole("button",{name:"发布 12月28日–1月3日"}));
+  expect(await screen.findByText(/#77 使用玩家B：actor_on_leave/)).toBeInTheDocument();
+  expect(screen.getByText(/UNI-77退回 持有人A（已过期）/)).toBeInTheDocument();
+  await fireEvent.click(await screen.findByRole("button",{name:"确认发布并退回"}));
+  await waitFor(()=>expect(bodies).toHaveLength(2));
+  expect(bodies[1]).toEqual(expect.objectContaining({confirmation_token:"confirm-token",idempotency_key:"publish-operation"}));
+});
+
+test("cancelling unmet confirmation does not retry or cache its token", async () => {
+  const bodies: any[] = [];
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = new URL(String(input));
+    if (url.pathname === "/admin/theaters") return Response.json([{ id: 1, name: "西安幽州剧场", is_active: true }]);
+    if (url.pathname === "/admin/weekly-schedules/workspace") return Response.json(requestedWorkspace(input));
+    if (url.pathname === "/admin/weekly-schedules/publish") {
+      const body = JSON.parse(String(init?.body)); bodies.push(body);
+      return Response.json({ detail: { code: "unmet_designations_require_confirmation",
+        confirmation_token: "cancelled-token", idempotency_key: "cancelled-operation",
+        designations: [{ id: 77, player_name: "玩家B", failure_reason: "actor_on_leave" }] } }, { status: 409 });
+    }
+    return Response.json({ conflicts: [], warnings: [], empty_slots: [] });
+  }));
+  await renderAdminRoute("/admin/weekly-scheduling"); await screen.findByText("柳知雨");
+  const publish = screen.getByRole("button", { name: "发布 12月28日–1月3日" });
+  await fireEvent.click(publish);
+  await screen.findByRole("button", { name: "确认发布并退回" });
+  await fireEvent.click(screen.getByRole("button", { name: "取消" }));
+  await waitFor(() => expect(publish).not.toBeDisabled());
+  expect(bodies).toHaveLength(1);
+  expect(bodies.filter(body => body.confirmation_token)).toHaveLength(0);
+
+  await fireEvent.click(publish);
+  await waitFor(() => expect(bodies).toHaveLength(2));
+  expect(bodies[1].confirmation_token).toBeUndefined();
+  expect(bodies[1].idempotency_key).not.toBe("cancelled-operation");
+  await screen.findByRole("button", { name: "确认发布并退回" });
+  const cancelButtons = screen.getAllByRole("button", { name: "取消" });
+  await fireEvent.click(cancelButtons[cancelButtons.length - 1]);
+  await waitFor(() => expect(publish).not.toBeDisabled());
+});
+
+test("stale confirmation clears the old token before the next publish", async () => {
+  const bodies: any[] = [];
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = new URL(String(input));
+    if (url.pathname === "/admin/theaters") return Response.json([{ id: 1, name: "西安幽州剧场", is_active: true }]);
+    if (url.pathname === "/admin/weekly-schedules/workspace") return Response.json(requestedWorkspace(input));
+    if (url.pathname === "/admin/weekly-schedules/publish") {
+      const body = JSON.parse(String(init?.body)); bodies.push(body);
+      if (body.confirmation_token) return Response.json({ detail: { code: "stale_confirmation" } }, { status: 409 });
+      const suffix = bodies.length === 1 ? "old" : "new";
+      return Response.json({ detail: { code: "unmet_designations_require_confirmation",
+        confirmation_token: `${suffix}-token`, idempotency_key: `${suffix}-operation`,
+        designations: [{ id: 77, player_name: "玩家B", failure_reason: "actor_on_leave" }] } }, { status: 409 });
+    }
+    return Response.json({ conflicts: [], warnings: [], empty_slots: [] });
+  }));
+  await renderAdminRoute("/admin/weekly-scheduling"); await screen.findByText("柳知雨");
+  const publish = screen.getByRole("button", { name: "发布 12月28日–1月3日" });
+  await fireEvent.click(publish);
+  await fireEvent.click(await screen.findByRole("button", { name: "确认发布并退回" }));
+  await waitFor(() => expect(bodies).toHaveLength(2));
+  expect(bodies[1]).toEqual(expect.objectContaining({ confirmation_token: "old-token", idempotency_key: "old-operation" }));
+  expect(await screen.findByText("指定或退款范围已变更，请重新发布并确认。")).toBeInTheDocument();
+  await waitFor(() => expect(publish).not.toBeDisabled());
+
+  await fireEvent.click(publish);
+  await waitFor(() => expect(bodies).toHaveLength(3));
+  expect(bodies[2].confirmation_token).toBeUndefined();
+  expect(bodies[2].idempotency_key).not.toBe("old-operation");
+  await screen.findByRole("button", { name: "确认发布并退回" });
+  const cancelButtons = screen.getAllByRole("button", { name: "取消" });
+  await fireEvent.click(cancelButtons[cancelButtons.length - 1]);
+  await waitFor(() => expect(publish).not.toBeDisabled());
 });
 
 test("saves the dirty active natural week", async () => {

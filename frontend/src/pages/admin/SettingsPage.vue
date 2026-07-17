@@ -33,10 +33,12 @@
       </div>
     </el-card>
 
-    <el-empty v-if="!selectedTheater" description="请先新增或选择剧场" />
-    <el-card v-else shadow="never" class="configuration-card">
+    <el-card shadow="never" class="configuration-card">
       <el-tabs v-model="activeSettingsTab" class="configuration-tabs">
+        <el-tab-pane label="系统设置" name="system"><AiParserSettings /></el-tab-pane>
         <el-tab-pane label="场次配置" name="slots">
+          <el-empty v-if="!selectedTheater" description="请先新增或选择剧场" />
+          <template v-else>
           <div class="panel-heading">
             <div><strong>场次配置</strong><span>维护每天可用的演出时间</span></div>
             <el-button type="primary" @click="openSlotDialog()">新增场次</el-button>
@@ -49,6 +51,7 @@
               <template #default="{ row }"><el-button size="small" @click="openSlotDialog(row)">编辑</el-button><el-button size="small" type="danger" plain @click="removeSlot(row)">删除</el-button></template>
             </el-table-column>
           </el-table>
+          </template>
         </el-tab-pane>
 
         <el-tab-pane label="默认周模板" name="template">
@@ -70,7 +73,7 @@
 
         <el-tab-pane label="剧场角色" name="roles">
           <div class="panel-heading role-heading">
-            <div><strong>剧场角色</strong><span>角色归属于 {{ selectedTheater.name }}</span></div>
+            <div><strong>剧场角色</strong><span>角色归属于 {{ selectedTheater?.name || "未选择剧场" }}</span></div>
             <div class="role-tools"><el-input v-model="roleSearch" clearable placeholder="搜索角色或分组" aria-label="搜索角色或分组" /><el-button type="primary" @click="openRoleDialog()">新增角色</el-button></div>
           </div>
           <el-table :data="filteredRoles" empty-text="暂无匹配角色" class="compact-table">
@@ -117,6 +120,7 @@ import { ArrowDown } from "@element-plus/icons-vue";
 import { adminApi, type Actor, type Role, type Theater, type TheaterSlot, type WeeklyTemplate } from "../../api/admin";
 import { useAuthStore } from "../../auth/store";
 import PageHeader from "../../components/PageHeader.vue";
+import AiParserSettings from "../../components/admin/AiParserSettings.vue";
 
 const DAYS = [{ key: "monday", label: "周一" }, { key: "tuesday", label: "周二" }, { key: "wednesday", label: "周三" }, { key: "thursday", label: "周四" }, { key: "friday", label: "周五" }, { key: "saturday", label: "周六" }, { key: "sunday", label: "周日" }];
 const emptyTemplate = (): WeeklyTemplate => Object.fromEntries(DAYS.map((day) => [day.key, []]));

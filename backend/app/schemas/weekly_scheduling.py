@@ -35,6 +35,8 @@ class ScheduleMutationRequest(BaseModel):
     assignments: list[AssignmentInput]
     context_weeks: list[ScheduleWeekContext] = Field(default_factory=list)
     confirm_conflicts: bool = False
+    confirmation_token: str | None = None
+    idempotency_key: str | None = None
 
     @field_validator("week_start")
     @classmethod
@@ -79,6 +81,14 @@ class ActorWorkspaceRead(BaseModel):
 
 class AssignmentRead(AssignmentInput):
     conflict_codes: list[str] = Field(default_factory=list)
+    recommendation_reasons: list[str] = Field(default_factory=list)
+    locked: bool = False
+    designation_id: int | None = None
+    designation_type: str | None = None
+    owner_player_name: str | None = None
+    beneficiary_player_name: str | None = None
+    entitlement_serial: str | None = None
+    legacy_identity_fallback: bool = False
 
 
 class WeeklyScheduleWorkspaceRead(BaseModel):

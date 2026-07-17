@@ -1,11 +1,17 @@
 from datetime import date, time
 
 from app.schemas.scheduling import AssignmentCandidate, PerformanceSlot
-from app.services.rules import consecutive_limit_state, validate_candidate, would_exceed_consecutive_limit
+from app.services.rules import (
+    consecutive_limit_state,
+    validate_candidate,
+    would_exceed_consecutive_limit,
+)
 
 
 def test_candidate_fails_when_actor_is_on_leave():
-    candidate = AssignmentCandidate(actor_id=1, role_id=10, performance=PerformanceSlot(1, date(2026, 6, 5), "early"))
+    candidate = AssignmentCandidate(
+        actor_id=1, role_id=10, performance=PerformanceSlot(1, date(2026, 6, 5), "early")
+    )
 
     violations = validate_candidate(
         candidate=candidate,
@@ -20,7 +26,9 @@ def test_candidate_fails_when_actor_is_on_leave():
 
 
 def test_candidate_fails_when_actor_lacks_role_capability():
-    candidate = AssignmentCandidate(actor_id=1, role_id=10, performance=PerformanceSlot(1, date(2026, 6, 5), "early"))
+    candidate = AssignmentCandidate(
+        actor_id=1, role_id=10, performance=PerformanceSlot(1, date(2026, 6, 5), "early")
+    )
 
     violations = validate_candidate(
         candidate=candidate,
@@ -35,7 +43,9 @@ def test_candidate_fails_when_actor_lacks_role_capability():
 
 
 def test_candidate_fails_when_actor_is_suspended():
-    candidate = AssignmentCandidate(actor_id=1, role_id=10, performance=PerformanceSlot(1, date(2026, 6, 5), "early"))
+    candidate = AssignmentCandidate(
+        actor_id=1, role_id=10, performance=PerformanceSlot(1, date(2026, 6, 5), "early")
+    )
 
     violations = validate_candidate(
         candidate=candidate,
@@ -80,7 +90,9 @@ def test_consecutive_limit_detects_fourth_link():
 
 def test_consecutive_limit_reports_reached_before_exceeded():
     timeline = [
-        PerformanceSlot(index, date(2026, 8, 7 + index // 2), f"slot-{index}", time(12 + index * 2), index)
+        PerformanceSlot(
+            index, date(2026, 8, 7 + index // 2), f"slot-{index}", time(12 + index * 2), index
+        )
         for index in range(4)
     ]
 
@@ -94,13 +106,16 @@ def test_consecutive_limit_does_not_leak_an_earlier_streak_to_a_disconnected_tar
         for index in range(5)
     ]
 
-    assert consecutive_limit_state(
-        1,
-        timeline[4],
-        {1: timeline[:3]},
-        3,
-        timeline,
-    ) is None
+    assert (
+        consecutive_limit_state(
+            1,
+            timeline[4],
+            {1: timeline[:3]},
+            3,
+            timeline,
+        )
+        is None
+    )
 
 
 def test_consecutive_limit_uses_full_four_slot_timeline_and_resets_on_gap():
@@ -129,5 +144,9 @@ def test_consecutive_limit_crosses_week_and_year_boundaries():
         PerformanceSlot(4, date(2027, 1, 1), "早场", time(12), 0),
     ]
 
-    assert would_exceed_consecutive_limit(1, cross_week[1], {1: [cross_week[0]]}, 1, ordered_timeline=cross_week)
-    assert would_exceed_consecutive_limit(1, cross_year[1], {1: [cross_year[0]]}, 1, ordered_timeline=cross_year)
+    assert would_exceed_consecutive_limit(
+        1, cross_week[1], {1: [cross_week[0]]}, 1, ordered_timeline=cross_week
+    )
+    assert would_exceed_consecutive_limit(
+        1, cross_year[1], {1: [cross_year[0]]}, 1, ordered_timeline=cross_year
+    )

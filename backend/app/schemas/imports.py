@@ -7,6 +7,7 @@ class WishDraft:
     role_name: str
     player_name: str
     raw_note: str
+    raw_line: str
 
 
 @dataclass(frozen=True)

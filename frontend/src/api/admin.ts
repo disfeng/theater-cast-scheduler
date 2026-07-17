@@ -1,6 +1,10 @@
 import { apiClient } from "./client";
+import type { EntitlementItem, EntitlementItemType, GrantBatch, GrantBatchPayload, PlayerInventory, PlayerProfile } from "../features/entitlements/types";
+import type { BoardDraftItem, BoardDraftItemPatch, BoardRevision, PerformanceBoard } from "../features/performance-board/types";
+import type { DesignationMonthWorkspace, PerformanceWorkspace } from "../features/designation-workspace/types";
 
 export type Theater = { id: number; name: string; is_active: boolean };
+export type AiParserSettings = { enabled: boolean; endpoint: string; api_key_masked: string | null; model_name: string; timeout_seconds: number; prompt_version: string; last_test_ok: boolean | null; last_test_message: string | null; last_tested_at: string | null };
 export type TheaterSlot = {
   id: number;
   theater_id: number;
@@ -102,6 +106,9 @@ export type ScheduleAssignment = {
   actor_id: number;
   source: "manual" | "recommended";
   conflict_codes?: string[];
+  locked?: boolean; designation_id?: number | null; designation_type?: "universal" | "top_three" | "paired" | null;
+  owner_player_name?: string | null; beneficiary_player_name?: string | null;
+  entitlement_serial?: string | null; legacy_identity_fallback?: boolean;
 };
 export type ScheduleConflict = {
   code: string; message: string; performance_id: number | null; role_id: number | null; actor_id: number | null;
@@ -121,14 +128,144 @@ export type WeeklyScheduleWorkspace = {
 export type ScheduleMutation = {
   theater_id: number; week_start: string; expected_version: number; assignments: ScheduleAssignment[];
   context_weeks?: ScheduleWeekContext[]; confirm_conflicts?: boolean;
+  confirmation_token?: string; idempotency_key?: string;
 };
 export type ScheduleWeekContext = { week_start: string; assignments: ScheduleAssignment[] };
 export type ScheduleValidationResult = {
   conflicts: ScheduleConflict[]; warnings: ScheduleConflict[];
   empty_slots: { performance_id: number; role_id: number }[];
 };
+export type Predesignation = {
+  id: number; version: number; usage_type: "self" | "proxy" | null; lifecycle_status: string | null;
+  verification_status: string | null; failure_reason: string | null; verification_note: string | null;
+  verified_at: string | null; verified_by: number | null; verifier_name: string | null;
+  performance_id: number | null; performance_label: string | null;
+  beneficiary_performance_player_id: number | null; beneficiary_player_id: number | null; beneficiary_name: string;
+  owner_player_id: number | null; owner_name: string | null; designation_type: "universal" | "top_three" | "paired";
+  priority: number; actor_id: number; actor_name: string; role_id: number; role_name: string;
+  entitlement_item_id: number | null; entitlement_serial: string | null; entitlement_source: string | null; entitlement_expiry: string | null;
+  available_items: { id: number; serial_number: string; source_label: string; expires_at: string; status: string }[];
+  conflict: { id: number; designation_type: string; version: number; priority: number } | null;
+  comparison: "higher" | "lower" | "equal" | null; outcome: string; action: string;
+  status_history: { event: string; at: string; from_status: string | null; to_status: string | null; item_id?: number | null; conflict_designation_id?: number | null; note?: string | null; operator_user_id: number }[];
+};
+
+export type PerformanceWish = {
+  id: number; performance_id: number; performance_player_id: number; player_name: string;
+  actor_id: number; actor_name: string; role_id: number; role_name: string;
+  note: string | null; status: "active" | "accepted" | "cancelled"; failure_reason: string | null;
+  version: number;
+};
+export type EntitlementReconciliation = {
+  generated_at: string; expiry_filter: string | null; filtered_totals: Record<string, number>;
+  global_totals: Record<string, number>; anomaly_count: number;
+  rows: { item_type: string; source_month: string; source_label: string; player_id: number;
+    player_name: string; status: string; item_count: number;
+    drill_down_filter: Record<string, string | number> }[];
+};
+export type ReconciliationDrill = { kind: string; total: number; limit: number;
+  next_cursor: number | null; records: Record<string, any>[] };
+const mutationKey = () => globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
 
 export const adminApi = {
+  async getDesignationMonthWorkspace(token: string, theaterId: number, year: number, month: number): Promise<DesignationMonthWorkspace> {
+    return apiClient.request(`/admin/designation-workspace/month?theater_id=${theaterId}&year=${year}&month=${month}`, { token });
+  },
+  async getPerformanceReviewWorkspace(token: string, performanceId: number): Promise<PerformanceWorkspace> {
+    return apiClient.request(`/admin/designation-workspace/performances/${performanceId}`, { token });
+  },
+  async getEntitlementReconciliation(token: string, expiry?: string): Promise<EntitlementReconciliation> {
+    return apiClient.request(`/admin/entitlements/reconciliation${expiry ? `?expiry=${expiry}` : ""}`, { token });
+  },
+  async getEntitlementReconciliationDrill(token: string, kind: string, expiry?: string,
+    filters: Record<string, string | number> = {}, cursor = 0): Promise<ReconciliationDrill> {
+    const query = new URLSearchParams({ kind, limit: "50", cursor: String(cursor) });
+    if (expiry) query.set("expiry", expiry);
+    Object.entries(filters).forEach(([key, value]) => query.set(key, String(value)));
+    return apiClient.request(`/admin/entitlements/reconciliation/drill?${query}`, { token });
+  },
+  async getDesignations(token: string): Promise<Predesignation[]> { return apiClient.request("/admin/designations", { token }); },
+  async getWishes(token: string, performanceId?: number): Promise<PerformanceWish[]> { return apiClient.request(`/admin/wishes${performanceId ? `?performance_id=${performanceId}` : ""}`, { token }); },
+  async createWish(token: string, payload: { performance_id: number; performance_player_id: number; actor_id: number; role_id: number; note?: string | null }): Promise<PerformanceWish> { return apiClient.request("/admin/wishes", { method: "POST", token, body: { ...payload, expected_version: 0, idempotency_key: mutationKey() } }); },
+  async cancelWish(token: string, row: PerformanceWish, reason: string): Promise<PerformanceWish> { return apiClient.request(`/admin/wishes/${row.id}/cancel`, { method: "POST", token, body: { reason, expected_version: row.version, idempotency_key: mutationKey() } }); },
+  async acceptWish(token: string, row: PerformanceWish, note?: string): Promise<PerformanceWish> { return apiClient.request(`/admin/wishes/${row.id}/accept`, { method: "POST", token, body: { note: note || null, expected_version: row.version, idempotency_key: mutationKey() } }); },
+  async verifyProxyDesignation(token: string, row: Predesignation, payload: { owner_player_id: number; item_id: number; note: string }): Promise<Predesignation> { return apiClient.request(`/admin/designations/${row.id}/verify-proxy`, { method: "POST", token, body: { ...payload, expected_version: row.version, idempotency_key: mutationKey() } }); },
+  async activateDesignation(token: string, row: Predesignation, itemId: number): Promise<Predesignation> { return apiClient.request(`/admin/designations/${row.id}/activate`, { method: "POST", token, body: { item_id: itemId, expected_version: row.version, idempotency_key: mutationKey() } }); },
+  async replaceDesignation(token: string, incoming: Predesignation): Promise<Predesignation> { return apiClient.request(`/admin/designations/${incoming.id}/replace`, { method: "POST", token, body: { replaced_id: incoming.conflict!.id, expected_versions: { incoming: incoming.version, replaced: incoming.conflict!.version }, confirmed: true, idempotency_key: mutationKey() } }); },
+  async cancelDesignation(token: string, row: Predesignation, reason: string): Promise<Predesignation> { return apiClient.request(`/admin/designations/${row.id}/cancel`, { method: "POST", token, body: { reason, expected_version: row.version, idempotency_key: mutationKey() } }); },
+  async resolveEqualDesignation(token:string,row:Predesignation,decision:"choose_incoming"|"keep_occupied"):Promise<Predesignation>{return apiClient.request(`/admin/designations/${row.id}/resolve-equal`,{method:"POST",token,body:{occupied_id:row.conflict!.id,decision,expected_versions:{incoming:row.version,occupied:row.conflict!.version},confirmed:true,idempotency_key:mutationKey()}})},
+  async getAiParserSettings(token: string): Promise<AiParserSettings> { return apiClient.request("/admin/system-settings/ai-parser", { token }); },
+  async updateAiParserSettings(token: string, payload: { enabled: boolean; endpoint: string; api_key?: string; model_name: string; timeout_seconds: number }): Promise<AiParserSettings> { return apiClient.request("/admin/system-settings/ai-parser", { method: "PUT", token, body: payload }); },
+  async testAiParserConnection(token: string): Promise<{ ok: boolean; message: string }> { return apiClient.request("/admin/system-settings/ai-parser/test", { method: "POST", token, body: {} }); },
+  async getPerformanceBoard(token: string, performanceId: number, signal?: AbortSignal): Promise<PerformanceBoard> {
+    return apiClient.request(`/admin/performances/${performanceId}/board`, { token, signal });
+  },
+
+  async createBoardRevision(token: string, performanceId: number, rawText: string, parseWithAi = true): Promise<BoardRevision> {
+    return apiClient.request(`/admin/performances/${performanceId}/board/revisions`, { method: "POST", token, body: { raw_text: rawText, parse_with_ai: parseWithAi } });
+  },
+
+  async updateBoardDraftItem(token: string, itemId: number, patch: BoardDraftItemPatch): Promise<BoardDraftItem> {
+    return apiClient.request(`/admin/board-draft-items/${itemId}`, { method: "PATCH", token, body: patch });
+  },
+
+  async confirmBoardDraftItem(token: string, itemId: number, patch: BoardDraftItemPatch = {}): Promise<BoardDraftItem> {
+    return apiClient.request(`/admin/board-draft-items/${itemId}/confirm`, { method: "POST", token, body: patch });
+  },
+  async reopenBoardDraftItem(token: string, itemId: number): Promise<BoardDraftItem> {
+    return apiClient.request(`/admin/board-draft-items/${itemId}/reopen`, { method: "POST", token });
+  },
+
+  async confirmValidBoardItems(token: string, revisionId: number): Promise<BoardRevision> {
+    return apiClient.request(`/admin/board-revisions/${revisionId}/confirm-valid`, { method: "POST", token, body: {} });
+  },
+
+  async activateBoardRevision(token: string, revisionId: number): Promise<BoardRevision> {
+    return apiClient.request(`/admin/board-revisions/${revisionId}/activate`, { method: "POST", token, body: {} });
+  },
+
+  async rollbackBoardRevision(token: string, revisionId: number): Promise<BoardRevision> {
+    return apiClient.request(`/admin/board-revisions/${revisionId}/rollback`, { method: "POST", token, body: {} });
+  },
+  async getPlayerProfiles(token: string, query = "", signal?: AbortSignal): Promise<PlayerProfile[]> {
+    return apiClient.request(`/admin/player-profiles?q=${encodeURIComponent(query)}`, { token, signal });
+  },
+
+  async getPlayerInventory(token: string, playerId: number): Promise<PlayerInventory> {
+    return apiClient.request(`/admin/players/${playerId}/inventory`, { token });
+  },
+
+  async getEntitlementItemTypes(token: string): Promise<EntitlementItemType[]> {
+    return apiClient.request("/admin/entitlement-item-types", { token });
+  },
+
+  async getGrantBatches(token: string): Promise<GrantBatch[]> {
+    return apiClient.request("/admin/entitlement-grant-batches", { token });
+  },
+
+  async createGrantBatch(token: string, payload: GrantBatchPayload): Promise<GrantBatch> {
+    return apiClient.request("/admin/entitlement-grant-batches", { method: "POST", token, body: payload });
+  },
+
+  async updateGrantBatch(token: string, batchId: number, payload: GrantBatchPayload): Promise<GrantBatch> {
+    return apiClient.request(`/admin/entitlement-grant-batches/${batchId}`, { method: "PATCH", token, body: payload });
+  },
+
+  async confirmGrantBatch(token: string, batchId: number): Promise<GrantBatch> {
+    return apiClient.request(`/admin/entitlement-grant-batches/${batchId}/confirm`, { method: "POST", token, body: {} });
+  },
+
+  async extendEntitlementItem(token: string, itemId: number, payload: { expires_at: string; reason: string }): Promise<EntitlementItem> {
+    return apiClient.request(`/admin/entitlement-items/${itemId}/extend`, { method: "POST", token, body: payload });
+  },
+
+  async voidEntitlementItem(token: string, itemId: number, payload: { reason: string }): Promise<EntitlementItem> {
+    return apiClient.request(`/admin/entitlement-items/${itemId}/void`, { method: "POST", token, body: payload });
+  },
+
+  async restoreEntitlementItem(token: string, itemId: number, payload: { reason: string }): Promise<EntitlementItem> {
+    return apiClient.request(`/admin/entitlement-items/${itemId}/restore`, { method: "POST", token, body: payload });
+  },
   async getTheaters(token: string, includeInactive = false): Promise<Theater[]> {
     return apiClient.request(includeInactive ? "/admin/theaters?include_inactive=true" : "/admin/theaters", { token });
   },
@@ -220,8 +357,8 @@ export const adminApi = {
     return apiClient.request("/admin/monthly-plan", { method: "PUT", token, body: payload });
   },
 
-  async getPerformances(token: string, theaterId: number, year: number, month: number): Promise<Performance[]> {
-    return apiClient.request(`/admin/performances?theater_id=${theaterId}&year=${year}&month=${month}`, { token });
+  async getPerformances(token: string, theaterId: number, year: number, month: number, signal?: AbortSignal): Promise<Performance[]> {
+    return apiClient.request(`/admin/performances?theater_id=${theaterId}&year=${year}&month=${month}`, { token, signal });
   },
 
   async createPerformance(token: string, payload: { theater_id: number; performance_date: string; theater_slot_id: number }): Promise<Performance> {
@@ -317,7 +454,7 @@ export const adminApi = {
   },
 
   async publishWeeklySchedule(token: string, payload: ScheduleMutation): Promise<WeeklyScheduleWorkspace> {
-    return apiClient.request("/admin/weekly-schedules/publish", { method: "POST", token, body: payload });
+    return apiClient.request("/admin/weekly-schedules/publish", { method: "POST", token, body: { ...payload, idempotency_key: payload.idempotency_key || mutationKey() } });
   },
 };
 

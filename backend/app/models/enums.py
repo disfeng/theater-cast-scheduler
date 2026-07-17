@@ -54,3 +54,67 @@ class DraftItemKind(StrEnum):
 class DraftValidationStatus(StrEnum):
     VALID = "valid"
     INVALID = "invalid"
+
+
+class PlayerStatus(StrEnum):
+    PROVISIONAL = "provisional"
+    ACTIVE = "active"
+    INACTIVE = "inactive"
+    MERGED = "merged"
+
+
+class GrantBatchStatus(StrEnum):
+    DRAFT = "draft"
+    GRANTED = "granted"
+    CANCELLED = "cancelled"
+
+
+class EntitlementItemStatus(StrEnum):
+    AVAILABLE = "available"
+    RESERVED = "reserved"
+    CONSUMED = "consumed"
+    EXPIRED = "expired"
+    REVOKED = "revoked"
+
+
+class EntitlementEventType(StrEnum):
+    GRANTED = "granted"
+    RESERVED = "reserved"
+    RELEASED = "released"
+    CONSUMED = "consumed"
+    EXPIRED = "expired"
+    REVOKED = "revoked"
+    EXTENDED = "extended"
+    RESTORED = "restored"
+    ADJUSTED = "adjusted"
+
+
+class BoardRevisionStatus(StrEnum):
+    REVIEW_REQUIRED = "review_required"
+    CONFIRMED = "confirmed"
+    FAILED = "failed"
+
+
+class BoardParserType(StrEnum):
+    DETERMINISTIC = "deterministic"
+    AI = "ai"
+
+
+class BoardItemKind(StrEnum):
+    PLAYER = "player"
+    DESIGNATION = "designation"
+    WISH = "wish"
+    UNRESOLVED = "unresolved"
+
+
+class BoardChangeType(StrEnum):
+    ADDED = "added"
+    MODIFIED = "modified"
+    UNCHANGED = "unchanged"
+    REMOVED = "removed"
+
+
+class BoardValidationStatus(StrEnum):
+    VALID = "valid"
+    AMBIGUOUS = "ambiguous"
+    INVALID = "invalid"

@@ -31,6 +31,8 @@ class WishPayload(BaseModel):
     role_id: int
     actor_id: int
     note: str | None = None
+    performance_id: int
+    performance_player_id: int
 
 
 class SchedulingPreviewRequest(BaseModel):
@@ -48,15 +50,21 @@ class SchedulingPreviewRequest(BaseModel):
 
 
 @router.post("/preview")
-def preview_schedule(payload: SchedulingPreviewRequest, _: dict[str, str] = Depends(require_admin)) -> dict[str, object]:
+def preview_schedule(
+    payload: SchedulingPreviewRequest, _: dict[str, str] = Depends(require_admin)
+) -> dict[str, object]:
     try:
         result = generate_week_schedule(
-            performances=[PerformanceSlot(item.id, item.date, item.slot) for item in payload.performances],
+            performances=[
+                PerformanceSlot(item.id, item.date, item.slot) for item in payload.performances
+            ],
             role_ids=payload.role_ids,
             actor_ids=payload.actor_ids,
             actor_role_ids={int(key): set(value) for key, value in payload.actor_role_ids.items()},
             max_consecutive={int(key): value for key, value in payload.max_consecutive.items()},
-            approved_leave_dates={int(key): set(value) for key, value in payload.approved_leave_dates.items()},
+            approved_leave_dates={
+                int(key): set(value) for key, value in payload.approved_leave_dates.items()
+            },
             low_rating_caps={int(key): value for key, value in payload.low_rating_caps.items()},
             monthly_counts={int(key): value for key, value in payload.monthly_counts.items()},
             existing_actor_slots={},
@@ -72,13 +80,26 @@ def preview_schedule(payload: SchedulingPreviewRequest, _: dict[str, str] = Depe
                 )
                 for item in payload.designations
             ],
-            wishes=[WishInput(item.player_name, item.role_id, item.actor_id, item.note) for item in payload.wishes],
+            wishes=[
+                WishInput(
+                    item.player_name,
+                    item.role_id,
+                    item.actor_id,
+                    item.note,
+                    performance_id=item.performance_id,
+                    performance_player_id=item.performance_player_id,
+                )
+                for item in payload.wishes
+            ],
             suspended_actor_ids=set(payload.suspended_actor_ids),
         )
     except SchedulingRuleError as exc:
         raise HTTPException(
             status_code=400,
-            detail=[{"code": violation.code, "message": violation.message} for violation in exc.violations],
+            detail=[
+                {"code": violation.code, "message": violation.message}
+                for violation in exc.violations
+            ],
         ) from exc
     return {
         "assignments": [
@@ -94,5 +115,7 @@ def preview_schedule(payload: SchedulingPreviewRequest, _: dict[str, str] = Depe
             }
             for item in result.unsatisfied_designations
         ],
-        "empty_slots": [{"performance_id": item[0], "role_id": item[1]} for item in result.empty_slots],
+        "empty_slots": [
+            {"performance_id": item[0], "role_id": item[1]} for item in result.empty_slots
+        ],
     }

@@ -46,7 +46,9 @@ def generate_week_schedule(
     explanations: dict[tuple[int, int, int], list[RuleViolation]] = {}
     unsatisfied_designations: list[DesignationInput] = []
     mutable_monthly_counts = dict(monthly_counts)
-    mutable_actor_slots = {actor_id: list(slots) for actor_id, slots in existing_actor_slots.items()}
+    mutable_actor_slots = {
+        actor_id: list(slots) for actor_id, slots in existing_actor_slots.items()
+    }
     suspended_actor_ids = suspended_actor_ids or set()
 
     for assignment in locked_assignments:
@@ -65,7 +67,9 @@ def generate_week_schedule(
         if violations:
             raise SchedulingRuleError("锁定排班违反硬规则", violations)
         assignments[(assignment.performance.id, assignment.role_id)] = assignment
-        mutable_monthly_counts[assignment.actor_id] = mutable_monthly_counts.get(assignment.actor_id, 0) + 1
+        mutable_monthly_counts[assignment.actor_id] = (
+            mutable_monthly_counts.get(assignment.actor_id, 0) + 1
+        )
         mutable_actor_slots.setdefault(assignment.actor_id, []).append(assignment.performance)
 
     sorted_designations = sorted(
@@ -139,16 +143,40 @@ def generate_week_schedule(
         for role_id in role_ids
         if (performance.id, role_id) not in assignments
     ]
+    designation_slots = {
+        (assignment.performance.id, assignment.role_id)
+        for assignment in assignments.values()
+        if any(
+            designation.actor_id == assignment.actor_id
+            and designation.role_id == assignment.role_id
+            and (
+                designation.target_performance_id is None
+                or designation.target_performance_id == assignment.performance.id
+            )
+            for designation in designations
+        )
+    }
     unsatisfied_wishes = [
-        wish
+        replace(
+            wish,
+            failure_reason=(
+                "role_occupied_by_designation"
+                if (wish.performance_id, wish.role_id) in designation_slots
+                else "hard_rules_prevented_match"
+            ),
+        )
         for wish in wishes
         if not any(
-            assignment.role_id == wish.role_id and assignment.actor_id == wish.actor_id
+            assignment.role_id == wish.role_id
+            and assignment.actor_id == wish.actor_id
+            and (wish.performance_id is None or assignment.performance.id == wish.performance_id)
             for assignment in assignments.values()
         )
     ]
 
-    return ScheduleResult(assignments, unsatisfied_designations, unsatisfied_wishes, empty_slots, explanations)
+    return ScheduleResult(
+        assignments, unsatisfied_designations, unsatisfied_wishes, empty_slots, explanations
+    )
 
 
 def _best_candidate(
@@ -183,12 +211,23 @@ def _best_candidate(
         )
         if violations:
             continue
-        wish_score = 100 if any(wish.role_id == role_id and wish.actor_id == actor_id for wish in wishes) else 0
+        wish_score = (
+            1
+            if any(
+                wish.role_id == role_id
+                and wish.actor_id == actor_id
+                and (wish.performance_id is None or wish.performance_id == performance.id)
+                for wish in wishes
+            )
+            else 0
+        )
         balance_score = -monthly_counts.get(actor_id, 0)
-        valid.append((wish_score + balance_score, candidate))
+        valid.append((wish_score, balance_score, candidate))
     if not valid:
         return None
-    return sorted(valid, key=lambda item: (-item[0], item[1].actor_id))[0][1]
+    return sorted(valid, key=lambda item: (-item[0], -item[1], item[2].actor_id, item[2].role_id))[
+        0
+    ][2]
 
 
 def _violations_for_candidate(

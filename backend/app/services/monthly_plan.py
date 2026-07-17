@@ -63,23 +63,25 @@ def replace_monthly_plan(
         raise ValueError("performance_date_outside_month")
 
     requested_slot_ids = {slot_id for slot_ids in days.values() for slot_id in slot_ids}
-    slots = {
-        slot.id: slot
-        for slot in db.scalars(
-            select(TheaterSlot).where(
-                TheaterSlot.id.in_(requested_slot_ids),
-                TheaterSlot.theater_id == theater_id,
-                TheaterSlot.is_active.is_(True),
+    slots = (
+        {
+            slot.id: slot
+            for slot in db.scalars(
+                select(TheaterSlot).where(
+                    TheaterSlot.id.in_(requested_slot_ids),
+                    TheaterSlot.theater_id == theater_id,
+                    TheaterSlot.is_active.is_(True),
+                )
             )
-        )
-    } if requested_slot_ids else {}
+        }
+        if requested_slot_ids
+        else {}
+    )
     if set(slots) != requested_slot_ids:
         raise ValueError("invalid_theater_slot")
 
     existing = list_month_performances(db, theater_id, year, month)
-    existing_by_key = {
-        (item.performance_date, item.theater_slot_id): item for item in existing
-    }
+    existing_by_key = {(item.performance_date, item.theater_slot_id): item for item in existing}
     requested_keys = {
         (performance_date, slot_id)
         for performance_date, slot_ids in days.items()
@@ -138,13 +140,26 @@ def generate_monthly_plan(
             db.delete(performance)
         db.flush()
 
-        entries = db.scalars(select(TheaterWeeklyTemplateEntry).where(TheaterWeeklyTemplateEntry.theater_id == theater_id)).all()
-        slots = {slot.id: slot for slot in db.scalars(select(TheaterSlot).where(TheaterSlot.theater_id == theater_id, TheaterSlot.is_active.is_(True))).all()}
+        entries = db.scalars(
+            select(TheaterWeeklyTemplateEntry).where(
+                TheaterWeeklyTemplateEntry.theater_id == theater_id
+            )
+        ).all()
+        slots = {
+            slot.id: slot
+            for slot in db.scalars(
+                select(TheaterSlot).where(
+                    TheaterSlot.theater_id == theater_id, TheaterSlot.is_active.is_(True)
+                )
+            ).all()
+        }
         template: dict[str, list[tuple[int, str, time]]] = {}
         for entry in entries:
             slot = slots.get(entry.theater_slot_id)
-            if slot is not None: template.setdefault(entry.weekday, []).append((slot.id, slot.name, slot.start_time))
-        for values in template.values(): values.sort(key=lambda item: item[2])
+            if slot is not None:
+                template.setdefault(entry.weekday, []).append((slot.id, slot.name, slot.start_time))
+        for values in template.values():
+            values.sort(key=lambda item: item[2])
         drafts = generate_month_performances(year, month, template, closed_dates)
         performances = [
             Performance(

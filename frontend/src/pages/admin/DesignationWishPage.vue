@@ -1,302 +1,187 @@
 <template>
   <section class="page-container">
-    <PageHeader title="指定与许愿" description="在此录入每周微信群内的指定场次与许愿信息。支持群统计文本一键解析，自动匹配演员和角色，并校验冲突。" />
+    <PageHeader title="指定与许愿" description="按演出场次管理玩家登记、指定申请与许愿信息。" />
 
-    <div v-if="error" style="padding: 12px; background: #ffeef0; color: #d9383a; border-radius: 6px; margin-bottom: 20px;" role="alert">
-      {{ error }}
-    </div>
-
-    <div v-if="success" style="padding: 12px; background: #e6f4ea; color: #137333; border-radius: 6px; margin-bottom: 20px;">
-      {{ success }}
-    </div>
-
-    <!-- Batch Selector Panel -->
-    <div style="display: grid; grid-template-columns: 1fr 2fr; gap: 30px; align-items: start; margin-bottom: 30px;">
-      <BatchSelector
-        v-model="batchForm"
-        :theaters="theaters"
-        @submit="handleOpenBatch"
-      />
-
-      <!-- Active Batch Status Banner & Action -->
-      <div v-if="activeBatch" class="panel" style="margin: 0; display: flex; flex-direction: column; gap: 16px;">
-        <div style="display: flex; justify-content: space-between; align-items: center;">
-          <div>
-            <h3 style="margin-bottom: 6px;">当前批次状态</h3>
-            <p style="font-size: 14px; color: var(--text-secondary); margin: 0;">
-              剧场：{{ activeTheaterName }} | 对应周一：{{ activeBatch.week_start }}
-            </p>
-          </div>
-          <span
-            :style="{
-              padding: '6px 12px',
-              borderRadius: '20px',
-              fontSize: '13px',
-              fontWeight: 600,
-              background: activeBatch.status === 'ready' ? 'rgba(16, 185, 129, 0.1)' : 'rgba(245, 158, 11, 0.1)',
-              color: activeBatch.status === 'ready' ? '#10b981' : '#f59e0b',
-              border: activeBatch.status === 'ready' ? '1px solid rgba(16, 185, 129, 0.25)' : '1px solid rgba(245, 158, 11, 0.25)'
-            }"
-          >
-            {{ activeBatch.status === "ready" ? "已就绪" : "草稿" }}
-          </span>
-        </div>
-
-        <div v-if="activeBatch.status === 'ready'" style="padding: 12px; background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.15); border-radius: 6px; color: #10b981; font-size: 14px; font-weight: 500;">
-          批次已就绪，导入内容已锁定。
-        </div>
-
-        <div v-else style="display: flex; justify-content: flex-end;">
-          <button
-            type="button"
-            style="padding: 10px 20px; border-radius: 6px; background: #10b981; color: #fff; border: none; font-weight: 600; cursor: pointer;"
-            @click="handleMarkReady"
-          >
-            标记为就绪
-          </button>
-        </div>
+    <section class="calendar-toolbar">
+      <div class="toolbar-field">
+        <span>选择剧场</span>
+        <el-select v-model="selectedTheaterId" aria-label="指定与许愿剧场" placeholder="请选择剧场">
+          <el-option v-for="theater in theaters" :key="theater.id" :label="theater.name" :value="theater.id" />
+        </el-select>
       </div>
-    </div>
-
-    <!-- Active Batch Workspaces -->
-    <div v-if="activeBatch" style="display: flex; flex-direction: column; gap: 30px;">
-      
-      <!-- Parse Text Panel -->
-      <div v-if="activeBatch.status !== 'ready'" class="panel">
-        <h3>导入统计文本</h3>
-        <form @submit.prevent="handleParseText" style="display: grid; gap: 16px; margin-top: 10px;">
-          <div style="display: flex; flex-direction: column; gap: 6px;">
-            <label for="raw-text-input">群统计文本</label>
-            <textarea
-              id="raw-text-input"
-              aria-label="群统计文本"
-              v-model="rawText"
-              placeholder="请粘贴微信群内的指定与许愿统计文本，例如：&#10;#指定信息&#10;【虔诚许愿】-小展/长离-Jennifer"
-              required
-              style="padding: 12px; border-radius: 8px; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--panel-border); color: var(--text-primary); min-height: 120px; font-family: monospace; font-size: 14px;"
-            />
-          </div>
-          <div style="display: flex; justify-content: flex-end;">
-            <button type="submit" style="padding: 10px 24px; border-radius: 6px; background: var(--primary); color: #fff; border: none; font-weight: 600; cursor: pointer;">解析</button>
-          </div>
-        </form>
+      <div class="month-navigation">
+        <el-button circle aria-label="上个月" @click="moveMonth(-1)"><el-icon><ArrowLeft /></el-icon></el-button>
+        <strong>{{ selectedYear }} 年 {{ selectedMonth }} 月</strong>
+        <el-button circle aria-label="下个月" @click="moveMonth(1)"><el-icon><ArrowRight /></el-icon></el-button>
       </div>
+      <div v-if="monthWorkspace" class="month-summary">
+        <span>{{ monthWorkspace.totals.players }} 位玩家</span>
+        <span>{{ monthWorkspace.totals.designations }} 条指定</span>
+        <span>{{ monthWorkspace.totals.wishes }} 条许愿</span>
+        <span class="pending">{{ monthWorkspace.totals.pending }} 待处理</span>
+        <span class="conflict">{{ monthWorkspace.totals.conflicts }} 冲突</span>
+      </div>
+    </section>
 
-      <!-- Items Draft Listing Table -->
-      <ImportDraftTable
-        v-if="draft"
-        :draft="draft"
-        :actors="actors"
-        :roles="roles"
-        :performances="performances"
-        :isBatchReadOnly="activeBatch.status === 'ready'"
-        @addManual="handleAddManualItem"
-        @saveItem="handleSaveItem"
-        @confirmItem="handleConfirmItem"
-      />
-
+    <el-alert v-if="calendarError" :title="calendarError" type="error" :closable="false" show-icon />
+    <div v-loading="calendarLoading" class="calendar-content">
+      <DesignationMonthCalendar v-if="monthWorkspace" :workspace="monthWorkspace" @open-performance="openPerformance" />
+      <el-empty v-else-if="!calendarLoading && !calendarError" description="请选择剧场查看月度场次" />
     </div>
+
+    <PerformanceReviewDrawer
+      v-model="drawerVisible"
+      :workspace="performanceWorkspace"
+      :loading="drawerLoading"
+      :error="drawerError"
+      :initial-tab="String(route.query.review_tab || 'players')"
+      @reject-designation="rejectDesignation"
+      @reject-wish="rejectWish"
+      @accept-wish="acceptWish"
+      @changed="refreshReviewWorkspace"
+      @tab-change="persistReviewTab"
+    />
   </section>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed, watch } from "vue";
+import { onMounted, ref, watch } from "vue";
+import { useRoute, useRouter } from "vue-router";
+import { ArrowLeft, ArrowRight } from "@element-plus/icons-vue";
+import { adminApi, type Theater } from "../../api/admin";
 import { useAuthStore } from "../../auth/store";
-import { adminApi, Theater, Actor, Role, Performance, WeeklyBatch, ImportDraft } from "../../api/admin";
 import PageHeader from "../../components/PageHeader.vue";
-import BatchSelector from "../../components/admin/BatchSelector.vue";
-import ImportDraftTable from "../../components/admin/ImportDraftTable.vue";
+import DesignationMonthCalendar from "../../components/admin/DesignationMonthCalendar.vue";
+import PerformanceReviewDrawer from "../../components/admin/PerformanceReviewDrawer.vue";
+import type { DesignationMonthWorkspace, PerformanceWorkspace } from "../../features/designation-workspace/types";
 
 const authStore = useAuthStore();
-
+const route = useRoute();
+const router = useRouter();
+const today = new Date();
 const theaters = ref<Theater[]>([]);
-const actors = ref<Actor[]>([]);
-const roles = ref<Role[]>([]);
-const performances = ref<Performance[]>([]);
+const selectedTheaterId = ref(Number(route.query.theater_id) || 0);
+const selectedYear = ref(Number(route.query.year) || today.getFullYear());
+const selectedMonth = ref(Number(route.query.month) || today.getMonth() + 1);
+const monthWorkspace = ref<DesignationMonthWorkspace | null>(null);
+const calendarLoading = ref(false);
+const calendarError = ref<string | null>(null);
+const drawerVisible = ref(false);
+const drawerLoading = ref(false);
+const drawerError = ref<string | null>(null);
+const performanceWorkspace = ref<PerformanceWorkspace | null>(null);
 
-const batchForm = ref({ theaterId: "", weekStart: "" });
-const activeBatch = ref<WeeklyBatch | null>(null);
-
-const rawText = ref("");
-const draft = ref<ImportDraft | null>(null);
-
-const error = ref<string | null>(null);
-const success = ref<string | null>(null);
-
-const activeTheaterName = computed(() => {
-  if (!activeBatch.value) return "";
-  const t = theaters.value.find((x) => x.id === activeBatch.value?.theater_id);
-  return t ? t.name : `剧场 #${activeBatch.value.theater_id}`;
-});
-
-const formatLocalDate = (value: Date): string => {
-  const year = value.getFullYear();
-  const month = String(value.getMonth() + 1).padStart(2, "0");
-  const day = String(value.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-};
-
-// Fetch initial metadata
 onMounted(async () => {
   if (!authStore.token) return;
   try {
-    const [tList, aList, rList] = await Promise.all([
-      adminApi.getTheaters(authStore.token),
-      adminApi.getActors(authStore.token),
-      adminApi.getRoles(authStore.token),
-    ]);
-    theaters.value = tList;
-    actors.value = aList;
-    roles.value = rList;
-  } catch (err: any) {
-    error.value = err.message;
+    theaters.value = await adminApi.getTheaters(authStore.token);
+    if (!selectedTheaterId.value && theaters.value.length) selectedTheaterId.value = theaters.value[0].id;
+  } catch (error: any) {
+    calendarError.value = error.message || "加载剧场失败";
   }
 });
 
-// Load performances of active batch week range
-watch(activeBatch, async (batch) => {
-  if (!authStore.token || !batch) {
-    performances.value = [];
-    return;
-  }
+watch([selectedTheaterId, selectedYear, selectedMonth], async ([theaterId, year, month]) => {
+  if (!authStore.token || !theaterId) return;
+  calendarLoading.value = true;
+  calendarError.value = null;
   try {
-    const dateObj = new Date(batch.week_start);
-    const year = dateObj.getFullYear();
-    const month = dateObj.getMonth() + 1;
-    const weekEnd = new Date(`${batch.week_start}T00:00:00`);
-    weekEnd.setDate(weekEnd.getDate() + 6);
-    
-    const months = [[year, month]];
-    if (weekEnd.getFullYear() !== year || weekEnd.getMonth() + 1 !== month) {
-      months.push([weekEnd.getFullYear(), weekEnd.getMonth() + 1]);
-    }
-    
-    const groups = await Promise.all(
-      months.map(([mYear, mMonth]) =>
-        adminApi.getPerformances(authStore.token!, batch.theater_id, mYear, mMonth)
-      )
-    );
-    
-    const formattedEnd = formatLocalDate(weekEnd);
-    performances.value = groups
-      .flat()
-      .filter(
-        (perf) =>
-          perf.performance_date >= batch.week_start &&
-          perf.performance_date <= formattedEnd
-      );
-  } catch (err: any) {
-    error.value = err.message;
+    const workspace = await adminApi.getDesignationMonthWorkspace(authStore.token, theaterId, year, month);
+    if (!workspace?.totals || !Array.isArray(workspace.days)) throw new Error("月度工作台返回数据格式错误");
+    monthWorkspace.value = workspace;
+    await router.replace({ query: { ...route.query, theater_id: String(theaterId), year: String(year), month: String(month) } });
+  } catch (error: any) {
+    monthWorkspace.value = null;
+    calendarError.value = error.message || "加载月度工作台失败";
+  } finally {
+    calendarLoading.value = false;
+  }
+}, { immediate: true });
+
+watch(drawerVisible, visible => {
+  if (!visible && route.query.performance_id) {
+    const query = { ...route.query };
+    delete query.performance_id;
+    delete query.review_tab;
+    void router.replace({ query });
   }
 });
 
-const handleOpenBatch = async () => {
+watch(() => route.query.performance_id, (value, previous) => {
+  const performanceId = Number(value);
+  if (performanceId && value !== previous && performanceWorkspace.value?.performance.id !== performanceId) {
+    void openPerformance(performanceId, true);
+  }
+}, { immediate: true });
+
+function moveMonth(offset: number) {
+  const target = new Date(selectedYear.value, selectedMonth.value - 1 + offset, 1);
+  selectedYear.value = target.getFullYear();
+  selectedMonth.value = target.getMonth() + 1;
+}
+
+async function openPerformance(performanceId: number, preserveTab = false) {
   if (!authStore.token) return;
-  error.value = null;
-  success.value = null;
-  try {
-    const batch = await adminApi.createWeeklyBatch(authStore.token, {
-      theater_id: Number(batchForm.value.theaterId),
-      week_start: batchForm.value.weekStart,
-    });
-    activeBatch.value = batch;
-
-    const drafts = await adminApi.getImportDrafts(authStore.token, batch.id);
-    if (drafts.length > 0) {
-      draft.value = drafts[0];
-    } else {
-      draft.value = null;
-    }
-  } catch (err: any) {
-    error.value = err.message || "创建/打开批次失败";
+  drawerVisible.value = true;
+  drawerLoading.value = true;
+  drawerError.value = null;
+  performanceWorkspace.value = null;
+  const reviewTab = preserveTab ? String(route.query.review_tab || "players") : "players";
+  if (String(route.query.performance_id || "") !== String(performanceId) || route.query.review_tab !== reviewTab) {
+    void router.replace({ query: { ...route.query, performance_id: String(performanceId), review_tab: reviewTab } });
   }
-};
-
-const handleMarkReady = async () => {
-  if (!authStore.token || !activeBatch.value) return;
-  error.value = null;
-  success.value = null;
   try {
-    const batch = await adminApi.updateWeeklyBatchStatus(authStore.token, activeBatch.value.id, "ready");
-    activeBatch.value = batch;
-    success.value = "批次已被标记为就绪。";
-  } catch (err: any) {
-    error.value = err.message || "标记就绪失败";
+    performanceWorkspace.value = await adminApi.getPerformanceReviewWorkspace(authStore.token, performanceId);
+  } catch (error: any) {
+    drawerError.value = error.message || "加载场次审核信息失败";
+  } finally {
+    drawerLoading.value = false;
   }
-};
+}
 
-const handleParseText = async () => {
-  if (!authStore.token || !activeBatch.value) return;
-  error.value = null;
-  success.value = null;
-  try {
-    const parsedDraft = await adminApi.parseImportDraft(authStore.token, activeBatch.value.id, rawText.value);
-    draft.value = parsedDraft;
-    rawText.value = "";
-    success.value = "文本解析成功！";
-  } catch (err: any) {
-    error.value = err.message || "解析文本失败";
-  }
-};
+async function refreshReviewWorkspace() {
+  const performanceId = performanceWorkspace.value?.performance.id;
+  if (!authStore.token || !performanceId) return;
+  performanceWorkspace.value = await adminApi.getPerformanceReviewWorkspace(authStore.token, performanceId);
+  monthWorkspace.value = await adminApi.getDesignationMonthWorkspace(authStore.token, selectedTheaterId.value, selectedYear.value, selectedMonth.value);
+}
 
-const handleAddManualItem = async () => {
-  if (!authStore.token || !draft.value) return;
-  error.value = null;
-  success.value = null;
-  try {
-    await adminApi.createManualItem(authStore.token, draft.value.id, {
-      item_kind: "wish",
-      designation_type: null,
-      player_name: "",
-      actor_name_raw: "",
-      role_name_raw: "",
-      actor_id: null,
-      role_id: null,
-      target_performance_id: null,
-      note: "",
-    });
-    const updatedDraft = await adminApi.getImportDraft(authStore.token, draft.value.id);
-    draft.value = updatedDraft;
-  } catch (err: any) {
-    error.value = err.message || "添加手动条目失败";
-  }
-};
+function persistReviewTab(tab: string) {
+  if (route.query.review_tab !== tab) void router.replace({ query: { ...route.query, review_tab: tab } });
+}
 
-const handleSaveItem = async (itemId: number, fields: any) => {
-  if (!authStore.token || !draft.value) return;
-  error.value = null;
-  success.value = null;
-  try {
-    await adminApi.updateDraftItem(authStore.token, itemId, {
-      item_kind: fields.item_kind,
-      designation_type: fields.designation_type || null,
-      player_name: fields.player_name || null,
-      actor_name_raw: fields.actor_name_raw || null,
-      role_name_raw: fields.role_name_raw || null,
-      actor_id: fields.actor_id ? Number(fields.actor_id) : null,
-      role_id: fields.role_id ? Number(fields.role_id) : null,
-      target_performance_id: fields.target_performance_id ? Number(fields.target_performance_id) : null,
-      note: fields.note || null,
-    });
-    const updatedDraft = await adminApi.getImportDraft(authStore.token, draft.value.id);
-    draft.value = updatedDraft;
-    success.value = "保存修改成功。";
-  } catch (err: any) {
-    error.value = err.message || "保存修改失败";
-  }
-};
+async function rejectDesignation(id: number, reason: string) {
+  const row = performanceWorkspace.value?.designations.find(item => item.id === id);
+  if (!authStore.token || !row) return;
+  await runDrawerAction("拒绝指定失败", () => adminApi.cancelDesignation(authStore.token!, row, reason));
+}
 
-const handleConfirmItem = async (itemId: number) => {
-  if (!authStore.token || !draft.value) return;
-  error.value = null;
-  success.value = null;
+async function rejectWish(id: number, reason: string) {
+  const row = performanceWorkspace.value?.wishes.find(item => item.id === id);
+  if (!authStore.token || !row) return;
+  await runDrawerAction("拒绝许愿失败", () => adminApi.cancelWish(authStore.token!, row, reason));
+}
+
+async function acceptWish(id: number) {
+  const row = performanceWorkspace.value?.wishes.find(item => item.id === id);
+  if (!authStore.token || !row) return;
+  await runDrawerAction("接受许愿失败", () => adminApi.acceptWish(authStore.token!, row));
+}
+
+async function runDrawerAction(fallback: string, action: () => Promise<unknown>) {
+  drawerLoading.value = true;
+  drawerError.value = null;
   try {
-    await adminApi.confirmDraftItem(authStore.token, itemId);
-    const updatedDraft = await adminApi.getImportDraft(authStore.token, draft.value.id);
-    draft.value = updatedDraft;
-    success.value = "已成功确认并锁定。";
-  } catch (err: any) {
-    error.value = err.message || "确认失败";
+    await action();
+    await refreshReviewWorkspace();
+  } catch (error: any) {
+    drawerError.value = error.message || fallback;
+  } finally {
+    drawerLoading.value = false;
   }
-};
+}
 </script>
+
+<style scoped>
+.calendar-toolbar{display:flex;align-items:center;gap:22px;flex-wrap:wrap;padding:18px 20px;margin-bottom:18px;border:1px solid #dfe5ef;border-radius:12px;background:#fff}.toolbar-field{display:flex;align-items:center;gap:10px;color:#64748b}.toolbar-field :deep(.el-select){width:240px}.month-navigation{display:flex;align-items:center;gap:12px;padding-left:20px;border-left:1px solid #e4e9f1}.month-navigation strong{min-width:112px;text-align:center;color:#172033}.month-summary{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-left:auto}.month-summary span{padding:6px 10px;border-radius:999px;background:#f1f5f9;color:#64748b;font-size:13px}.month-summary .pending{background:#fff7e6;color:#b7791f}.month-summary .conflict{background:#fff0f0;color:#d84f4f}.calendar-content{min-height:260px}@media(max-width:900px){.month-navigation{padding-left:0;border-left:0}.month-summary{width:100%;margin-left:0}}
+</style>

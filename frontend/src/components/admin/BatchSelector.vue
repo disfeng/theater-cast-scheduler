@@ -6,7 +6,7 @@
         <label for="theater-select">选择剧场</label>
         <select
           id="theater-select"
-          aria-label="选择剧场"
+          aria-label="批次剧场"
           :value="modelValue.theaterId"
           @change="$emit('update:modelValue', { ...modelValue, theaterId: ($event.target as HTMLSelectElement).value })"
           required

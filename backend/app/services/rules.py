@@ -29,7 +29,9 @@ def validate_candidate(
             assignment.actor_id == candidate.actor_id
             and assignment.performance.id == candidate.performance.id
         ):
-            violations.append(RuleViolation("actor_already_in_performance", "演员同场已出演其他角色"))
+            violations.append(
+                RuleViolation("actor_already_in_performance", "演员同场已出演其他角色")
+            )
             break
 
     cap = low_rating_caps.get(candidate.actor_id)
@@ -46,13 +48,16 @@ def would_exceed_consecutive_limit(
     max_consecutive: int,
     ordered_timeline: list[PerformanceSlot] | None = None,
 ) -> bool:
-    return consecutive_limit_state(
-        actor_id,
-        target_slot,
-        existing_slots,
-        max_consecutive,
-        ordered_timeline,
-    ) == "exceeded"
+    return (
+        consecutive_limit_state(
+            actor_id,
+            target_slot,
+            existing_slots,
+            max_consecutive,
+            ordered_timeline,
+        )
+        == "exceeded"
+    )
 
 
 def consecutive_limit_state(
@@ -63,9 +68,7 @@ def consecutive_limit_state(
     ordered_timeline: list[PerformanceSlot] | None = None,
 ) -> str | None:
     actor_slots = [*existing_slots.get(actor_id, []), target_slot]
-    timeline_by_id = {
-        slot.id: slot for slot in [*(ordered_timeline or []), *actor_slots]
-    }
+    timeline_by_id = {slot.id: slot for slot in [*(ordered_timeline or []), *actor_slots]}
     timeline = sorted(
         timeline_by_id.values(),
         key=lambda item: (item.date, item.start_time, item.sort_order, item.id),

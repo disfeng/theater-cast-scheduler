@@ -83,6 +83,7 @@
                 <select
                   :aria-label="`${formatDate(performance.performance_date)} ${performance.slot_name} ${role.name}`"
                   :value="actorIdAt(performance.id, role.id) ?? ''"
+                  :disabled="isLocked(performance.id, role.id)"
                   @change="setActor(performance.performance_date, performance.id, role.id, Number(($event.target as HTMLSelectElement).value) || null)"
                 >
                   <option value="">待安排</option>
@@ -90,6 +91,14 @@
                     {{ actor.display_name }} · 本周{{ actorWeeklyCount(performance.performance_date, actor.id) }}
                   </option>
                 </select>
+                <button v-if="lockedAt(performance.id, role.id)" type="button" class="designation-lock"
+                  :aria-label="`查看指定 ${lockedAt(performance.id, role.id)!.designation_id} 详情`"
+                  @click="openDesignation(lockedAt(performance.id, role.id)!.designation_id!, performance.id)">
+                  预指定锁定 · {{ designationTypeName(lockedAt(performance.id, role.id)!.designation_type) }}道具
+                  · 持有人 {{ lockedAt(performance.id, role.id)!.owner_player_name }}
+                  · 使用玩家 {{ lockedAt(performance.id, role.id)!.beneficiary_player_name }}
+                  · {{ lockedAt(performance.id, role.id)!.entitlement_serial || "旧数据无券号" }}
+                </button>
                 <el-tooltip v-if="cellConflicts(performance.id, role.id).length" :content="cellConflicts(performance.id, role.id).map(row => row.message).join('；')">
                   <span class="conflict-dot">!</span>
                 </el-tooltip>
@@ -128,6 +137,7 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { useRouter } from "vue-router";
 import { ArrowLeft, ArrowRight, CircleCheck } from "@element-plus/icons-vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { adminApi, type ScheduleAssignment, type ScheduleConflict, type Theater } from "../../api/admin";
@@ -144,6 +154,7 @@ import {
 } from "../../features/weekly-scheduling/workspace";
 
 const auth = useAuthStore();
+const router = useRouter();
 const now = new Date();
 const today = isoDate(now);
 const theaters = ref<Theater[]>([]);
@@ -279,9 +290,14 @@ function requestTheaterChange(nextTheaterId: number) {
 function weekForDate(date: string) { return monthState.value[weekStartForDate(date)]; }
 function actorsFor(date: string, roleId: number) { return weekForDate(date)?.workspace.actors.filter((row) => row.role_ids.includes(roleId) && row.rating_level !== "suspended") || []; }
 function actorIdAt(performanceId: number, roleId: number) { return assignmentMap.value.get(assignmentKey(performanceId, roleId))?.actor_id; }
+function lockedAt(performanceId: number, roleId: number) { const row = assignmentMap.value.get(assignmentKey(performanceId, roleId)); return row?.locked ? row : undefined; }
+function isLocked(performanceId: number, roleId: number) { return Boolean(lockedAt(performanceId, roleId)); }
+function designationTypeName(value?: string | null) { return ({ universal: "万能", top_three: "前三", paired: "成对" } as Record<string, string>)[value || ""] || "指定"; }
+function openDesignation(id: number, performanceId: number) { router.push({ name: "admin-designations-wishes", query: { performance_id: String(performanceId), review_tab: "designations", designation_id: String(id) } }); }
 function actorWeeklyCount(date: string, actorId: number) { return weekForDate(date)?.assignments.filter((row) => row.actor_id === actorId).length || 0; }
 
 function setActor(date: string, performanceId: number, roleId: number, actorId: number | null) {
+  if (isLocked(performanceId, roleId)) return;
   const weekStart = weekStartForDate(date);
   activeWeekStart.value = weekStart;
   const week = monthState.value[weekStart];
@@ -293,14 +309,18 @@ function setActor(date: string, performanceId: number, roleId: number, actorId: 
   scheduleAutoValidation();
 }
 
-function payload(weekStart: string, confirmConflicts = false) {
+function payload(weekStart: string, confirmConflicts = false, confirmationToken?: string, idempotencyKey?: string) {
   const week = monthState.value[weekStart];
   return {
     theater_id: theaterId.value!,
     week_start: weekStart,
     expected_version: week.workspace.version,
-    assignments: week.assignments.map(({ conflict_codes: _, ...row }) => row),
+    assignments: week.assignments.map(({ conflict_codes: _, locked: _locked, designation_id: _designationId,
+      designation_type: _designationType, owner_player_name: _ownerName, beneficiary_player_name: _beneficiaryName,
+      entitlement_serial: _serial, legacy_identity_fallback: _fallback, ...row }) => row),
     confirm_conflicts: confirmConflicts,
+    confirmation_token: confirmationToken,
+    idempotency_key: idempotencyKey,
   };
 }
 
@@ -449,6 +469,11 @@ function isIncompletePerformanceError(err: unknown) {
   if (!(err instanceof ApiError) || !err.detail || typeof err.detail !== "object") return false;
   return (err.detail as { code?: string }).code === "incomplete_performances";
 }
+function unmetDesignationDetail(err: unknown) {
+  if (!(err instanceof ApiError) || !err.detail || typeof err.detail !== "object") return null;
+  const detail = err.detail as { code?: string; confirmation_token?: string; idempotency_key?: string; designations?: { id: number; player_name: string; failure_reason: string; refund_target: string; refund_status: string; entitlement_serial?: string }[] };
+  return detail.code === "unmet_designations_require_confirmation" ? detail : null;
+}
 
 async function persistActive(publish: boolean, confirmed = false) {
   if (!activeWeek.value) return;
@@ -465,6 +490,19 @@ async function persistActive(publish: boolean, confirmed = false) {
   } catch (err: any) {
     if (isIncompletePerformanceError(err)) {
       await ElMessageBox.alert("存在未完成角色安排的演出场次，请补充完整后再发布。", "无法发布排班", { confirmButtonText: "返回补充", type: "error" });
+      return;
+    }
+    const unmet = unmetDesignationDetail(err);
+    if (publish && unmet?.designations?.length) {
+      const lines = unmet.designations.map((row) => `#${row.id} ${row.player_name}：${row.failure_reason}；${row.entitlement_serial || "无券号"}退回 ${row.refund_target}（${row.refund_status === "expired" ? "已过期" : "可用"}）`).join("\n");
+      try {
+        await ElMessageBox.confirm(lines, `有 ${unmet.designations.length} 条指定未满足`, { confirmButtonText: "确认发布并退回", cancelButtonText: "取消", type: "warning" });
+        const result = await adminApi.publishWeeklySchedule(token(), payload(activeWeekStart.value, confirmed, unmet.confirmation_token, unmet.idempotency_key));
+        monthState.value = { ...monthState.value, [activeWeekStart.value]: createMonthState([result])[result.week_start] };
+        ElMessage.success("排班已发布，未满足指定已按列表退回");
+      } catch (confirmError) {
+        if (confirmError instanceof ApiError) error.value = (confirmError.detail as any)?.code === "stale_confirmation" ? "指定或退款范围已变更，请重新发布并确认。" : confirmError.message;
+      }
       return;
     }
     const conflicts = conflictDetail(err);

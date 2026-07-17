@@ -28,9 +28,10 @@ export class ApiClient {
       method?: string;
       token?: string | null;
       body?: any;
+      signal?: AbortSignal;
     } = {}
   ): Promise<T> {
-    const { method = "GET", token, body } = options;
+    const { method = "GET", token, body, signal } = options;
     const url = `${this.baseUrl}${path}`;
     const headers: Record<string, string> = {};
 
@@ -46,6 +47,7 @@ export class ApiClient {
       method,
       headers,
       body: body !== undefined && body !== null ? JSON.stringify(body) : undefined,
+      signal,
     });
 
     if (!response.ok) {

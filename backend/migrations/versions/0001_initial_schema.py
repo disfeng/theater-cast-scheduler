@@ -4,6 +4,7 @@ Revision ID: 0001_initial_schema
 Revises:
 Create Date: 2026-07-12
 """
+
 from collections.abc import Sequence
 
 from alembic import op
@@ -30,14 +31,18 @@ def upgrade() -> None:
         sa.Column("name", sa.String(length=120), nullable=False),
         sa.Column("group_name", sa.String(length=120), nullable=True),
         sa.PrimaryKeyConstraint("id"),
-        sa.UniqueConstraint("name"),
+        sa.UniqueConstraint("name", name="name"),
     )
     op.create_table(
         "actors",
         sa.Column("id", sa.Integer(), nullable=False),
         sa.Column("display_name", sa.String(length=120), nullable=False),
         sa.Column("max_consecutive_performances", sa.Integer(), nullable=False),
-        sa.Column("rating_level", sa.Enum("HIGH", "NORMAL", "LOW", "SUSPENDED", name="ratinglevel"), nullable=False),
+        sa.Column(
+            "rating_level",
+            sa.Enum("HIGH", "NORMAL", "LOW", "SUSPENDED", name="ratinglevel"),
+            nullable=False,
+        ),
         sa.Column("low_rating_monthly_cap", sa.Integer(), nullable=True),
         sa.Column("notes", sa.Text(), nullable=True),
         sa.PrimaryKeyConstraint("id"),
@@ -58,7 +63,9 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["theater_id"], ["theaters.id"]),
         sa.PrimaryKeyConstraint("id"),
     )
-    op.create_index(op.f("ix_performances_performance_date"), "performances", ["performance_date"], unique=False)
+    op.create_index(
+        op.f("ix_performances_performance_date"), "performances", ["performance_date"], unique=False
+    )
     op.create_index(op.f("ix_performances_slot"), "performances", ["slot"], unique=False)
     op.create_table(
         "users",
@@ -88,18 +95,30 @@ def upgrade() -> None:
         sa.Column("id", sa.Integer(), nullable=False),
         sa.Column("actor_id", sa.Integer(), nullable=False),
         sa.Column("leave_date", sa.Date(), nullable=False),
-        sa.Column("status", sa.Enum("PENDING", "APPROVED", "REJECTED", "LOCKED", name="leavestatus"), nullable=False),
+        sa.Column(
+            "status",
+            sa.Enum("PENDING", "APPROVED", "REJECTED", "LOCKED", name="leavestatus"),
+            nullable=False,
+        ),
         sa.Column("note", sa.Text(), nullable=True),
         sa.ForeignKeyConstraint(["actor_id"], ["actors.id"]),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("actor_id", "leave_date"),
     )
-    op.create_index(op.f("ix_leave_requests_actor_id"), "leave_requests", ["actor_id"], unique=False)
-    op.create_index(op.f("ix_leave_requests_leave_date"), "leave_requests", ["leave_date"], unique=False)
+    op.create_index(
+        op.f("ix_leave_requests_actor_id"), "leave_requests", ["actor_id"], unique=False
+    )
+    op.create_index(
+        op.f("ix_leave_requests_leave_date"), "leave_requests", ["leave_date"], unique=False
+    )
     op.create_table(
         "designations",
         sa.Column("id", sa.Integer(), nullable=False),
-        sa.Column("designation_type", sa.Enum("UNIVERSAL", "TOP_THREE", "PAIRED", name="designationtype"), nullable=False),
+        sa.Column(
+            "designation_type",
+            sa.Enum("UNIVERSAL", "TOP_THREE", "PAIRED", name="designationtype"),
+            nullable=False,
+        ),
         sa.Column("player_name", sa.String(length=120), nullable=False),
         sa.Column("role_id", sa.Integer(), nullable=False),
         sa.Column("actor_id", sa.Integer(), nullable=False),
@@ -113,8 +132,12 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["target_performance_id"], ["performances.id"]),
         sa.PrimaryKeyConstraint("id"),
     )
-    op.create_index(op.f("ix_designations_designation_type"), "designations", ["designation_type"], unique=False)
-    op.create_index(op.f("ix_designations_submitted_at"), "designations", ["submitted_at"], unique=False)
+    op.create_index(
+        op.f("ix_designations_designation_type"), "designations", ["designation_type"], unique=False
+    )
+    op.create_index(
+        op.f("ix_designations_submitted_at"), "designations", ["submitted_at"], unique=False
+    )
     op.create_table(
         "wishes",
         sa.Column("id", sa.Integer(), nullable=False),
@@ -142,9 +165,18 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("performance_id", "role_id"),
     )
-    op.create_index(op.f("ix_schedule_assignments_actor_id"), "schedule_assignments", ["actor_id"], unique=False)
-    op.create_index(op.f("ix_schedule_assignments_performance_id"), "schedule_assignments", ["performance_id"], unique=False)
-    op.create_index(op.f("ix_schedule_assignments_role_id"), "schedule_assignments", ["role_id"], unique=False)
+    op.create_index(
+        op.f("ix_schedule_assignments_actor_id"), "schedule_assignments", ["actor_id"], unique=False
+    )
+    op.create_index(
+        op.f("ix_schedule_assignments_performance_id"),
+        "schedule_assignments",
+        ["performance_id"],
+        unique=False,
+    )
+    op.create_index(
+        op.f("ix_schedule_assignments_role_id"), "schedule_assignments", ["role_id"], unique=False
+    )
 
 
 def downgrade() -> None:

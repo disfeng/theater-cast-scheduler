@@ -4,6 +4,7 @@ Revision ID: 0003_add_import_drafts
 Revises: 0002_add_monthly_plan_support
 Create Date: 2026-07-13
 """
+
 from collections.abc import Sequence
 
 import sqlalchemy as sa
@@ -73,35 +74,39 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["wish_id"], ["wishes.id"]),
         sa.PrimaryKeyConstraint("id"),
     )
-    op.create_index("ix_import_draft_items_import_draft_id", "import_draft_items", ["import_draft_id"])
+    op.create_index(
+        "ix_import_draft_items_import_draft_id", "import_draft_items", ["import_draft_id"]
+    )
 
     # 4. Add weekly_batch_id column to designations and wishes
-    op.add_column("designations", sa.Column("weekly_batch_id", sa.Integer(), nullable=True))
-    op.create_foreign_key(
-        "fk_designations_weekly_batch_id",
-        "designations",
-        "weekly_batches",
-        ["weekly_batch_id"],
-        ["id"],
-    )
+    with op.batch_alter_table("designations") as batch:
+        batch.add_column(sa.Column("weekly_batch_id", sa.Integer(), nullable=True))
+        batch.create_foreign_key(
+            "fk_designations_weekly_batch_id",
+            "weekly_batches",
+            ["weekly_batch_id"],
+            ["id"],
+        )
 
-    op.add_column("wishes", sa.Column("weekly_batch_id", sa.Integer(), nullable=True))
-    op.create_foreign_key(
-        "fk_wishes_weekly_batch_id",
-        "wishes",
-        "weekly_batches",
-        ["weekly_batch_id"],
-        ["id"],
-    )
+    with op.batch_alter_table("wishes") as batch:
+        batch.add_column(sa.Column("weekly_batch_id", sa.Integer(), nullable=True))
+        batch.create_foreign_key(
+            "fk_wishes_weekly_batch_id",
+            "weekly_batches",
+            ["weekly_batch_id"],
+            ["id"],
+        )
 
 
 def downgrade() -> None:
     # Remove columns and constraints
-    op.drop_constraint("fk_wishes_weekly_batch_id", "wishes", type_="foreignkey")
-    op.drop_column("wishes", "weekly_batch_id")
+    with op.batch_alter_table("wishes") as batch:
+        batch.drop_constraint("fk_wishes_weekly_batch_id", type_="foreignkey")
+        batch.drop_column("weekly_batch_id")
 
-    op.drop_constraint("fk_designations_weekly_batch_id", "designations", type_="foreignkey")
-    op.drop_column("designations", "weekly_batch_id")
+    with op.batch_alter_table("designations") as batch:
+        batch.drop_constraint("fk_designations_weekly_batch_id", type_="foreignkey")
+        batch.drop_column("weekly_batch_id")
 
     # Drop tables
     op.drop_table("import_draft_items")

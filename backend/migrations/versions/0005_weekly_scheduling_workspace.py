@@ -4,6 +4,7 @@ Revision ID: 0005_weekly_scheduling_workspace
 Revises: 0004_multi_theater_configuration
 Create Date: 2026-07-15
 """
+
 from collections.abc import Sequence
 
 import sqlalchemy as sa
@@ -19,17 +20,29 @@ def upgrade() -> None:
     bind = op.get_bind()
     batch_columns = {column["name"] for column in sa.inspect(bind).get_columns("weekly_batches")}
     if "updated_at" not in batch_columns:
-        op.add_column("weekly_batches", sa.Column("updated_at", sa.DateTime(), nullable=False, server_default=sa.func.now()))
+        op.add_column(
+            "weekly_batches",
+            sa.Column("updated_at", sa.DateTime(), nullable=False, server_default=sa.func.now()),
+        )
     if "published_at" not in batch_columns:
         op.add_column("weekly_batches", sa.Column("published_at", sa.DateTime(), nullable=True))
     if "version" not in batch_columns:
-        op.add_column("weekly_batches", sa.Column("version", sa.Integer(), nullable=False, server_default="1"))
+        op.add_column(
+            "weekly_batches", sa.Column("version", sa.Integer(), nullable=False, server_default="1")
+        )
 
     op.execute(sa.text("DELETE FROM schedule_assignments"))
     inspector = sa.inspect(bind)
-    assignment_columns = {column["name"] for column in inspector.get_columns("schedule_assignments")}
-    unique_constraints = {constraint["name"] for constraint in inspector.get_unique_constraints("schedule_assignments")}
-    foreign_keys = {constraint["name"] for constraint in inspector.get_foreign_keys("schedule_assignments")}
+    assignment_columns = {
+        column["name"] for column in inspector.get_columns("schedule_assignments")
+    }
+    unique_constraints = {
+        constraint["name"]
+        for constraint in inspector.get_unique_constraints("schedule_assignments")
+    }
+    foreign_keys = {
+        constraint["name"] for constraint in inspector.get_foreign_keys("schedule_assignments")
+    }
     indexes = {index["name"] for index in inspector.get_indexes("schedule_assignments")}
     with op.batch_alter_table("schedule_assignments") as batch:
         if "performance_id" in unique_constraints:
@@ -40,7 +53,11 @@ def upgrade() -> None:
             # MySQL rejects defaults on JSON columns, so add it nullable and backfill below.
             batch.add_column(sa.Column("conflict_codes", sa.JSON(), nullable=True))
 
-    op.execute(sa.text("UPDATE schedule_assignments SET conflict_codes = '[]' WHERE conflict_codes IS NULL"))
+    op.execute(
+        sa.text(
+            "UPDATE schedule_assignments SET conflict_codes = '[]' WHERE conflict_codes IS NULL"
+        )
+    )
     with op.batch_alter_table("schedule_assignments") as batch:
         batch.alter_column("conflict_codes", existing_type=sa.JSON(), nullable=False)
         if "fk_schedule_assignments_weekly_batch_id" not in foreign_keys:

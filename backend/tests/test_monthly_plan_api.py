@@ -50,7 +50,9 @@ def _configured_theater(db_session, name="西幽剧场", slot_names=("午场", "
     return theater, slots
 
 
-def _performance(theater_id, slot, performance_date=date(2026, 6, 1), status=PerformanceStatus.DRAFT):
+def _performance(
+    theater_id, slot, performance_date=date(2026, 6, 1), status=PerformanceStatus.DRAFT
+):
     return Performance(
         theater_id=theater_id,
         theater_slot_id=slot.id,
@@ -121,10 +123,18 @@ def test_monthly_regeneration_rejects_non_draft_or_referenced_performances(db_se
     db_session.add(role)
     db_session.flush()
     from app.models.entities import WeeklyBatch
+
     batch = WeeklyBatch(theater_id=theater.id, week_start=date(2026, 7, 6))
     db_session.add(batch)
     db_session.flush()
-    db_session.add(ScheduleAssignment(weekly_batch_id=batch.id, performance_id=published.id, role_id=role.id, actor_id=actor.id))
+    db_session.add(
+        ScheduleAssignment(
+            weekly_batch_id=batch.id,
+            performance_id=published.id,
+            role_id=role.id,
+            actor_id=actor.id,
+        )
+    )
     db_session.commit()
     client = _client(db_session)
     try:
@@ -239,12 +249,15 @@ def test_replace_monthly_plan_conflict_is_atomic(db_session):
         )
 
     assert db_session.get(Performance, existing.id) is not None
-    assert db_session.scalar(
-        select(Performance).where(
-            Performance.performance_date == date(2026, 8, 4),
-            Performance.theater_slot_id == evening.id,
+    assert (
+        db_session.scalar(
+            select(Performance).where(
+                Performance.performance_date == date(2026, 8, 4),
+                Performance.theater_slot_id == evening.id,
+            )
         )
-    ) is None
+        is None
+    )
 
 
 def test_replace_monthly_plan_endpoint_saves_calendar(db_session):
@@ -265,7 +278,9 @@ def test_replace_monthly_plan_endpoint_saves_calendar(db_session):
             },
         )
         assert response.status_code == 200
-        assert {(item["performance_date"], item["slot_name_snapshot"]) for item in response.json()} == {
+        assert {
+            (item["performance_date"], item["slot_name_snapshot"]) for item in response.json()
+        } == {
             ("2026-08-03", "早场"),
             ("2026-08-04", "晚场"),
         }

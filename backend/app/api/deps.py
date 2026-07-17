@@ -18,7 +18,9 @@ def get_db() -> Session:
         db.close()
 
 
-def require_user(credentials: HTTPAuthorizationCredentials | None = Depends(bearer)) -> dict[str, str]:
+def require_user(
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer),
+) -> dict[str, str]:
     if credentials is None:
         raise HTTPException(status_code=401, detail="Not authenticated")
     try:
