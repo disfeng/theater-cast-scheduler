@@ -11,6 +11,11 @@ test("空道具目录可创建默认指定道具",async()=>{
   vi.stubGlobal("fetch",vi.fn(async(input:RequestInfo|URL,init?:RequestInit)=>{const path=String(input).replace(/https?:\/\/localhost:\d+/,"");if((init?.method||"GET")!=="GET")requests.push(path);if(path==="/admin/theaters")return Response.json([{id:2,name:"西安幽州剧场",is_active:true}]);if(path==="/admin/theaters/2/entitlement-item-types")return Response.json([]);if(path==="/admin/theaters/2/entitlement-item-types/default-designations")return Response.json([]);if(["/admin/actors","/admin/roles"].includes(path))return Response.json([]);return Response.json({detail:`unexpected:${path}`},{status:500})}));
   await renderAdminRoute("/admin/entitlements?theater_id=2&tab=catalog");
   await fireEvent.click(await screen.findByRole("button",{name:"创建万能、榜三和对位指定"}));
+  expect(await screen.findByRole("dialog",{name:"创建默认指定道具"})).toBeInTheDocument();
+  expect(screen.getByText("万能指定")).toBeInTheDocument();
+  expect(screen.getByText("榜三指定")).toBeInTheDocument();
+  expect(screen.getByText("对位指定")).toBeInTheDocument();
+  expect(screen.getByText("已存在的默认道具不会重复创建")).toBeInTheDocument();
   await fireEvent.click(await screen.findByRole("button",{name:"确认创建"}));
   await waitFor(()=>expect(requests).toContain("/admin/theaters/2/entitlement-item-types/default-designations"));
 });
