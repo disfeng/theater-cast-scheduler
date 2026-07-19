@@ -137,6 +137,78 @@ def test_theater_item_definition_crud_and_category_validation(db_session):
         app.dependency_overrides.clear()
 
 
+def test_general_item_manual_consumption_uses_earliest_expiry_and_writes_ledger(db_session):
+    client = _client(db_session)
+    theater = Theater(name="核销剧场")
+    player = PlayerProfile(display_name="核销玩家", normalized_name="核销玩家")
+    definition = EntitlementItemType(
+        theater=theater,
+        code="drink",
+        display_name="饮品券",
+        category="general",
+        priority=0,
+        default_validity_days=30,
+        is_active=True,
+        sort_order=0,
+    )
+    db_session.add_all([theater, player, definition])
+    db_session.flush()
+    later = EntitlementItem(
+        theater_id=theater.id,
+        serial_number="DRINK-LATER",
+        owner_id=player.id,
+        item_type_id=definition.id,
+        source_type="campaign",
+        source_label="活动",
+        granted_at=datetime(2026, 7, 1),
+        expires_at=datetime(2026, 9, 1),
+    )
+    earlier = EntitlementItem(
+        theater_id=theater.id,
+        serial_number="DRINK-EARLIER",
+        owner_id=player.id,
+        item_type_id=definition.id,
+        source_type="campaign",
+        source_label="活动",
+        granted_at=datetime(2026, 7, 1),
+        expires_at=datetime(2026, 8, 1),
+    )
+    db_session.add_all([later, earlier])
+    db_session.commit()
+    try:
+        payload = {
+            "item_type_id": definition.id,
+            "quantity": 1,
+            "purpose": "兑换饮品",
+            "note": "前台核销",
+        }
+        preview = client.post(
+            f"/admin/theaters/{theater.id}/players/{player.id}/inventory/manual-consumption/preview",
+            json=payload,
+        )
+        assert preview.status_code == 200
+        assert preview.json()["serial_numbers"] == ["DRINK-EARLIER"]
+
+        consumed = client.post(
+            f"/admin/theaters/{theater.id}/players/{player.id}/inventory/manual-consumption",
+            headers={"Idempotency-Key": "consume-drink-1"},
+            json=payload,
+        )
+        assert consumed.status_code == 200
+        assert consumed.json()["serial_numbers"] == ["DRINK-EARLIER"]
+        assert db_session.get(EntitlementItem, earlier.id).status == EntitlementItemStatus.CONSUMED
+        assert db_session.get(EntitlementItem, later.id).status == EntitlementItemStatus.AVAILABLE
+
+        ledger = client.get(
+            f"/admin/theaters/{theater.id}/entitlement-ledger",
+            params={"player_id": player.id, "event_type": "manually_consumed"},
+        )
+        assert ledger.status_code == 200
+        assert ledger.json()["records"][0]["purpose"] == "兑换饮品"
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_player_search_create_alias_and_merge(db_session):
     client = _client(db_session)
     try:

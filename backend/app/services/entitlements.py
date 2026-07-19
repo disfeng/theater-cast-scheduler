@@ -21,11 +21,18 @@ from app.models.entities import (
 )
 from app.models.enums import (
     EntitlementEventType,
+    EntitlementItemCategory,
     EntitlementItemStatus,
     GrantBatchStatus,
     PlayerStatus,
 )
-from app.schemas.entitlements import PlayerInventoryRead, PlayerMatchResult
+from app.schemas.entitlements import (
+    EntitlementLedgerPageRead,
+    ManualConsumeRead,
+    ManualConsumeRequest,
+    PlayerInventoryRead,
+    PlayerMatchResult,
+)
 
 
 def utcnow() -> datetime:
@@ -162,6 +169,8 @@ def _ledger(
     reason: str | None = None,
     performance_id: int | None = None,
     designation_id: int | None = None,
+    purpose: str | None = None,
+    idempotency_key: str | None = None,
     **details: object,
 ) -> None:
     db.add(
@@ -174,6 +183,8 @@ def _ledger(
             performance_id=performance_id,
             designation_id=designation_id,
             reason=reason,
+            purpose=purpose,
+            idempotency_key=idempotency_key,
             operator_user_id=operator_user_id,
             note=_note(operator_user_id=operator_user_id, reason=reason, **details),
         )
@@ -442,6 +453,170 @@ def inventory_for_player(
         ).all()
     )
     return PlayerInventoryRead(player=player, items=items)
+
+
+def _manual_consumption_items(
+    db: Session,
+    theater_id: int,
+    player_id: int,
+    payload: ManualConsumeRequest,
+    *,
+    lock: bool,
+) -> list[EntitlementItem]:
+    item_type = db.scalar(
+        select(EntitlementItemType).where(
+            EntitlementItemType.id == payload.item_type_id,
+            EntitlementItemType.theater_id == theater_id,
+        )
+    )
+    if item_type is None:
+        raise EntitlementNotFound("entitlement_item_type_not_found")
+    if item_type.category != EntitlementItemCategory.GENERAL:
+        raise EntitlementConflict("designation_item_manual_consumption_forbidden")
+    if payload.performance_id is not None:
+        performance = db.get(Performance, payload.performance_id)
+        if performance is None or performance.theater_id != theater_id:
+            raise EntitlementConflict("manual_consumption_performance_invalid")
+    stmt = (
+        select(EntitlementItem)
+        .where(
+            EntitlementItem.theater_id == theater_id,
+            EntitlementItem.owner_id == player_id,
+            EntitlementItem.item_type_id == payload.item_type_id,
+            EntitlementItem.status == EntitlementItemStatus.AVAILABLE,
+            EntitlementItem.expires_at > utcnow(),
+        )
+        .order_by(EntitlementItem.expires_at, EntitlementItem.id)
+        .limit(payload.quantity)
+    )
+    if lock:
+        stmt = stmt.with_for_update()
+    items = list(db.scalars(stmt).all())
+    if len(items) != payload.quantity:
+        raise EntitlementConflict("entitlement_inventory_insufficient")
+    return items
+
+
+def preview_manual_consumption(
+    db: Session, theater_id: int, player_id: int, payload: ManualConsumeRequest
+) -> ManualConsumeRead:
+    if db.get(PlayerProfile, player_id) is None:
+        raise EntitlementNotFound("player_not_found")
+    items = _manual_consumption_items(db, theater_id, player_id, payload, lock=False)
+    return ManualConsumeRead(
+        item_ids=[item.id for item in items],
+        serial_numbers=[item.serial_number for item in items],
+    )
+
+
+def manual_consume(
+    db: Session,
+    theater_id: int,
+    player_id: int,
+    payload: ManualConsumeRequest,
+    operator_user_id: int,
+    idempotency_key: str,
+) -> ManualConsumeRead:
+    try:
+        previous = db.scalar(
+            select(EntitlementLedgerEntry).where(
+                EntitlementLedgerEntry.idempotency_key == idempotency_key
+            )
+        )
+        if previous is not None:
+            detail = json.loads(previous.note or "{}")
+            ids = detail.get("operation_item_ids", [previous.item_id])
+            rows = list(
+                db.scalars(select(EntitlementItem).where(EntitlementItem.id.in_(ids))).all()
+            )
+            by_id = {row.id: row for row in rows}
+            return ManualConsumeRead(
+                item_ids=ids,
+                serial_numbers=[by_id[item_id].serial_number for item_id in ids],
+            )
+        items = _manual_consumption_items(db, theater_id, player_id, payload, lock=True)
+        item_ids = [item.id for item in items]
+        for index, item in enumerate(items):
+            old = item.status
+            item.status = EntitlementItemStatus.CONSUMED
+            _ledger(
+                db,
+                item,
+                EntitlementEventType.MANUALLY_CONSUMED,
+                old=old,
+                new=item.status,
+                operator_user_id=operator_user_id,
+                reason=payload.note,
+                purpose=payload.purpose,
+                performance_id=payload.performance_id,
+                idempotency_key=idempotency_key if index == 0 else None,
+                operation_item_ids=item_ids,
+            )
+        db.commit()
+        return ManualConsumeRead(
+            item_ids=item_ids,
+            serial_numbers=[item.serial_number for item in items],
+        )
+    except Exception:
+        db.rollback()
+        raise
+
+
+def list_entitlement_ledger(
+    db: Session,
+    theater_id: int,
+    *,
+    player_id: int | None = None,
+    item_type_id: int | None = None,
+    event_type: EntitlementEventType | None = None,
+    cursor: int | None = None,
+    limit: int = 50,
+) -> EntitlementLedgerPageRead:
+    stmt = (
+        select(EntitlementLedgerEntry, EntitlementItem, EntitlementItemType, PlayerProfile)
+        .join(EntitlementItem, EntitlementItem.id == EntitlementLedgerEntry.item_id)
+        .join(EntitlementItemType, EntitlementItemType.id == EntitlementItem.item_type_id)
+        .join(PlayerProfile, PlayerProfile.id == EntitlementItem.owner_id)
+        .where(EntitlementLedgerEntry.theater_id == theater_id)
+        .order_by(EntitlementLedgerEntry.id.desc())
+        .limit(limit + 1)
+    )
+    if player_id is not None:
+        stmt = stmt.where(EntitlementItem.owner_id == player_id)
+    if item_type_id is not None:
+        stmt = stmt.where(EntitlementItem.item_type_id == item_type_id)
+    if event_type is not None:
+        stmt = stmt.where(EntitlementLedgerEntry.event_type == event_type)
+    if cursor is not None:
+        stmt = stmt.where(EntitlementLedgerEntry.id < cursor)
+    rows = list(db.execute(stmt).all())
+    page = rows[:limit]
+    return EntitlementLedgerPageRead(
+        records=[
+            {
+                "id": ledger.id,
+                "theater_id": ledger.theater_id,
+                "item_id": item.id,
+                "serial_number": item.serial_number,
+                "player_id": player.id,
+                "player_name": player.display_name,
+                "item_type_id": item_type.id,
+                "item_type_name": item_type.display_name,
+                "event_type": ledger.event_type,
+                "occurred_at": ledger.occurred_at,
+                "from_status": ledger.from_status,
+                "to_status": ledger.to_status,
+                "purpose": ledger.purpose,
+                "reason": ledger.reason,
+                "note": ledger.note,
+                "performance_id": ledger.performance_id,
+                "designation_id": ledger.designation_id,
+                "operator_user_id": ledger.operator_user_id,
+            }
+            for ledger, item, item_type, player in page
+        ],
+        next_cursor=page[-1][0].id if len(rows) > limit else None,
+    )
 
 
 def _expiry_predicate(expiry: str | None, now: datetime):

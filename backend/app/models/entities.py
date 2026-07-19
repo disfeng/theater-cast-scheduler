@@ -256,6 +256,7 @@ class EntitlementLedgerEntry(Base):
     designation_id: Mapped[int | None] = mapped_column(ForeignKey("designations.id"), nullable=True)
     reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     purpose: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    idempotency_key: Mapped[str | None] = mapped_column(String(120), nullable=True, unique=True)
     operator_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     item: Mapped[EntitlementItem] = relationship(back_populates="ledger_entries")
     theater: Mapped[Theater | None] = relationship()

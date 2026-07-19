@@ -139,6 +139,7 @@ def _create_new_tables() -> None:
         sa.Column("designation_id", sa.Integer(), sa.ForeignKey("designations.id"), nullable=True),
         sa.Column("reason", sa.Text(), nullable=True),
         sa.Column("purpose", sa.String(200), nullable=True),
+        sa.Column("idempotency_key", sa.String(120), nullable=True, unique=True),
         sa.Column("operator_user_id", sa.Integer(), sa.ForeignKey("users.id"), nullable=True),
     )
     for column in ("theater_id", "item_id", "event_type", "occurred_at"):

@@ -326,3 +326,52 @@ class EntitlementItemRead(BaseModel):
 class PlayerInventoryRead(BaseModel):
     player: PlayerRead
     items: list[EntitlementItemRead]
+
+
+class ManualConsumeRequest(BaseModel):
+    item_type_id: int
+    quantity: int = Field(ge=1, le=100)
+    purpose: str = Field(min_length=1, max_length=200)
+    note: str | None = Field(default=None, max_length=4000)
+    performance_id: int | None = None
+
+    @field_validator("purpose", "note")
+    @classmethod
+    def clean_manual_text(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("must not be blank")
+        return cleaned
+
+
+class ManualConsumeRead(BaseModel):
+    item_ids: list[int]
+    serial_numbers: list[str]
+
+
+class EntitlementLedgerRecordRead(BaseModel):
+    id: int
+    theater_id: int | None
+    item_id: int
+    serial_number: str
+    player_id: int
+    player_name: str
+    item_type_id: int
+    item_type_name: str
+    event_type: EntitlementEventType
+    occurred_at: datetime
+    from_status: EntitlementItemStatus | None
+    to_status: EntitlementItemStatus | None
+    purpose: str | None
+    reason: str | None
+    note: str | None
+    performance_id: int | None
+    designation_id: int | None
+    operator_user_id: int | None
+
+
+class EntitlementLedgerPageRead(BaseModel):
+    records: list[EntitlementLedgerRecordRead]
+    next_cursor: int | None

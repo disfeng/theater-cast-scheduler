@@ -18,6 +18,7 @@ from app.models.entities import (
 )
 from app.models.enums import (
     DesignationType,
+    EntitlementEventType,
     EntitlementItemCategory,
     GrantBatchStatus,
     PlayerStatus,
@@ -34,6 +35,9 @@ from app.schemas.entitlements import (
     ItemTypeCreate,
     ItemTypeRead,
     ItemTypeUpdate,
+    ManualConsumeRead,
+    ManualConsumeRequest,
+    EntitlementLedgerPageRead,
     PlayerCreate,
     PlayerInventoryRead,
     PlayerMatchResult,
@@ -51,8 +55,11 @@ from app.services.entitlements import (
     entitlement_reconciliation,
     extend_item,
     inventory_for_player,
+    list_entitlement_ledger,
+    manual_consume,
     normalize_player_name,
     reconciliation_drill,
+    preview_manual_consumption,
     restore_item,
     void_item,
 )
@@ -569,6 +576,67 @@ def theater_inventory(
         return inventory_for_player(db, player_id, theater_id)
     except EntitlementNotFound as exc:
         _raise(exc)
+
+
+@router.post(
+    "/theaters/{theater_id}/players/{player_id}/inventory/manual-consumption/preview",
+    response_model=ManualConsumeRead,
+)
+def manual_consumption_preview(
+    theater_id: int,
+    player_id: int,
+    payload: ManualConsumeRequest,
+    _: dict = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    return _mutation(preview_manual_consumption, db, theater_id, player_id, payload)
+
+
+@router.post(
+    "/theaters/{theater_id}/players/{player_id}/inventory/manual-consumption",
+    response_model=ManualConsumeRead,
+)
+def commit_manual_consumption(
+    theater_id: int,
+    player_id: int,
+    payload: ManualConsumeRequest,
+    idempotency_key: str = Header(alias="Idempotency-Key", min_length=8, max_length=120),
+    user: dict = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    return _mutation(
+        manual_consume,
+        db,
+        theater_id,
+        player_id,
+        payload,
+        _operator(user, db),
+        idempotency_key,
+    )
+
+
+@router.get(
+    "/theaters/{theater_id}/entitlement-ledger", response_model=EntitlementLedgerPageRead
+)
+def theater_ledger(
+    theater_id: int,
+    player_id: int | None = None,
+    item_type_id: int | None = None,
+    event_type: EntitlementEventType | None = None,
+    cursor: int | None = Query(default=None, ge=1),
+    limit: int = Query(default=50, ge=1, le=100),
+    _: dict = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    return list_entitlement_ledger(
+        db,
+        theater_id,
+        player_id=player_id,
+        item_type_id=item_type_id,
+        event_type=event_type,
+        cursor=cursor,
+        limit=limit,
+    )
 
 
 @router.post("/entitlement-grant-batches/{batch_id}/confirm", response_model=GrantBatchRead)
