@@ -4,7 +4,7 @@ from fastapi.testclient import TestClient
 
 from app.api.deps import get_db
 from app.main import app
-from app.models.entities import User
+from app.models.entities import Actor, ActorTheaterMembership, Theater, User
 from app.models.enums import UserRole
 from app.services.auth import create_access_token
 
@@ -182,6 +182,33 @@ def test_admin_reset_password_forces_change_and_returns_fresh_pdf(db_session):
             },
         ).json()
         assert login["must_change_password"] is True
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_admin_reset_password_bootstraps_legacy_actor_account(db_session):
+    theater = Theater(name="西安幽州剧场")
+    actor = Actor(display_name="小A", phone_number="18627912251")
+    db_session.add_all([theater, actor])
+    db_session.flush()
+    db_session.add(
+        ActorTheaterMembership(
+            actor_id=actor.id, theater_id=theater.id, is_entry_theater=True
+        )
+    )
+    db_session.commit()
+    app.dependency_overrides[get_db] = _override_db(db_session)
+    try:
+        with TestClient(app) as client:
+            response = client.post(
+                f"/admin/actors/{actor.id}/reset-password",
+                headers=_admin_headers(),
+                json={"entry_theater_id": theater.id},
+            )
+        assert response.status_code == 200
+        assert response.json()["username"] == "18627912251"
+        user = db_session.query(User).filter(User.actor_id == actor.id).one()
+        assert user.must_change_password is True
     finally:
         app.dependency_overrides.clear()
 

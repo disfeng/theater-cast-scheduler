@@ -84,7 +84,7 @@ def reset_actor_password(
     db: Session, actor_id: int, entry_theater_id: int
 ) -> ActorCredentialDelivery:
     actor = db.get(Actor, actor_id)
-    if actor is None or actor.user is None or actor.phone_number is None:
+    if actor is None or actor.phone_number is None:
         raise LookupError("actor_account_not_found")
     membership = db.scalar(
         select(ActorTheaterMembership).where(
@@ -96,9 +96,23 @@ def reset_actor_password(
     if membership is None or theater is None:
         raise ValueError("entry_theater_not_assigned")
     password = generate_initial_password()
-    actor.user.password_hash = password_context.hash(password)
-    actor.user.must_change_password = True
-    actor.user.password_changed_at = None
+    user = actor.user
+    if user is None:
+        occupied = db.scalar(select(User).where(User.email == actor.phone_number))
+        if occupied is not None:
+            raise ValueError("phone_already_registered")
+        user = User(
+            email=actor.phone_number,
+            password_hash=password_context.hash(password),
+            role=UserRole.ACTOR,
+            actor_id=actor.id,
+            must_change_password=True,
+        )
+        db.add(user)
+    else:
+        user.password_hash = password_context.hash(password)
+        user.must_change_password = True
+        user.password_changed_at = None
     db.commit()
     pdf = build_actor_credential_pdf(
         theater_name=theater.name,
