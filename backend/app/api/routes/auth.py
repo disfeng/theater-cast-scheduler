@@ -15,7 +15,12 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 def login(payload: LoginRequest, db: Session = Depends(get_db)) -> TokenResponse:
     identifier = payload.login_identifier.strip()
     user = db.scalar(select(User).where(User.email == identifier))
-    if user is not None and password_context.verify(payload.password, user.password_hash):
+    password_matches = bool(
+        user is not None
+        and password_context.identify(user.password_hash)
+        and password_context.verify(payload.password, user.password_hash)
+    )
+    if user is not None and password_matches:
         role = user.role.value
         return TokenResponse(
             access_token=create_access_token(

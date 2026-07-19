@@ -4,6 +4,8 @@ from fastapi.testclient import TestClient
 
 from app.api.deps import get_db
 from app.main import app
+from app.models.entities import User
+from app.models.enums import UserRole
 from app.services.auth import create_access_token
 
 
@@ -17,6 +19,22 @@ def _override_db(db_session):
         yield db_session
 
     return override
+
+
+def test_legacy_admin_placeholder_hash_does_not_crash_login(db_session):
+    db_session.add(User(email="admin@example.com", password_hash="x", role=UserRole.ADMIN))
+    db_session.commit()
+    app.dependency_overrides[get_db] = _override_db(db_session)
+    try:
+        with TestClient(app) as client:
+            response = client.post(
+                "/auth/login",
+                json={"identifier": "admin@example.com", "password": "admin"},
+            )
+        assert response.status_code == 200
+        assert response.json()["role"] == "admin"
+    finally:
+        app.dependency_overrides.clear()
 
 
 def test_admin_creates_phone_actor_and_receives_one_time_pdf(db_session):
