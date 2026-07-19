@@ -6,6 +6,8 @@ from sqlalchemy import event, select
 from app.api.deps import get_db
 from app.main import app
 from app.models.entities import (
+    Actor,
+    ActorRoleCapability,
     EntitlementGrantBatch,
     EntitlementGrantDraftItem,
     EntitlementItem,
@@ -13,10 +15,13 @@ from app.models.entities import (
     EntitlementLedgerEntry,
     PlayerAlias,
     PlayerProfile,
+    Role,
     Theater,
     User,
 )
 from app.models.enums import (
+    DesignationType,
+    EntitlementItemCategory,
     EntitlementEventType,
     GrantBatchStatus,
     EntitlementItemStatus,
@@ -38,6 +43,67 @@ def _client(db_session):
     client = TestClient(app)
     client.headers["Authorization"] = f"Bearer {create_access_token('admin@example.com', 'admin')}"
     return client
+
+
+def test_top_three_grant_requires_and_persists_bound_actor(db_session):
+    client = _client(db_session)
+    theater = Theater(name="榜三剧场")
+    player = PlayerProfile(display_name="榜三玩家", normalized_name="榜三玩家")
+    role = Role(name="榜三角色", group_name="测试", theater=theater)
+    actor = Actor(display_name="榜单演员")
+    db_session.add_all([theater, player, role, actor])
+    db_session.flush()
+    db_session.add(ActorRoleCapability(actor_id=actor.id, role_id=role.id))
+    item_type = EntitlementItemType(
+        theater_id=theater.id,
+        code="top-three",
+        display_name="榜三指定",
+        category=EntitlementItemCategory.DESIGNATION,
+        designation_type=DesignationType.TOP_THREE,
+        priority=200,
+        default_validity_days=90,
+    )
+    db_session.add(item_type)
+    db_session.commit()
+    url = f"/admin/theaters/{theater.id}/entitlement-grant-batches"
+    item = {
+        "player_id": player.id,
+        "item_type_id": item_type.id,
+        "quantity": 2,
+        "bound_actor_id": None,
+    }
+    base = {
+        "source_type": "monthly_ranking",
+        "source_month": "2026-07-01",
+        "source_label": "七月个人榜",
+        "bound_actor_id": None,
+        "items": [item],
+    }
+    try:
+        missing = client.post(url, json=base)
+        assert missing.status_code == 409
+        assert missing.json()["detail"] == "entitlement_actor_binding_invalid"
+
+        base["bound_actor_id"] = actor.id
+        item["bound_actor_id"] = actor.id
+        created = client.post(url, json=base)
+        assert created.status_code == 200
+        assert created.json()["bound_actor_id"] == actor.id
+        assert {row["bound_actor_id"] for row in created.json()["draft_items"]} == {actor.id}
+
+        confirmed = client.post(
+            f"{url}/{created.json()['id']}/confirm",
+            headers={"Idempotency-Key": "top-three-actor-test"},
+        )
+        assert confirmed.status_code == 200
+        inventory = client.get(
+            f"/admin/theaters/{theater.id}/players/{player.id}/inventory"
+        ).json()
+        assert len(inventory["items"]) == 2
+        assert {row["bound_actor_id"] for row in inventory["items"]} == {actor.id}
+        assert {row["bound_actor_name"] for row in inventory["items"]} == {"榜单演员"}
+    finally:
+        app.dependency_overrides.clear()
 
 
 def test_theater_item_definition_crud_and_category_validation(db_session):

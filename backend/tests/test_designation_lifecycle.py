@@ -100,7 +100,7 @@ def _world(db):
     return perf, pp, owner, beneficiary, actor, role, operator, types
 
 
-def _item(db, owner, typ, serial, days=30):
+def _item(db, owner, typ, serial, days=30, bound_actor=None):
     item = EntitlementItem(
         theater_id=typ.theater_id,
         serial_number=serial,
@@ -111,6 +111,7 @@ def _item(db, owner, typ, serial, days=30):
         granted_at=datetime.utcnow(),
         expires_at=datetime.utcnow() + timedelta(days=days),
         status=EntitlementItemStatus.AVAILABLE,
+        bound_actor_id=bound_actor.id if bound_actor is not None else None,
     )
     db.add(item)
     db.commit()
@@ -188,7 +189,13 @@ def test_self_requires_owner_beneficiary_and_confirmed_performance_player(db_ses
 @pytest.mark.parametrize("index", [0, 1, 2])
 def test_all_item_types_use_same_capability_rule_and_reserve_exact_item(db_session, index):
     perf, pp, owner, beneficiary, actor, role, op, types = _world(db_session)
-    item = _item(db_session, beneficiary, types[index], f"I-{index}")
+    item = _item(
+        db_session,
+        beneficiary,
+        types[index],
+        f"I-{index}",
+        bound_actor=actor if index == 1 else None,
+    )
     designation = _designation(db_session, perf, pp, beneficiary, actor, role, types[index])
     result = verify_self_designation(db_session, designation.id, item.id, op.id)
     assert result.lifecycle_status == "predesignated"
@@ -207,9 +214,25 @@ def test_capability_mismatch_is_rejected(db_session):
         verify_self_designation(db_session, designation.id, item.id, op.id)
 
 
+def test_top_three_item_only_designates_its_bound_actor(db_session):
+    perf, pp, _, beneficiary, bound_actor, role, op, types = _world(db_session)
+    other_actor = Actor(display_name="Other ranking actor")
+    db_session.add(other_actor)
+    db_session.flush()
+    db_session.add(ActorRoleCapability(actor_id=other_actor.id, role_id=role.id))
+    db_session.commit()
+    item = _item(db_session, beneficiary, types[1], "TOP-BOUND", bound_actor=bound_actor)
+    designation = _designation(
+        db_session, perf, pp, beneficiary, other_actor, role, types[1]
+    )
+
+    with pytest.raises(DesignationConflict, match="entitlement_bound_actor_mismatch"):
+        verify_self_designation(db_session, designation.id, item.id, op.id)
+
+
 def test_proxy_owner_may_be_absent_but_requires_verification_and_exact_owner_item(db_session):
     perf, pp, owner, _, actor, role, op, types = _world(db_session)
-    item = _item(db_session, owner, types[1], "P-1")
+    item = _item(db_session, owner, types[1], "P-1", bound_actor=actor)
     designation = _designation(db_session, perf, pp, owner, actor, role, types[1], "proxy")
     with pytest.raises(DesignationConflict, match="proxy_verification_required"):
         activate_predesignation(db_session, designation.id, op.id)

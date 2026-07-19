@@ -171,6 +171,7 @@ class GrantDraftItemWrite(BaseModel):
     source_label: str | None = Field(default=None, min_length=1, max_length=120)
     expires_at: datetime | None = None
     notes: str | None = Field(default=None, min_length=1, max_length=4000)
+    bound_actor_id: int | None = None
 
     @field_validator("source_label", "notes")
     @classmethod
@@ -192,6 +193,7 @@ class GrantDraftItemRead(BaseModel):
     source_label: str | None
     expires_at: datetime | None
     notes: str | None
+    bound_actor_id: int | None
 
 
 class GrantBatchCreate(BaseModel):
@@ -202,6 +204,7 @@ class GrantBatchCreate(BaseModel):
     grant_date: date | None = None
     default_expires_at: datetime | None = None
     notes: str | None = Field(default=None, min_length=1, max_length=4000)
+    bound_actor_id: int | None = None
     items: list[GrantDraftItemWrite] = Field(default_factory=list)
 
     @field_validator("source_label")
@@ -237,6 +240,7 @@ class GrantBatchRead(BaseModel):
     status: GrantBatchStatus
     created_at: datetime
     confirmed_at: datetime | None
+    bound_actor_id: int | None
     draft_items: list[GrantDraftItemRead] = Field(default_factory=list)
 
 
@@ -320,6 +324,8 @@ class EntitlementItemRead(BaseModel):
     status: EntitlementItemStatus
     current_designation_id: int | None
     notes: str | None
+    bound_actor_id: int | None
+    bound_actor_name: str | None
     ledger_entries: list[LedgerRead] = Field(default_factory=list)
 
 
@@ -360,6 +366,8 @@ class EntitlementLedgerRecordRead(BaseModel):
     player_name: str
     item_type_id: int
     item_type_name: str
+    bound_actor_id: int | None
+    bound_actor_name: str | None
     event_type: EntitlementEventType
     occurred_at: datetime
     from_status: EntitlementItemStatus | None

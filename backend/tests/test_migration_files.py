@@ -83,7 +83,7 @@ def test_theater_entitlement_management_is_migration_head():
     script = ScriptDirectory.from_config(Config("alembic.ini"))
     revision = script.get_revision("0012_theater_entitlements")
 
-    assert script.get_current_head() == revision.revision
+    assert script.get_current_head() == "0013_top_three_actor_binding"
     assert revision.down_revision == "0011_weekly_publish_operations"
     migration = Path(revision.path).read_text()
     for required in (
@@ -97,12 +97,23 @@ def test_theater_entitlement_management_is_migration_head():
         assert required in migration
 
 
+def test_top_three_actor_binding_advances_migration_head():
+    script = ScriptDirectory.from_config(Config("alembic.ini"))
+    revision = script.get_revision("0013_top_three_actor_binding")
+
+    assert script.get_current_head() == revision.revision
+    assert revision.down_revision == "0012_theater_entitlements"
+    migration = Path(revision.path).read_text()
+    assert "bound_actor_id" in migration
+    assert "actors" in migration
+
+
 def test_performance_board_migration_advances_head_and_declares_contract():
     script = ScriptDirectory.from_config(Config("alembic.ini"))
     head = script.get_current_head()
     revision = script.get_revision("0007_performance_boards")
 
-    assert head == "0012_theater_entitlements"
+    assert head == "0013_top_three_actor_binding"
     assert revision.down_revision == "0006_entitlement_inventory"
     migration = Path(revision.path).read_text()
     for table in (
@@ -418,6 +429,7 @@ def test_entitlement_migration_contract_and_round_trip(tmp_path):
         "theater_id",
         "source_type",
         "idempotency_key",
+        "bound_actor_id",
     } <= batch_columns.keys()
     assert {
         "batch_id",
@@ -427,8 +439,9 @@ def test_entitlement_migration_contract_and_round_trip(tmp_path):
         "source_label",
         "expires_at",
         "notes",
+        "bound_actor_id",
     } <= draft_columns.keys()
-    assert {"notes", "theater_id", "source_type"} <= item_columns.keys()
+    assert {"notes", "theater_id", "source_type", "bound_actor_id"} <= item_columns.keys()
     assert {
         "from_status",
         "to_status",

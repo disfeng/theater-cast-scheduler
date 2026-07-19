@@ -11,6 +11,6 @@ export function createGrantRow(rawName:string, definitions:EntitlementItemType[]
   return {rawName,playerId:null,playerName:rawName,status:"pending",quantities:Object.fromEntries(definitions.map(item=>[item.id,0]))};
 }
 
-export function expandGrantItems(rows:GrantPlayerRow[], sourceMonth:string|null, sourceLabel:string, expiresAt:string|null) {
-  return rows.flatMap(row=>Object.entries(row.quantities).flatMap(([typeId,quantity])=>Array.from({length:Number(quantity)||0},()=>({player_id:row.playerId!,item_type_id:Number(typeId),quantity:1,source_month:sourceMonth,source_label:sourceLabel,expires_at:expiresAt,notes:null}))));
+export function expandGrantItems(rows:GrantPlayerRow[], sourceMonth:string|null, sourceLabel:string, expiresAt:string|null, boundActorId:number|null=null) {
+  return rows.flatMap(row=>Object.entries(row.quantities).flatMap(([typeId,quantity])=>Array.from({length:Number(quantity)||0},()=>({player_id:row.playerId!,item_type_id:Number(typeId),quantity:1,source_month:sourceMonth,source_label:sourceLabel,expires_at:expiresAt,notes:null,bound_actor_id:boundActorId}))));
 }

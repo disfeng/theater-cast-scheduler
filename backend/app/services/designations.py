@@ -18,6 +18,7 @@ from app.models.entities import (
     User,
 )
 from app.models.enums import (
+    DesignationType,
     EntitlementEventType,
     EntitlementItemCategory,
     EntitlementItemStatus,
@@ -153,6 +154,11 @@ def _validate(db, row, item, allow_own_reserved=False):
         or item.item_type.designation_type != row.designation_type
     ):
         raise DesignationConflict("entitlement_type_mismatch")
+    if (
+        row.designation_type == DesignationType.TOP_THREE
+        and item.bound_actor_id != row.actor_id
+    ):
+        raise DesignationConflict("entitlement_bound_actor_mismatch")
     if item.status == EntitlementItemStatus.RESERVED:
         if allow_own_reserved and item.current_designation_id == row.id:
             return beneficiary

@@ -59,6 +59,7 @@ from app.services.entitlements import (
     manual_consume,
     normalize_player_name,
     reconciliation_drill,
+    validate_grant_binding,
     preview_manual_consumption,
     restore_item,
     void_item,
@@ -445,6 +446,14 @@ def _populate_batch(batch: EntitlementGrantBatch, payload: GrantBatchCreate, db:
         if player.status != PlayerStatus.ACTIVE:
             db.rollback()
             raise HTTPException(409, detail="player_not_confirmed")
+        try:
+            validate_grant_binding(db, batch.theater_id, item_type, spec.bound_actor_id)
+        except EntitlementConflict as exc:
+            db.rollback()
+            raise HTTPException(409, detail=str(exc)) from exc
+        if spec.bound_actor_id != payload.bound_actor_id:
+            db.rollback()
+            raise HTTPException(409, detail="entitlement_actor_binding_invalid")
         values = spec.model_dump(exclude={"quantity"})
         for _ in range(spec.quantity):
             batch.draft_items.append(EntitlementGrantDraftItem(**values))

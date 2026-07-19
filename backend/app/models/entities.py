@@ -179,7 +179,11 @@ class EntitlementGrantBatch(Base):
     granted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     confirmed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     idempotency_key: Mapped[str | None] = mapped_column(String(120), nullable=True, unique=True)
+    bound_actor_id: Mapped[int | None] = mapped_column(
+        ForeignKey("actors.id"), nullable=True, index=True
+    )
     theater: Mapped[Theater | None] = relationship()
+    bound_actor: Mapped[Actor | None] = relationship()
     items: Mapped[list[EntitlementItem]] = relationship(back_populates="grant_batch")
     draft_items: Mapped[list[EntitlementGrantDraftItem]] = relationship(
         back_populates="batch", cascade="all, delete-orphan"
@@ -197,9 +201,13 @@ class EntitlementGrantDraftItem(Base):
     source_label: Mapped[str | None] = mapped_column(String(120), nullable=True)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    bound_actor_id: Mapped[int | None] = mapped_column(
+        ForeignKey("actors.id"), nullable=True, index=True
+    )
     batch: Mapped[EntitlementGrantBatch] = relationship(back_populates="draft_items")
     player: Mapped[PlayerProfile] = relationship()
     item_type: Mapped[EntitlementItemType] = relationship()
+    bound_actor: Mapped[Actor | None] = relationship()
 
 
 class EntitlementItem(Base):
@@ -228,11 +236,19 @@ class EntitlementItem(Base):
     )
     current_designation_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    bound_actor_id: Mapped[int | None] = mapped_column(
+        ForeignKey("actors.id"), nullable=True, index=True
+    )
     theater: Mapped[Theater | None] = relationship()
     owner: Mapped[PlayerProfile] = relationship(back_populates="entitlement_items")
     item_type: Mapped[EntitlementItemType] = relationship(back_populates="items")
     grant_batch: Mapped[EntitlementGrantBatch | None] = relationship(back_populates="items")
+    bound_actor: Mapped[Actor | None] = relationship()
     ledger_entries: Mapped[list[EntitlementLedgerEntry]] = relationship(back_populates="item")
+
+    @property
+    def bound_actor_name(self) -> str | None:
+        return self.bound_actor.display_name if self.bound_actor is not None else None
 
 
 class EntitlementLedgerEntry(Base):

@@ -8,6 +8,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 from app.models.entities import (
+    Actor,
+    ActorRoleCapability,
     EntitlementGrantBatch,
     EntitlementGrantDraftItem,
     EntitlementItem,
@@ -17,9 +19,11 @@ from app.models.entities import (
     Performance,
     PlayerAlias,
     PlayerProfile,
+    Role,
     User,
 )
 from app.models.enums import (
+    DesignationType,
     EntitlementEventType,
     EntitlementItemCategory,
     EntitlementItemStatus,
@@ -49,6 +53,30 @@ class EntitlementNotFound(EntitlementError):
 
 class EntitlementConflict(EntitlementError):
     pass
+
+
+def validate_grant_binding(
+    db: Session,
+    theater_id: int | None,
+    item_type: EntitlementItemType,
+    bound_actor_id: int | None,
+) -> None:
+    requires_actor = item_type.designation_type == DesignationType.TOP_THREE
+    if requires_actor != (bound_actor_id is not None):
+        raise EntitlementConflict("entitlement_actor_binding_invalid")
+    if bound_actor_id is None:
+        return
+    capability = db.scalar(
+        select(ActorRoleCapability.id)
+        .join(Role, Role.id == ActorRoleCapability.role_id)
+        .where(
+            ActorRoleCapability.actor_id == bound_actor_id,
+            Role.theater_id == theater_id,
+        )
+        .limit(1)
+    )
+    if capability is None:
+        raise EntitlementConflict("entitlement_bound_actor_invalid")
 
 
 def normalize_player_name(value: str) -> str:
@@ -240,6 +268,9 @@ def _confirm_grant_batch_once(
                 raise EntitlementConflict("entitlement_item_type_inactive")
             if player.status != PlayerStatus.ACTIVE:
                 raise EntitlementConflict("player_not_confirmed")
+            validate_grant_binding(db, batch.theater_id, item_type, draft.bound_actor_id)
+            if draft.bound_actor_id != batch.bound_actor_id:
+                raise EntitlementConflict("entitlement_actor_binding_invalid")
             item = EntitlementItem(
                 theater_id=batch.theater_id,
                 serial_number=f"{prefix}{sequence:04d}",
@@ -254,6 +285,7 @@ def _confirm_grant_batch_once(
                 or batch.default_expires_at
                 or now + timedelta(days=item_type.default_validity_days),
                 notes=draft.notes,
+                bound_actor_id=draft.bound_actor_id,
             )
             db.add(item)
             _ledger(
@@ -448,7 +480,10 @@ def inventory_for_player(
         db.scalars(
             select(EntitlementItem)
             .where(condition)
-            .options(selectinload(EntitlementItem.ledger_entries))
+            .options(
+                selectinload(EntitlementItem.ledger_entries),
+                selectinload(EntitlementItem.bound_actor),
+            )
             .order_by(EntitlementItem.id)
         ).all()
     )
@@ -574,10 +609,17 @@ def list_entitlement_ledger(
     limit: int = 50,
 ) -> EntitlementLedgerPageRead:
     stmt = (
-        select(EntitlementLedgerEntry, EntitlementItem, EntitlementItemType, PlayerProfile)
+        select(
+            EntitlementLedgerEntry,
+            EntitlementItem,
+            EntitlementItemType,
+            PlayerProfile,
+            Actor,
+        )
         .join(EntitlementItem, EntitlementItem.id == EntitlementLedgerEntry.item_id)
         .join(EntitlementItemType, EntitlementItemType.id == EntitlementItem.item_type_id)
         .join(PlayerProfile, PlayerProfile.id == EntitlementItem.owner_id)
+        .outerjoin(Actor, Actor.id == EntitlementItem.bound_actor_id)
         .where(EntitlementLedgerEntry.theater_id == theater_id)
         .order_by(EntitlementLedgerEntry.id.desc())
         .limit(limit + 1)
@@ -605,6 +647,8 @@ def list_entitlement_ledger(
                 "player_name": player.display_name,
                 "item_type_id": item_type.id,
                 "item_type_name": item_type.display_name,
+                "bound_actor_id": item.bound_actor_id,
+                "bound_actor_name": actor.display_name if actor is not None else None,
                 "event_type": ledger.event_type,
                 "occurred_at": ledger.occurred_at,
                 "from_status": ledger.from_status,
@@ -616,7 +660,7 @@ def list_entitlement_ledger(
                 "designation_id": ledger.designation_id,
                 "operator_user_id": ledger.operator_user_id,
             }
-            for ledger, item, item_type, player in page
+            for ledger, item, item_type, player, actor in page
         ],
         next_cursor=page[-1][0].id if len(rows) > limit else None,
     )

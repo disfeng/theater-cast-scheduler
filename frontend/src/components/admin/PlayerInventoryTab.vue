@@ -68,7 +68,7 @@
           >
           <dl>
             <dt>权益类型</dt>
-            <dd>{{ typeName(item.item_type_id) }}</dd>
+            <dd>{{ itemDisplayName(item) }}</dd>
             <dt>来源</dt>
             <dd>{{ item.source_label }}</dd>
             <dt>到期</dt>
@@ -238,6 +238,10 @@ const typeName = (id: number) =>
     itemTypes.value.find((t) => t.id === id)?.display_name ?? `类型 #${id}`,
   statusType = (s: string) =>
   s === "available" ? "success" : s === "revoked" ? "danger" : "warning";
+const itemDisplayName = (item: EntitlementItem) =>
+  item.bound_actor_name
+    ? `${typeName(item.item_type_id)} · ${item.bound_actor_name}`
+    : typeName(item.item_type_id);
 async function search() {
   if (!auth.token || busy.value) return;
   pending.value = "search";

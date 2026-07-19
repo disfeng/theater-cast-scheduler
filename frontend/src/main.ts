@@ -1,6 +1,7 @@
 import { createApp } from "vue";
 import { createPinia } from "pinia";
 import ElementPlus from "element-plus";
+import zhCn from "element-plus/es/locale/lang/zh-cn";
 import "element-plus/dist/index.css";
 import "./styles/tokens.css";
 import "./styles/base.css";
@@ -12,7 +13,7 @@ import { apiClient } from "./api/client";
 const pinia = createPinia();
 const app = createApp(App);
 
-app.use(pinia).use(router).use(ElementPlus);
+app.use(pinia).use(router).use(ElementPlus, { locale: zhCn });
 
 apiClient.setAuthErrorHandler((status) => {
   const auth = useAuthStore(pinia);
