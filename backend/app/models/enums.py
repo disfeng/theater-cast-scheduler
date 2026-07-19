@@ -20,6 +20,27 @@ class LeaveStatus(StrEnum):
     LOCKED = "locked"
 
 
+class ActorNotificationTaskStatus(StrEnum):
+    PENDING = "pending"
+    REVEALED = "revealed"
+    SUPERSEDED = "superseded"
+    CANCELLED = "cancelled"
+
+
+class ActorNotificationType(StrEnum):
+    NEW_ASSIGNMENT = "new_assignment"
+    INFORMATION_UPDATED = "information_updated"
+    SCHEDULE_CHANGED = "schedule_changed"
+    SCHEDULE_CANCELLED = "schedule_cancelled"
+
+
+class SmsDeliveryStatus(StrEnum):
+    PENDING = "pending"
+    SENDING = "sending"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+
+
 class DesignationType(StrEnum):
     UNIVERSAL = "universal"
     TOP_THREE = "top_three"

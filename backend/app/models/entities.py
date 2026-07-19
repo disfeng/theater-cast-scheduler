@@ -22,6 +22,8 @@ from sqlalchemy.orm import Mapped, Session, mapped_column, relationship
 
 from app.db.base import Base
 from app.models.enums import (
+    ActorNotificationTaskStatus,
+    ActorNotificationType,
     BatchStatus,
     DesignationType,
     DraftItemKind,
@@ -35,6 +37,7 @@ from app.models.enums import (
     LeaveStatus,
     PerformanceStatus,
     RatingLevel,
+    SmsDeliveryStatus,
     PlayerStatus,
     UserRole,
     BoardChangeType,
@@ -301,6 +304,8 @@ class User(Base):
     password_hash: Mapped[str] = mapped_column(String(255))
     role: Mapped[UserRole] = mapped_column(Enum(UserRole), index=True)
     actor_id: Mapped[int | None] = mapped_column(ForeignKey("actors.id"), nullable=True)
+    must_change_password: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    password_changed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     actor: Mapped[Actor | None] = relationship(back_populates="user")
 
 
@@ -310,6 +315,9 @@ class Theater(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(120), unique=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    reveal_days_before: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    reveal_time: Mapped[time] = mapped_column(Time, default=time(21, 0), server_default="21:00:00")
+    actor_sms_enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     slots: Mapped[list[TheaterSlot]] = relationship(
         back_populates="theater", cascade="all, delete-orphan", order_by="TheaterSlot.sort_order"
     )
@@ -364,6 +372,7 @@ class Actor(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     display_name: Mapped[str] = mapped_column(String(120), unique=True, index=True)
+    phone_number: Mapped[str | None] = mapped_column(String(20), nullable=True, unique=True, index=True)
     max_consecutive_performances: Mapped[int] = mapped_column(Integer, default=3)
     rating_level: Mapped[RatingLevel] = mapped_column(Enum(RatingLevel), default=RatingLevel.NORMAL)
     low_rating_monthly_cap: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -372,6 +381,23 @@ class Actor(Base):
     role_capabilities: Mapped[list[ActorRoleCapability]] = relationship(
         back_populates="actor", cascade="all, delete-orphan"
     )
+    theater_memberships: Mapped[list[ActorTheaterMembership]] = relationship(
+        back_populates="actor", cascade="all, delete-orphan"
+    )
+
+
+class ActorTheaterMembership(Base):
+    __tablename__ = "actor_theater_memberships"
+    __table_args__ = (
+        UniqueConstraint("actor_id", "theater_id", name="uq_actor_theater_membership"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    actor_id: Mapped[int] = mapped_column(ForeignKey("actors.id"), index=True)
+    theater_id: Mapped[int] = mapped_column(ForeignKey("theaters.id"), index=True)
+    is_entry_theater: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    actor: Mapped[Actor] = relationship(back_populates="theater_memberships")
+    theater: Mapped[Theater] = relationship()
 
 
 class ActorRoleCapability(Base):
@@ -574,6 +600,113 @@ class LeaveRequest(Base):
     status: Mapped[LeaveStatus] = mapped_column(Enum(LeaveStatus), default=LeaveStatus.PENDING)
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
     actor: Mapped[Actor] = relationship()
+
+
+class LeaveApplication(Base):
+    __tablename__ = "leave_applications"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    actor_id: Mapped[int] = mapped_column(ForeignKey("actors.id"), index=True)
+    theater_id: Mapped[int] = mapped_column(ForeignKey("theaters.id"), index=True)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, server_default=func.now(), index=True
+    )
+    actor: Mapped[Actor] = relationship()
+    theater: Mapped[Theater] = relationship()
+    days: Mapped[list[LeaveApplicationDay]] = relationship(
+        back_populates="application", cascade="all, delete-orphan", order_by="LeaveApplicationDay.leave_date"
+    )
+
+
+class LeaveApplicationDay(Base):
+    __tablename__ = "leave_application_days"
+    __table_args__ = (
+        UniqueConstraint("application_id", "leave_date", name="uq_leave_application_day"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    application_id: Mapped[int] = mapped_column(ForeignKey("leave_applications.id"), index=True)
+    leave_date: Mapped[date] = mapped_column(Date, index=True)
+    status: Mapped[LeaveStatus] = mapped_column(
+        Enum(LeaveStatus), default=LeaveStatus.PENDING, server_default=LeaveStatus.PENDING.name
+    )
+    has_schedule_conflict: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    conflict_performance_ids: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    review_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    reviewed_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    withdrawn_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    application: Mapped[LeaveApplication] = relationship(back_populates="days")
+
+
+class ActorNotificationTask(Base):
+    __tablename__ = "actor_notification_tasks"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    theater_id: Mapped[int] = mapped_column(ForeignKey("theaters.id"), index=True)
+    performance_id: Mapped[int] = mapped_column(ForeignKey("performances.id"), index=True)
+    role_id: Mapped[int] = mapped_column(ForeignKey("roles.id"), index=True)
+    actor_id: Mapped[int] = mapped_column(ForeignKey("actors.id"), index=True)
+    schedule_version: Mapped[int] = mapped_column(Integer)
+    notification_type: Mapped[ActorNotificationType] = mapped_column(Enum(ActorNotificationType))
+    reveal_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+    status: Mapped[ActorNotificationTaskStatus] = mapped_column(
+        Enum(ActorNotificationTaskStatus),
+        default=ActorNotificationTaskStatus.PENDING,
+        server_default=ActorNotificationTaskStatus.PENDING.name,
+        index=True,
+    )
+    assignment_fingerprint: Mapped[str] = mapped_column(String(120), index=True)
+    idempotency_key: Mapped[str] = mapped_column(String(160), unique=True)
+    supersedes_id: Mapped[int | None] = mapped_column(
+        ForeignKey("actor_notification_tasks.id"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, server_default=func.now())
+    revealed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class ActorNotification(Base):
+    __tablename__ = "actor_notifications"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    task_id: Mapped[int | None] = mapped_column(ForeignKey("actor_notification_tasks.id"), nullable=True)
+    theater_id: Mapped[int] = mapped_column(ForeignKey("theaters.id"), index=True)
+    performance_id: Mapped[int] = mapped_column(ForeignKey("performances.id"), index=True)
+    role_id: Mapped[int] = mapped_column(ForeignKey("roles.id"), index=True)
+    actor_id: Mapped[int] = mapped_column(ForeignKey("actors.id"), index=True)
+    notification_type: Mapped[ActorNotificationType] = mapped_column(Enum(ActorNotificationType), index=True)
+    schedule_version: Mapped[int] = mapped_column(Integer)
+    theater_name_snapshot: Mapped[str] = mapped_column(String(120))
+    performance_date_snapshot: Mapped[date] = mapped_column(Date, index=True)
+    slot_name_snapshot: Mapped[str] = mapped_column(String(80))
+    start_time_snapshot: Mapped[time] = mapped_column(Time)
+    role_name_snapshot: Mapped[str] = mapped_column(String(120))
+    player_name_snapshot: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    designation_type_snapshot: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    idempotency_key: Mapped[str] = mapped_column(String(180), unique=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, server_default=func.now(), index=True)
+    read_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class SmsDelivery(Base):
+    __tablename__ = "sms_deliveries"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    notification_id: Mapped[int] = mapped_column(ForeignKey("actor_notifications.id"), index=True)
+    theater_id: Mapped[int] = mapped_column(ForeignKey("theaters.id"), index=True)
+    actor_id: Mapped[int] = mapped_column(ForeignKey("actors.id"), index=True)
+    masked_phone: Mapped[str] = mapped_column(String(30))
+    status: Mapped[SmsDeliveryStatus] = mapped_column(
+        Enum(SmsDeliveryStatus), default=SmsDeliveryStatus.PENDING, server_default=SmsDeliveryStatus.PENDING.name, index=True
+    )
+    attempt_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    next_attempt_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
+    provider_request_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    failure_reason: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    idempotency_key: Mapped[str] = mapped_column(String(180), unique=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, server_default=func.now())
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
 class Designation(Base):

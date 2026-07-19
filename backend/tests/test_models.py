@@ -24,6 +24,21 @@ from app.models.enums import (
     EntitlementItemCategory,
     EntitlementItemStatus,
 )
+from app.models import entities
+
+
+def test_actor_workspace_models_and_defaults_are_declared(db_session):
+    assert hasattr(entities, "ActorTheaterMembership")
+    assert hasattr(entities, "ActorNotificationTask")
+    assert hasattr(entities, "ActorNotification")
+    assert hasattr(entities, "SmsDelivery")
+    assert hasattr(entities, "LeaveApplication")
+    assert hasattr(entities, "LeaveApplicationDay")
+    theater = Theater(name="测试剧场")
+    db_session.add(theater)
+    db_session.flush()
+    assert theater.reveal_days_before == 1
+    assert theater.actor_sms_enabled is False
 
 
 def test_entitlement_definitions_are_scoped_to_theater(db_session):
