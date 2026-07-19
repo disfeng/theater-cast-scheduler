@@ -259,7 +259,11 @@ def create_actor(db: Session, payload: ActorCreate) -> Actor:
 
 
 def list_actors(db: Session) -> list[Actor]:
-    statement = select(Actor).options(selectinload(Actor.role_capabilities)).order_by(Actor.id)
+    statement = (
+        select(Actor)
+        .options(selectinload(Actor.role_capabilities), selectinload(Actor.theater_memberships))
+        .order_by(Actor.id)
+    )
     return list(db.scalars(statement))
 
 

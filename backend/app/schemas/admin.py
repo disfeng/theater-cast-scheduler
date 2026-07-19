@@ -69,6 +69,9 @@ class RoleRead(RoleCreate):
 
 class ActorCreate(BaseModel):
     display_name: str = Field(min_length=1, max_length=120)
+    phone_number: str | None = None
+    entry_theater_id: int | None = None
+    theater_ids: list[int] = []
     max_consecutive_performances: int = Field(default=3, ge=1, le=3)
     rating_level: RatingLevel = RatingLevel.NORMAL
     low_rating_monthly_cap: int | None = Field(default=None, ge=0)
@@ -94,6 +97,21 @@ class ActorRead(BaseModel):
     low_rating_monthly_cap: int | None
     notes: str | None
     role_ids: list[int]
+    phone_number: str | None = None
+    theater_ids: list[int] = []
+    entry_theater_id: int | None = None
+
+
+class ActorCredentialDelivery(BaseModel):
+    username: str
+    initial_password: str
+    filename: str
+    pdf_base64: str
+
+
+class ActorCreateResult(BaseModel):
+    actor: ActorRead
+    credential_delivery: ActorCredentialDelivery
 
 
 class LeaveReviewInput(BaseModel):

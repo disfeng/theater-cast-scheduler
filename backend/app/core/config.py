@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     settings_encryption_key: str | None = None
     settings_previous_encryption_keys: str = ""
     ai_provider_allowed_hosts: str = "api.openai.com"
+    actor_portal_url: str = "http://localhost:7003/actor"
 
 
 settings = Settings()

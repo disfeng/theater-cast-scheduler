@@ -20,7 +20,7 @@ def get_db() -> Session:
 
 def require_user(
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer),
-) -> dict[str, str]:
+) -> dict[str, object]:
     if credentials is None:
         raise HTTPException(status_code=401, detail="Not authenticated")
     try:
@@ -31,10 +31,24 @@ def require_user(
         )
     except JWTError as exc:
         raise HTTPException(status_code=401, detail="Invalid token") from exc
-    return {"sub": str(payload["sub"]), "role": str(payload["role"])}
+    return {
+        "sub": str(payload["sub"]),
+        "role": str(payload["role"]),
+        "user_id": payload.get("user_id"),
+        "actor_id": payload.get("actor_id"),
+        "must_change_password": payload.get("must_change_password", False),
+    }
 
 
-def require_admin(user: dict[str, str] = Depends(require_user)) -> dict[str, str]:
+def require_admin(user: dict[str, object] = Depends(require_user)) -> dict[str, object]:
     if user["role"] != "admin":
         raise HTTPException(status_code=403, detail="Admin role required")
+    return user
+
+
+def require_actor_ready(user: dict[str, object] = Depends(require_user)) -> dict[str, object]:
+    if user["role"] != "actor":
+        raise HTTPException(status_code=403, detail="Actor role required")
+    if user.get("must_change_password") is True:
+        raise HTTPException(status_code=428, detail="password_change_required")
     return user

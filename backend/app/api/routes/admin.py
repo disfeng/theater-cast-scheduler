@@ -17,6 +17,8 @@ from app.models.entities import (
 from app.models.enums import LeaveStatus
 from app.schemas.admin import (
     ActorCreate,
+    ActorCreateResult,
+    ActorCredentialDelivery,
     ActorRead,
     ActorUpdate,
     CapabilityUpdate,
@@ -65,6 +67,9 @@ from app.services.admin_data import (
     update_theater,
     update_theater_slot,
 )
+from app.services.actor_accounts import create_actor_account
+from app.services.actor_accounts import reset_actor_password
+from app.schemas.actor_workspace import ActorPasswordResetInput
 from app.services.monthly_plan import (
     MonthlyPlanConflict,
     generate_monthly_plan,
@@ -262,13 +267,43 @@ def get_actors(
     return [_actor_read(actor) for actor in list_actors(db)]
 
 
-@router.post("/actors", response_model=ActorRead)
+@router.post("/actors", response_model=ActorRead | ActorCreateResult)
 def post_actor(
     payload: ActorCreate,
     _: dict[str, str] = Depends(require_admin),
     db: Session = Depends(get_db),
-) -> ActorRead:
-    return _actor_read(create_actor(db, payload))
+) -> ActorRead | ActorCreateResult:
+    if payload.phone_number is None:
+        return _actor_read(create_actor(db, payload))
+    try:
+        actor, delivery = create_actor_account(db, payload)
+        return ActorCreateResult(actor=_actor_read(actor), credential_delivery=delivery)
+    except LookupError as exc:
+        db.rollback()
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="duplicate_actor_account") from exc
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/actors/{actor_id}/reset-password", response_model=ActorCredentialDelivery)
+def post_actor_password_reset(
+    actor_id: int,
+    payload: ActorPasswordResetInput,
+    _: dict[str, object] = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> ActorCredentialDelivery:
+    try:
+        return reset_actor_password(db, actor_id, payload.entry_theater_id)
+    except LookupError as exc:
+        db.rollback()
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.patch("/actors/{actor_id}", response_model=ActorRead)
@@ -461,6 +496,7 @@ def delete_performance(
 
 
 def _actor_read(actor: Actor) -> ActorRead:
+    memberships = actor.theater_memberships
     return ActorRead(
         id=actor.id,
         display_name=actor.display_name,
@@ -469,6 +505,16 @@ def _actor_read(actor: Actor) -> ActorRead:
         low_rating_monthly_cap=actor.low_rating_monthly_cap,
         notes=actor.notes,
         role_ids=[capability.role_id for capability in actor.role_capabilities],
+        phone_number=actor.phone_number,
+        theater_ids=[membership.theater_id for membership in memberships],
+        entry_theater_id=next(
+            (
+                membership.theater_id
+                for membership in memberships
+                if membership.is_entry_theater
+            ),
+            None,
+        ),
     )
 
 
