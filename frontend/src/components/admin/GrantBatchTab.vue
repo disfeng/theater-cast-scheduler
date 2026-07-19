@@ -17,17 +17,18 @@
       </section>
       <section class="history-panel"><div class="section-heading"><h3>发放批次</h3><div class="actions"><el-button :disabled="readOnly||busy||!rows.length" :loading="pending==='save'" @click="saveDraft">保存草稿</el-button><el-button type="primary" :disabled="readOnly||busy||!canConfirm" :loading="pending==='confirm'" @click="confirm">确认发放 {{ totalItems }} 张</el-button></div></div><div class="batch-list"><el-button v-for="item in batches" :key="item.id" size="small" :type="batch?.id===item.id?'primary':'default'" @click="openBatch(item)">{{ item.title||item.source_label }} · {{ item.status==='draft'?'草稿':'已发放' }}</el-button></div></section>
     </template>
-    <el-dialog v-model="pasteOpen" title="批量添加玩家" width="min(560px,92vw)"><el-input v-model="pastedNames" type="textarea" :rows="10" placeholder="每行一个玩家昵称\n例如：\n小A\nJennifer\nKiki"/><template #footer><el-button @click="pasteOpen=false">取消</el-button><el-button type="primary" :loading="pending==='match'" @click="matchPlayers">匹配并添加</el-button></template></el-dialog>
+    <el-dialog v-model="pasteOpen" title="批量添加玩家" width="min(560px, calc(100vw - 32px))" class="app-dialog"><el-input v-model="pastedNames" type="textarea" :rows="10" placeholder="每行一个玩家昵称\n例如：\n小A\nJennifer\nKiki"/><template #footer><el-button @click="pasteOpen=false">取消</el-button><el-button type="primary" :loading="pending==='match'" @click="matchPlayers">匹配并添加</el-button></template></el-dialog>
   </div>
 </template>
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from "vue";
-import { ElMessage, ElMessageBox } from "element-plus";
+import { ElMessage } from "element-plus";
 import { adminApi } from "../../api/admin";
 import { useAuthStore } from "../../auth/store";
 import type { EntitlementItemType, GrantBatch } from "../../features/entitlements/types";
 import { createGrantRow, expandGrantItems, parsePastedPlayerNames, type GrantPlayerRow } from "../../features/entitlements/grant-table";
 import { toIsoEndOfDay } from "../../features/entitlements/format";
+import { confirmAction } from "../../features/dialogs/confirm-action";
 const props=defineProps<{theaterId:number;definitions:EntitlementItemType[]}>(),auth=useAuthStore();
 const rows=reactive<GrantPlayerRow[]>([]),batches=ref<GrantBatch[]>([]),batch=ref<GrantBatch|null>(null),pasteOpen=ref(false),pastedNames=ref(""),pending=ref<""|"load"|"match"|"save"|"confirm">("");
 const form=reactive({source_type:"monthly_ranking",source_label:"",source_month:"",grant_date:new Date().toISOString().slice(0,10),default_expiry:""});
@@ -39,7 +40,7 @@ async function matchPlayers(){if(!auth.token)return;const names=parsePastedPlaye
 function payload(){return {source_type:form.source_type,source_month:form.source_month?`${form.source_month}-01`:null,source_label:form.source_label.trim(),title:form.source_label.trim(),grant_date:form.grant_date||null,default_expires_at:toIsoEndOfDay(form.default_expiry),notes:null,items:expandGrantItems(rows,form.source_month?`${form.source_month}-01`:null,form.source_label.trim(),toIsoEndOfDay(form.default_expiry))}}
 async function persist(){if(!auth.token)return null;const next=batch.value?await adminApi.updateGrantBatch(auth.token,batch.value.id,payload()):await adminApi.createTheaterGrantBatch(auth.token,props.theaterId,payload());batch.value=next;batches.value=[next,...batches.value.filter(item=>item.id!==next.id)];return next}
 async function saveDraft(){pending.value="save";try{await persist();ElMessage.success("发放草稿已保存")}catch(e:any){ElMessage.error(e.message)}finally{pending.value=""}}
-async function confirm(){if(!auth.token||!canConfirm.value)return;await ElMessageBox.confirm(`将向 ${rows.length} 位玩家发放 ${totalItems.value} 张道具，确认后不可修改。`,"确认权益发放",{type:"warning",confirmButtonText:"确认发放",cancelButtonText:"取消"});pending.value="confirm";try{const saved=await persist();if(saved){batch.value=await adminApi.confirmTheaterGrantBatch(auth.token,props.theaterId,saved.id,`grant-${saved.id}-${Date.now()}`);ElMessage.success("权益已发放");await load()}}catch(e:any){ElMessage.error(e.message)}finally{pending.value=""}}
+async function confirm(){if(!auth.token||!canConfirm.value)return;await confirmAction({title:"确认权益发放",message:`将向 ${rows.length} 位玩家发放 ${totalItems.value} 张道具，确认后不可修改。`,tone:"warning",confirmButtonText:"确认发放"});pending.value="confirm";try{const saved=await persist();if(saved){batch.value=await adminApi.confirmTheaterGrantBatch(auth.token,props.theaterId,saved.id,`grant-${saved.id}-${Date.now()}`);ElMessage.success("权益已发放");await load()}}catch(e:any){ElMessage.error(e.message)}finally{pending.value=""}}
 function openBatch(item:GrantBatch){batch.value=item;form.source_type=item.source_type||"other";form.source_label=item.source_label;form.source_month=item.source_month?.slice(0,7)||"";form.grant_date=item.grant_date||"";form.default_expiry=item.default_expires_at?.slice(0,10)||"";rows.splice(0);const byPlayer=new Map<number,GrantPlayerRow>();for(const draft of item.draft_items){let row=byPlayer.get(draft.player_id);if(!row){row=createGrantRow(`玩家 #${draft.player_id}`,props.definitions);row.playerId=draft.player_id;row.status="matched";byPlayer.set(draft.player_id,row);rows.push(row)}row.quantities[draft.item_type_id]=(row.quantities[draft.item_type_id]||0)+1}}
 </script>
 <style scoped>

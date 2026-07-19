@@ -60,6 +60,65 @@ table { color: var(--text-primary); }
 thead { background: #f7f9fc !important; }
 tbody tr { border-color: var(--panel-border) !important; }
 
+.el-dialog.app-dialog,
+.el-dialog.defaults-dialog {
+  max-width: calc(100vw - 32px);
+  border-radius: 16px;
+  box-shadow: 0 24px 64px rgba(15, 23, 42, 0.2);
+  overflow: hidden;
+}
+
+.app-dialog .el-dialog__header,
+.defaults-dialog .el-dialog__header {
+  margin: 0;
+  padding: 24px 24px 10px;
+}
+
+.app-dialog .el-dialog__title,
+.defaults-dialog .el-dialog__title,
+.app-message-box .el-message-box__title {
+  color: var(--text-primary);
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.app-dialog .el-dialog__body,
+.defaults-dialog .el-dialog__body { padding: 14px 24px 20px; }
+.app-dialog .el-dialog__footer,
+.defaults-dialog .el-dialog__footer { padding: 0 24px 24px; }
+
+.app-message-box {
+  width: min(500px, calc(100vw - 32px));
+  max-width: calc(100vw - 32px);
+  padding: 0;
+  border: 0;
+  border-radius: 16px;
+  box-shadow: 0 24px 64px rgba(15, 23, 42, 0.2);
+  overflow: hidden;
+}
+
+.app-message-box .el-message-box__header { padding: 24px 24px 8px; }
+.app-message-box .el-message-box__content {
+  margin: 10px 24px 20px;
+  padding: 16px 18px;
+  border-radius: 12px;
+  color: var(--text-secondary);
+  line-height: 1.65;
+}
+.app-message-box .el-message-box__status { display: none; }
+.app-message-box .el-message-box__message { padding: 0; }
+.app-message-box .el-message-box__btns { padding: 0 24px 24px; gap: 10px; }
+.app-message-box--primary .el-message-box__content { background: #f4f8ff; border: 1px solid #dce8ff; }
+.app-message-box--warning .el-message-box__content { background: #fff8eb; border: 1px solid #f8dfab; }
+.app-message-box--danger .el-message-box__content { background: #fff3f3; border: 1px solid #ffcaca; }
+.app-message-box--danger .el-button--primary {
+  --el-button-bg-color: var(--el-color-danger);
+  --el-button-border-color: var(--el-color-danger);
+  --el-button-hover-bg-color: var(--el-color-danger-light-3);
+  --el-button-hover-border-color: var(--el-color-danger-light-3);
+}
+
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-track { background: #eef2f7; }
 ::-webkit-scrollbar-thumb { background: #c6cfdb; border-radius: 4px; }

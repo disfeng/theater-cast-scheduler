@@ -29,3 +29,10 @@ test("权益流水读取当前剧场并显示道具事件",async()=>{
 test("业务日期和权益状态保持中文",()=>{const iso=toIsoEndOfDay("2026-07-01")!;expect(formatEntitlementDate(iso)).toBe("2026年7月1日");expect(entitlementLabel("manually_consumed")).toBe("手工核销")});
 
 test("批量玩家去重并按动态道具数量展开实例",()=>{const definitions=[{id:3,theater_id:2,code:"drink",display_name:"饮品券",category:"general",designation_type:null,priority:0,default_validity_days:30,color:"#409eff",icon:null,description:null,is_active:true,sort_order:0}] as any;expect(parsePastedPlayerNames(" 小A\nKiki\n小a \n")).toEqual(["小A","Kiki"]);const row=createGrantRow("小A",definitions);row.playerId=7;row.status="matched";row.quantities[3]=2;expect(expandGrantItems([row],"2026-07-01","七月活动",null)).toHaveLength(2)});
+
+test("道具运营卡只展示名称不显示内部编码",async()=>{
+  vi.stubGlobal("fetch",vi.fn(async(input:RequestInfo|URL)=>{const path=String(input).replace(/https?:\/\/localhost:\d+/,"");if(path==="/admin/theaters")return Response.json([{id:2,name:"西安幽州剧场",is_active:true}]);if(path==="/admin/theaters/2/entitlement-item-types")return Response.json([{id:3,theater_id:2,code:"universal_designation",display_name:"万能指定",category:"designation",designation_type:"universal",priority:300,default_validity_days:90,color:"#409eff",icon:null,description:null,is_active:true,sort_order:0}]);if(["/admin/actors","/admin/roles"].includes(path))return Response.json([]);return Response.json({detail:`unexpected:${path}`},{status:500})}));
+  await renderAdminRoute("/admin/entitlements?theater_id=2&tab=catalog");
+  expect((await screen.findAllByText("万能指定")).length).toBeGreaterThan(0);
+  expect(screen.queryByText("universal_designation")).not.toBeInTheDocument();
+});

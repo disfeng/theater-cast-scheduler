@@ -46,7 +46,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
 import { ArrowLeft, ArrowRight } from "@element-plus/icons-vue";
-import { ElMessageBox } from "element-plus";
+import { confirmAction } from "../../features/dialogs/confirm-action";
 import { adminApi, type Performance, type Theater, type TheaterSlot, type WeeklyTemplate } from "../../api/admin";
 import { useAuthStore } from "../../auth/store";
 import MonthlyCalendarEditor from "../../components/admin/MonthlyCalendarEditor.vue";
@@ -72,7 +72,7 @@ const conflictMessages: Record<string, string> = {
 
 async function confirmDiscard() {
   if (!dirty.value) return true;
-  try { await ElMessageBox.confirm("当前月份有未保存修改，确定放弃？", "切换计划", { type: "warning" }); return true; }
+  try { await confirmAction({ title: "切换计划", message: "当前月份有未保存修改，确定放弃？", tone: "warning", confirmButtonText: "确认放弃" }); return true; }
   catch { return false; }
 }
 async function loadCalendar() {
@@ -100,7 +100,7 @@ async function changeTheater(value: number) {
   selectedTheaterId.value = value; await loadCalendar();
 }
 async function resetFromTemplate() {
-  try { await ElMessageBox.confirm("将整月恢复为默认周模板？", "重置月度计划", { type: "warning" }); }
+  try { await confirmAction({ title: "重置月度计划", message: "将整月恢复为默认周模板？", tone: "warning", confirmButtonText: "确认重置" }); }
   catch { return; }
   draft.value = buildCalendarDraft({ year: year.value, month: month.value, template: weeklyTemplate.value, performances: [] }); dirty.value = true;
 }

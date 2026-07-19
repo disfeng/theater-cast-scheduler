@@ -13,7 +13,7 @@
         <div class="group-title"><strong>{{ group.label }}</strong><span>{{ group.items.length }} 种</span></div>
         <div class="definition-grid">
           <article v-for="item in group.items" :key="item.id" class="definition-card" :class="{ inactive: !item.is_active }" :style="{ '--item-color': item.color }">
-            <div class="definition-main"><span class="color-dot"/><div><strong>{{ item.display_name }}</strong><small>{{ item.code }}</small></div></div>
+            <div class="definition-main"><span class="color-dot"/><div><strong>{{ item.display_name }}</strong></div></div>
             <div class="definition-meta"><el-tag size="small" effect="plain">{{ item.category === 'designation' ? bindingLabel(item.designation_type) : '通用道具' }}</el-tag><span>默认 {{ item.default_validity_days }} 天</span><span v-if="item.category === 'designation'">优先级 {{ item.priority }}</span></div>
             <p>{{ item.description || "暂无说明" }}</p>
             <div class="definition-actions"><el-tag :type="item.is_active ? 'success' : 'info'">{{ item.is_active ? '启用中' : '已停用' }}</el-tag><el-button link type="primary" @click="openEdit(item)">编辑</el-button><el-button link :type="item.is_active ? 'danger' : 'success'" @click="toggle(item)">{{ item.is_active ? '停用' : '启用' }}</el-button></div>
@@ -32,7 +32,7 @@
       </el-form>
       <template #footer><el-button @click="drawer=false">取消</el-button><el-button type="primary" :loading="saving" @click="save">保存</el-button></template>
     </el-drawer>
-    <el-dialog v-model="defaultsDialogOpen" title="创建默认指定道具" width="min(500px, calc(100vw - 32px))" class="defaults-dialog" align-center>
+    <el-dialog v-model="defaultsDialogOpen" title="创建默认指定道具" width="min(500px, calc(100vw - 32px))" class="app-dialog defaults-dialog" align-center>
       <div class="defaults-dialog-content">
         <p class="defaults-intro">为当前剧场快速建立一套标准指定权益。</p>
         <div class="default-item-previews">
@@ -53,10 +53,11 @@
 </template>
 <script setup lang="ts">
 import { computed, reactive, ref } from "vue";
-import { ElMessage, ElMessageBox } from "element-plus";
+import { ElMessage } from "element-plus";
 import { adminApi } from "../../api/admin";
 import { useAuthStore } from "../../auth/store";
 import type { DesignationBinding, EntitlementItemType, ItemCategory } from "../../features/entitlements/types";
+import { confirmAction } from "../../features/dialogs/confirm-action";
 const props = defineProps<{ theaterId: number; definitions: EntitlementItemType[]; loading?: boolean }>();
 const emit = defineEmits<{ refresh: [] }>();
 const auth=useAuthStore(), drawer=ref(false), saving=ref(false), editing=ref<EntitlementItemType|null>(null), defaultsDialogOpen=ref(false), creatingDefaults=ref(false);
@@ -68,7 +69,7 @@ const bindingLabel=(value: DesignationBinding|null)=>({universal:"万能指定",
 function openCreate(){ editing.value=null; Object.assign(form,blank()); drawer.value=true; }
 function openEdit(item:EntitlementItemType){ editing.value=item; Object.assign(form,item); drawer.value=true; }
 async function save(){ if(!auth.token||!form.display_name.trim()||!form.code.trim()) return ElMessage.warning("请完整填写名称和编码"); saving.value=true; try { const payload={...form,designation_type:form.category==="designation"?form.designation_type:null,description:form.description||null}; if(editing.value) await adminApi.updateEntitlementItemType(auth.token,editing.value.id,payload); else await adminApi.createEntitlementItemType(auth.token,props.theaterId,payload); ElMessage.success("道具配置已保存"); drawer.value=false; emit("refresh"); } catch(e:any){ElMessage.error(e.message)} finally{saving.value=false;} }
-async function toggle(item:EntitlementItemType){ if(!auth.token)return; await ElMessageBox.confirm(`确认${item.is_active?'停用':'启用'}“${item.display_name}”？`,"操作确认",{type:"warning"}); try{await adminApi.updateEntitlementItemType(auth.token,item.id,{is_active:!item.is_active});ElMessage.success("状态已更新");emit("refresh");}catch(e:any){ElMessage.error(e.message)} }
+async function toggle(item:EntitlementItemType){ if(!auth.token)return; await confirmAction({title:"操作确认",message:`确认${item.is_active?'停用':'启用'}“${item.display_name}”？`,tone:item.is_active?"warning":"primary",confirmButtonText:item.is_active?"确认停用":"确认启用"}); try{await adminApi.updateEntitlementItemType(auth.token,item.id,{is_active:!item.is_active});ElMessage.success("状态已更新");emit("refresh");}catch(e:any){ElMessage.error(e.message)} }
 function openDefaultsDialog(){defaultsDialogOpen.value=true;}
 async function confirmCreateDefaults(){if(!auth.token)return;creatingDefaults.value=true;try{await adminApi.createDefaultDesignationTypes(auth.token,props.theaterId);defaultsDialogOpen.value=false;ElMessage.success("默认指定道具已创建");emit("refresh");}catch(e:any){ElMessage.error(e.message)}finally{creatingDefaults.value=false;}}
 </script>

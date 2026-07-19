@@ -1,8 +1,8 @@
 <template>
   <section class="page-container">
     <PageHeader title="权益管理" description="按剧场配置道具、批量发放权益，并追踪每一张道具的背包与流水。" />
-    <div class="theater-context">
-      <div><span>当前剧场</span><strong>{{ currentTheater?.name || "请选择剧场" }}</strong></div>
+    <div class="theater-context theater-context--compact">
+      <div class="theater-context__label"><span>当前剧场</span><strong>{{ currentTheater?.name || "请选择剧场" }}</strong></div>
       <el-select v-model="theaterId" placeholder="请选择剧场" aria-label="当前剧场" @change="syncTheater"><el-option v-for="item in theaters" :key="item.id" :label="item.name" :value="item.id"/></el-select>
     </div>
     <el-tabs v-model="activeTab" class="entitlement-tabs" @tab-change="syncTabQuery">
@@ -39,5 +39,5 @@ function syncRoute(extra:Record<string,string>={}){void router.replace({query:{.
 function openLedger(filters:{playerId:number;itemId:number}){activeTab.value="ledger";syncRoute({player_id:String(filters.playerId),item_id:String(filters.itemId)})}
 </script>
 <style scoped>
-.theater-context{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:18px 22px;margin-bottom:18px;background:#fff;border:1px solid var(--el-border-color-lighter);border-radius:14px}.theater-context>div{display:grid;gap:3px}.theater-context span{font-size:13px;color:var(--el-text-color-secondary)}.theater-context .el-select{width:min(360px,48vw)}.entitlement-tabs :deep(.el-tabs__content){padding-top:10px}
+.theater-context{display:flex;align-items:center;gap:18px;padding:12px 16px;margin-bottom:14px;background:#fff;border:1px solid var(--el-border-color-lighter);border-radius:12px}.theater-context__label{display:flex;align-items:baseline;gap:10px;white-space:nowrap}.theater-context span{font-size:13px;color:var(--el-text-color-secondary)}.theater-context .el-select{width:min(360px,42vw);margin-left:auto}.entitlement-tabs :deep(.el-tabs__content){padding-top:10px}@media(max-width:700px){.theater-context{align-items:stretch;flex-wrap:wrap}.theater-context__label{width:100%}.theater-context .el-select{width:100%;margin-left:0}}
 </style>

@@ -47,10 +47,10 @@
 
 <script setup lang="ts">
 import { reactive, ref } from "vue";
-import { ElMessageBox } from "element-plus";
 import { adminApi, type Predesignation } from "../../api/admin";
 import { useAuthStore } from "../../auth/store";
 import type { PlayerProfile } from "../../features/entitlements/types";
+import { confirmAction } from "../../features/dialogs/confirm-action";
 
 const props = defineProps<{ rows: Predesignation[] }>();
 const emit = defineEmits<{ changed: []; reject: [id: number] }>();
@@ -66,8 +66,8 @@ function canChooseItem(row: Predesignation) { return !terminal(row) && !row.enti
 async function run(row: Predesignation, action: () => Promise<unknown>) { busyId.value = row.id; error.value = ""; try { await action(); emit("changed"); } catch (cause: any) { error.value = cause.message || "指定操作失败"; } finally { busyId.value = null; } }
 async function activate(row: Predesignation) { await run(row, () => adminApi.activateDesignation(auth.token!, row, form(row).itemId)); }
 async function verify(row: Predesignation) { await run(row, () => adminApi.verifyProxyDesignation(auth.token!, row, { owner_player_id: form(row).ownerId!, item_id: form(row).itemId, note: form(row).note })); }
-async function replace(row: Predesignation) { await ElMessageBox.confirm("替换后将释放原指定预占的权益，是否继续？", "二次确认", { type: "warning", confirmButtonText: "确认替换", cancelButtonText: "取消" }); await run(row, () => adminApi.replaceDesignation(auth.token!, row)); }
-async function resolveEqual(row: Predesignation, decision: "choose_incoming" | "keep_occupied") { await ElMessageBox.confirm(decision === "choose_incoming" ? "确认选择新指定并释放原指定权益？" : "确认保留原指定，新指定继续保持未生效？", "同优先级人工决策", { type: "warning", confirmButtonText: decision === "choose_incoming" ? "确认选择新指定" : "确认保留原指定", cancelButtonText: "取消" }); await run(row, () => adminApi.resolveEqualDesignation(auth.token!, row, decision)); }
+async function replace(row: Predesignation) { await confirmAction({ title: "二次确认", message: "替换后将释放原指定预占的权益，是否继续？", tone: "warning", confirmButtonText: "确认替换" }); await run(row, () => adminApi.replaceDesignation(auth.token!, row)); }
+async function resolveEqual(row: Predesignation, decision: "choose_incoming" | "keep_occupied") { await confirmAction({ title: "同优先级人工决策", message: decision === "choose_incoming" ? "确认选择新指定并释放原指定权益？" : "确认保留原指定，新指定继续保持未生效？", tone: "warning", confirmButtonText: decision === "choose_incoming" ? "确认选择新指定" : "确认保留原指定" }); await run(row, () => adminApi.resolveEqualDesignation(auth.token!, row, decision)); }
 async function searchOwner(row: Predesignation) { ownerCandidates[row.id] = await adminApi.getPlayerProfiles(auth.token!, form(row).ownerQuery); }
 async function selectOwner(row: Predesignation, player: PlayerProfile) { const [inventory, types] = await Promise.all([adminApi.getPlayerInventory(auth.token!, player.id), adminApi.getEntitlementItemTypes(auth.token!)]); const type = types.find(item => item.code === row.designation_type); row.owner_player_id = player.id; row.owner_name = player.display_name; row.available_items = inventory.items.filter(item => item.item_type_id === type?.id && item.status === "available").map(item => ({ id: item.id, serial_number: item.serial_number, source_label: item.source_label, expires_at: item.expires_at, status: item.status })); Object.assign(form(row), { ownerId: player.id, itemId: row.available_items[0]?.id || 0 }); }
 const typeLabel = (value: string) => ({ universal: "万能指定", top_three: "榜单前三指定", paired: "对位指定" }[value] || value);

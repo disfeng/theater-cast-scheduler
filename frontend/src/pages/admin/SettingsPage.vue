@@ -88,12 +88,12 @@
       </el-tabs>
     </el-card>
 
-    <el-dialog v-model="theaterDialog" :title="editingTheaterId ? '编辑剧场' : '新增剧场'" width="420px">
+    <el-dialog v-model="theaterDialog" :title="editingTheaterId ? '编辑剧场' : '新增剧场'" width="min(420px, calc(100vw - 32px))" class="app-dialog">
       <el-form label-position="top"><el-form-item label="剧场名称"><el-input v-model="theaterName" placeholder="例如：西安幽州剧场" /></el-form-item></el-form>
       <template #footer><el-button @click="theaterDialog = false">取消</el-button><el-button type="primary" @click="saveTheater">保存</el-button></template>
     </el-dialog>
 
-    <el-dialog v-model="slotDialog" :title="editingSlotId ? '编辑场次' : '新增场次'" width="460px">
+    <el-dialog v-model="slotDialog" :title="editingSlotId ? '编辑场次' : '新增场次'" width="min(460px, calc(100vw - 32px))" class="app-dialog">
       <el-form label-position="top">
         <el-form-item label="场次名称"><el-input v-model="slotForm.name" placeholder="例如：早场、午场、晚场" /></el-form-item>
         <el-form-item label="开始时间"><el-time-picker v-model="slotForm.start_time" value-format="HH:mm:ss" format="HH:mm" /></el-form-item>
@@ -102,7 +102,7 @@
       <template #footer><el-button @click="slotDialog = false">取消</el-button><el-button type="primary" @click="saveSlot">保存</el-button></template>
     </el-dialog>
 
-    <el-dialog v-model="roleDialog" :title="editingRoleId ? '编辑角色' : '新增角色'" width="460px">
+    <el-dialog v-model="roleDialog" :title="editingRoleId ? '编辑角色' : '新增角色'" width="min(460px, calc(100vw - 32px))" class="app-dialog">
       <el-form label-position="top">
         <el-form-item label="所属剧场"><el-input :model-value="selectedTheater?.name" disabled /></el-form-item>
         <el-form-item label="角色名称"><el-input v-model="roleForm.name" /></el-form-item>
@@ -115,12 +115,12 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from "vue";
-import { ElMessageBox } from "element-plus";
 import { ArrowDown } from "@element-plus/icons-vue";
 import { adminApi, type Actor, type Role, type Theater, type TheaterSlot, type WeeklyTemplate } from "../../api/admin";
 import { useAuthStore } from "../../auth/store";
 import PageHeader from "../../components/PageHeader.vue";
 import AiParserSettings from "../../components/admin/AiParserSettings.vue";
+import { confirmAction } from "../../features/dialogs/confirm-action";
 
 const DAYS = [{ key: "monday", label: "周一" }, { key: "tuesday", label: "周二" }, { key: "wednesday", label: "周三" }, { key: "thursday", label: "周四" }, { key: "friday", label: "周五" }, { key: "saturday", label: "周六" }, { key: "sunday", label: "周日" }];
 const emptyTemplate = (): WeeklyTemplate => Object.fromEntries(DAYS.map((day) => [day.key, []]));
@@ -166,14 +166,14 @@ async function loadTheaterDetails() {
 function openTheaterDialog(item?: Theater) { editingTheaterId.value = item?.id; theaterName.value = item?.name || ""; theaterDialog.value = true; }
 function handleTheaterCommand(command: string) { if (command === "edit" && selectedTheater.value) openTheaterDialog(selectedTheater.value); if (command === "delete") removeTheater(); }
 async function saveTheater() { try { const item = editingTheaterId.value ? await adminApi.updateTheater(token(), editingTheaterId.value, { name: theaterName.value }) : await adminApi.createTheater(token(), { name: theaterName.value }); selectedTheaterId.value = item.id; theaterDialog.value = false; success.value = "剧场已保存"; await refreshTheaters(); } catch (err) { report(err); } }
-async function removeTheater() { if (!selectedTheaterId.value) return; try { await ElMessageBox.confirm("仅未被业务数据引用的剧场可直接删除。", "删除剧场", { type: "warning" }); await adminApi.deleteTheater(token(), selectedTheaterId.value); selectedTheaterId.value = undefined; await refreshTheaters(); } catch (err: any) { if (err !== "cancel") report(err); } }
+async function removeTheater() { if (!selectedTheaterId.value) return; try { await confirmAction({ title: "删除剧场", message: "仅未被业务数据引用的剧场可直接删除。", tone: "danger", confirmButtonText: "确认删除" }); await adminApi.deleteTheater(token(), selectedTheaterId.value); selectedTheaterId.value = undefined; await refreshTheaters(); } catch (err: any) { if (err !== "cancel" && err !== "close") report(err); } }
 function openSlotDialog(item?: TheaterSlot) { editingSlotId.value = item?.id; Object.assign(slotForm, item ? { name: item.name, start_time: item.start_time, sort_order: item.sort_order } : { name: "", start_time: "14:00:00", sort_order: slots.value.length }); slotDialog.value = true; }
 async function saveSlot() { if (!selectedTheaterId.value) return; try { const payload = { ...slotForm }; if (editingSlotId.value) await adminApi.updateTheaterSlot(token(), editingSlotId.value, payload); else await adminApi.createTheaterSlot(token(), selectedTheaterId.value, payload); slotDialog.value = false; success.value = "场次已保存"; await loadTheaterDetails(); } catch (err) { report(err); } }
-async function removeSlot(item: TheaterSlot) { try { await ElMessageBox.confirm(`确定删除场次“${item.name}”？`, "删除场次", { type: "warning" }); await adminApi.deleteTheaterSlot(token(), item.id); await loadTheaterDetails(); } catch (err: any) { if (err !== "cancel") report(err); } }
+async function removeSlot(item: TheaterSlot) { try { await confirmAction({ title: "删除场次", message: `确定删除场次“${item.name}”？`, tone: "danger", confirmButtonText: "确认删除" }); await adminApi.deleteTheaterSlot(token(), item.id); await loadTheaterDetails(); } catch (err: any) { if (err !== "cancel" && err !== "close") report(err); } }
 async function saveTemplate() { if (!selectedTheaterId.value) return; try { await adminApi.updateWeeklyTemplate(token(), selectedTheaterId.value, weeklyTemplate.value); success.value = "周模板已保存"; } catch (err) { report(err); } }
 function openRoleDialog(item?: Role) { editingRoleId.value = item?.id; Object.assign(roleForm, { name: item?.name || "", group_name: item?.group_name || "" }); roleDialog.value = true; }
 async function saveRole() { if (!selectedTheaterId.value) return; try { const payload = { name: roleForm.name, group_name: roleForm.group_name || null }; if (editingRoleId.value) await adminApi.updateRole(token(), editingRoleId.value, payload); else await adminApi.createRole(token(), { theater_id: selectedTheaterId.value, ...payload }); roleDialog.value = false; success.value = "角色已保存"; await loadTheaterDetails(); } catch (err) { report(err); } }
-async function removeRole(item: Role) { try { await ElMessageBox.confirm(`确定删除角色“${item.name}”？`, "删除角色", { type: "warning" }); await adminApi.deleteRole(token(), item.id); await loadTheaterDetails(); } catch (err: any) { if (err !== "cancel") report(err); } }
+async function removeRole(item: Role) { try { await confirmAction({ title: "删除角色", message: `确定删除角色“${item.name}”？`, tone: "danger", confirmButtonText: "确认删除" }); await adminApi.deleteRole(token(), item.id); await loadTheaterDetails(); } catch (err: any) { if (err !== "cancel" && err !== "close") report(err); } }
 onMounted(() => refreshTheaters().catch(report));
 </script>
 

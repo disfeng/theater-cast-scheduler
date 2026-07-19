@@ -42,7 +42,7 @@
         </el-tabs>
       </template>
     </div>
-    <el-dialog v-model="rejectVisible" title="填写拒绝原因" width="460px" append-to-body>
+    <el-dialog v-model="rejectVisible" title="填写拒绝原因" width="min(460px, calc(100vw - 32px))" class="app-dialog" append-to-body>
       <el-input v-model="rejectReason" type="textarea" :rows="4" aria-label="拒绝原因" placeholder="请说明拒绝原因，便于客服回复和事后核对" />
       <template #footer><el-button @click="rejectVisible = false">取消</el-button><el-button type="danger" :disabled="!rejectReason.trim()" @click="confirmReject">确认拒绝</el-button></template>
     </el-dialog>

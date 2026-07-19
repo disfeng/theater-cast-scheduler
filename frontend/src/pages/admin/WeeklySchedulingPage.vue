@@ -124,7 +124,7 @@
       </template>
     </el-drawer>
 
-    <el-dialog v-model="navigationGuardVisible" title="存在未保存的排班修改" width="430px" :close-on-click-modal="false">
+    <el-dialog v-model="navigationGuardVisible" title="存在未保存的排班修改" width="min(430px, calc(100vw - 32px))" class="app-dialog" :close-on-click-modal="false">
       <p>切换后将离开当前月份，请先处理未保存修改。</p>
       <template #footer>
         <el-button @click="cancelNavigation">取消</el-button>
@@ -139,11 +139,12 @@
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import { ArrowLeft, ArrowRight, CircleCheck } from "@element-plus/icons-vue";
-import { ElMessage, ElMessageBox } from "element-plus";
+import { ElMessage } from "element-plus";
 import { adminApi, type ScheduleAssignment, type ScheduleConflict, type Theater } from "../../api/admin";
 import { ApiError } from "../../api/client";
 import { useAuthStore } from "../../auth/store";
 import PageHeader from "../../components/PageHeader.vue";
+import { confirmAction } from "../../features/dialogs/confirm-action";
 import {
   aggregateScheduleCounts, contextWeeks, createMonthState, dirtyWeekStarts,
   performanceWeekMap, replaceWeekAssignments, type MonthScheduleState,
@@ -489,14 +490,14 @@ async function persistActive(publish: boolean, confirmed = false) {
     ElMessage.success(publish ? "排班已发布，演员端现在可见" : "草稿已保存");
   } catch (err: any) {
     if (isIncompletePerformanceError(err)) {
-      await ElMessageBox.alert("存在未完成角色安排的演出场次，请补充完整后再发布。", "无法发布排班", { confirmButtonText: "返回补充", type: "error" });
+      await confirmAction({ title: "无法发布排班", message: "存在未完成角色安排的演出场次，请补充完整后再发布。", tone: "danger", alert: true, confirmButtonText: "返回补充" });
       return;
     }
     const unmet = unmetDesignationDetail(err);
     if (publish && unmet?.designations?.length) {
       const lines = unmet.designations.map((row) => `#${row.id} ${row.player_name}：${row.failure_reason}；${row.entitlement_serial || "无券号"}退回 ${row.refund_target}（${row.refund_status === "expired" ? "已过期" : "可用"}）`).join("\n");
       try {
-        await ElMessageBox.confirm(lines, `有 ${unmet.designations.length} 条指定未满足`, { confirmButtonText: "确认发布并退回", cancelButtonText: "取消", type: "warning" });
+        await confirmAction({ title: `有 ${unmet.designations.length} 条指定未满足`, message: lines, tone: "warning", confirmButtonText: "确认发布并退回" });
         const result = await adminApi.publishWeeklySchedule(token(), payload(activeWeekStart.value, confirmed, unmet.confirmation_token, unmet.idempotency_key));
         monthState.value = { ...monthState.value, [activeWeekStart.value]: createMonthState([result])[result.week_start] };
         ElMessage.success("排班已发布，未满足指定已按列表退回");

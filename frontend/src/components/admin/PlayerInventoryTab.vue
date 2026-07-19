@@ -2,8 +2,8 @@
   <div class="workspace">
     <el-card shadow="never"
       ><template #header><strong>玩家权益背包</strong></template>
-      <div class="search">
-        <input
+      <div class="search inventory-search-bar">
+        <el-input
           v-model="query"
           aria-label="搜索玩家权益"
           placeholder="输入玩家名或别名"
@@ -118,7 +118,8 @@
     <el-dialog
       v-model="dialogOpen"
       :title="dialogTitle"
-      width="min(480px, 92vw)"
+      width="min(480px, calc(100vw - 32px))"
+      class="app-dialog"
       :close-on-click-modal="false"
       ><template v-if="selectedItem"
         ><el-descriptions :column="1" border
@@ -166,7 +167,7 @@
         ></template
       ></el-dialog
     >
-    <el-dialog v-model="consumeOpen" title="手工核销通用道具" width="min(520px, 92vw)" :close-on-click-modal="false">
+    <el-dialog v-model="consumeOpen" title="手工核销通用道具" width="min(520px, calc(100vw - 32px))" class="app-dialog" :close-on-click-modal="false">
       <el-form label-position="top"><el-form-item label="核销数量"><el-input-number v-model="consumeForm.quantity" :min="1" :max="100" /></el-form-item><el-form-item label="用途"><el-input v-model="consumeForm.purpose" placeholder="例如：兑换饮品" /></el-form-item><el-form-item label="备注"><el-input v-model="consumeForm.note" type="textarea" :rows="2" /></el-form-item></el-form>
       <el-alert v-if="previewSerials.length" :title="`将核销：${previewSerials.join('、')}`" type="warning" :closable="false" show-icon />
       <template #footer><el-button @click="consumeOpen=false">取消</el-button><el-button :loading="consumeBusy" @click="previewConsume">预览</el-button><el-button type="primary" :disabled="!previewSerials.length" :loading="consumeBusy" @click="commitConsume">确认核销</el-button></template>
@@ -333,11 +334,12 @@ async function submitAction() {
   gap: 14px;
 }
 .search {
-  display: grid;
-  grid-template-columns: 1fr auto;
+  display: flex;
+  align-items: center;
   gap: 10px;
 }
-.search input,
+.search .el-input { flex: 1; min-width: 0; }
+.search .el-button { flex: 0 0 auto; }
 .field input,
 .field textarea {
   padding: 8px 10px;

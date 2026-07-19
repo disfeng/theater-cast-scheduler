@@ -1,5 +1,6 @@
 import { fireEvent } from "@testing-library/vue";
 import { expect, test } from "vitest";
+import { readFileSync } from "node:fs";
 import { renderActorRoute, renderAdminRoute } from "./helpers/render-app";
 
 const vueSources = import.meta.glob("../src/**/*.vue", {
@@ -78,4 +79,23 @@ test("weekly scheduling uses the original single-week role matrix", () => {
   expect(source).toContain('class="schedule-matrix"');
   expect(source).toContain('class="matrix-scroll"');
   expect(source).not.toContain('class="month-weeks"');
+});
+
+test("global dialog system defines shared form and semantic confirmation styles", () => {
+  const baseStyles = readFileSync(`${process.cwd()}/src/styles/base.css`, "utf8");
+  expect(baseStyles).toContain(".app-dialog");
+  expect(baseStyles).toContain(".app-message-box--warning");
+  expect(baseStyles).toContain(".app-message-box--danger");
+});
+
+test("all application dialogs and confirmations use the shared dialog system", () => {
+  const dialogs = Object.entries(vueSources).flatMap(([path, source]) =>
+    (source.match(/<el-dialog\b[^>]*>/g) ?? []).map((tag) => ({ path, tag })),
+  );
+  expect(dialogs.filter(({ tag }) => !/class="[^"]*app-dialog/.test(tag))).toEqual([]);
+
+  const directMessageBoxes = Object.entries(vueSources)
+    .filter(([, source]) => /ElMessageBox\.(?:confirm|alert)\(/.test(source))
+    .map(([path]) => path);
+  expect(directMessageBoxes).toEqual([]);
 });
