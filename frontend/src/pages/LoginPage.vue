@@ -8,11 +8,11 @@
       <h1>欢迎登录</h1>
       <p>管理演出计划、演员能力与每周卡司安排</p>
       <el-form label-position="top" @submit.prevent="handleLogin">
-        <el-form-item label="邮箱">
-          <el-input v-model="email" aria-label="邮箱" type="email" placeholder="请输入邮箱" />
+        <el-form-item label="邮箱或手机号">
+          <el-input v-model="identifier" aria-label="邮箱或手机号" type="text" autocomplete="username" inputmode="text" placeholder="管理员输入邮箱，演员输入手机号" />
         </el-form-item>
         <el-form-item label="密码">
-          <el-input v-model="password" aria-label="密码" type="password" show-password placeholder="请输入密码" />
+          <el-input v-model="password" aria-label="密码" type="password" autocomplete="current-password" show-password placeholder="请输入密码" />
         </el-form-item>
         <el-alert v-if="error" :title="error" type="error" :closable="false" show-icon role="alert" />
         <el-button type="primary" native-type="submit" class="login-button">登录</el-button>
@@ -27,7 +27,7 @@ import { useRoute, useRouter } from "vue-router";
 import { useAuthStore } from "../auth/store";
 import { apiClient } from "../api/client";
 
-const email = ref("");
+const identifier = ref("");
 const password = ref("");
 const error = ref<string | null>(null);
 
@@ -38,7 +38,7 @@ const authStore = useAuthStore();
 const handleLogin = async () => {
   error.value = null;
   try {
-    const res = await apiClient.login(email.value, password.value);
+    const res = await apiClient.login(identifier.value, password.value);
     authStore.setSession(res.access_token, res.role);
     const home = res.role === "admin" ? "/admin/dashboard" : "/actor/schedule";
     const redirect = typeof route.query.redirect === "string" ? route.query.redirect : "";

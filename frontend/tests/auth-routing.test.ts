@@ -5,10 +5,19 @@ import { renderApp } from "./helpers/render-app";
 
 beforeEach(() => { localStorage.clear(); vi.restoreAllMocks(); });
 
+test("login identifier accepts actor phone numbers", async () => {
+  const app = await renderApp("/login");
+  const identifier = screen.getByLabelText("邮箱或手机号");
+  expect(identifier).toHaveAttribute("type", "text");
+  await fireEvent.update(identifier, "18627912251");
+  expect(identifier).toHaveValue("18627912251");
+  app.unmount();
+});
+
 test("admin login changes the URL and refresh restores the route", async () => {
   vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ access_token: "t", role: "admin" }), { status: 200 })));
   const first = await renderApp("/login");
-  await fireEvent.update(screen.getByLabelText("邮箱"), "admin@example.com");
+  await fireEvent.update(screen.getByLabelText("邮箱或手机号"), "admin@example.com");
   await fireEvent.update(screen.getByLabelText("密码"), "secret");
   await fireEvent.click(screen.getByRole("button", { name: "登录" }));
   await waitFor(() => expect(first.router.currentRoute.value.fullPath).toBe("/admin/dashboard"));
@@ -27,7 +36,7 @@ test("login returns an admin to the originally requested page", async () => {
   vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ access_token: "t", role: "admin" }), { status: 200 })));
   const app = await renderApp("/admin/actors");
   await waitFor(() => expect(app.router.currentRoute.value.fullPath).toContain("/login?redirect="));
-  await fireEvent.update(screen.getByLabelText("邮箱"), "admin@example.com");
+  await fireEvent.update(screen.getByLabelText("邮箱或手机号"), "admin@example.com");
   await fireEvent.update(screen.getByLabelText("密码"), "secret");
   await fireEvent.click(screen.getByRole("button", { name: "登录" }));
   await waitFor(() => expect(app.router.currentRoute.value.fullPath).toBe("/admin/actors"));

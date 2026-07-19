@@ -17,7 +17,7 @@ test("admin shell exposes settings and actor management pages", async () => {
   );
 
   const app = await renderApp("/login");
-  await fireEvent.update(screen.getByLabelText("邮箱"), "admin@example.com");
+  await fireEvent.update(screen.getByLabelText("邮箱或手机号"), "admin@example.com");
   await fireEvent.update(screen.getByLabelText("密码"), "secret");
   await fireEvent.click(screen.getByRole("button", { name: "登录" }));
 
