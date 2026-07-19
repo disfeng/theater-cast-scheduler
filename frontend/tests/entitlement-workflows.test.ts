@@ -2,7 +2,7 @@ import { fireEvent, screen, waitFor, within } from "@testing-library/vue";
 import { beforeEach, expect, test, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { renderAdminRoute } from "./helpers/render-app";
-import { entitlementLabel, formatEntitlementDate, toIsoEndOfDay } from "../src/features/entitlements/format";
+import { entitlementLabel, formatEntitlementDate, formatLedgerSummary, toIsoEndOfDay } from "../src/features/entitlements/format";
 import { applyGrantPlayerMatch, createGrantRow, expandGrantItems, grantRowIsResolved, parsePastedPlayerNames } from "../src/features/entitlements/grant-table";
 import { summarizeCardResults, topThreeCardInvalidReason } from "../src/features/entitlements/top-three-grants";
 import { filterAndSortPlayers, groupInventoryItems } from "../src/features/entitlements/inventory-workspace";
@@ -27,12 +27,22 @@ test("空道具目录可创建默认指定道具",async()=>{
 });
 
 test("权益流水读取当前剧场并显示道具事件",async()=>{
-  vi.stubGlobal("fetch",vi.fn(async(input:RequestInfo|URL)=>{const path=String(input).replace(/https?:\/\/localhost:\d+/,"");if(path==="/admin/theaters")return Response.json([{id:2,name:"西安幽州剧场",is_active:true}]);if(path==="/admin/theaters/2/entitlement-item-types")return Response.json([]);if(path==="/admin/theaters/2/entitlement-ledger")return Response.json({records:[{id:1,item_id:9,serial_number:"XA-0001",player_id:7,player_name:"兹",item_type_id:3,item_type_name:"榜三指定",bound_actor_id:8,bound_actor_name:"小A",event_type:"granted",occurred_at:"2026-07-19T10:00:00",from_status:null,to_status:"available",purpose:null,reason:"月榜发放",note:null,performance_id:null,designation_id:null}],next_cursor:null});if(["/admin/actors","/admin/roles"].includes(path))return Response.json([]);return Response.json({detail:`unexpected:${path}`},{status:500})}));
+  vi.stubGlobal("fetch",vi.fn(async(input:RequestInfo|URL)=>{const path=String(input).replace(/https?:\/\/localhost:\d+/,"");if(path==="/admin/theaters")return Response.json([{id:2,name:"西安幽州剧场",is_active:true}]);if(path==="/admin/theaters/2/entitlement-item-types")return Response.json([]);if(path==="/admin/theaters/2/entitlement-ledger")return Response.json({records:[{id:1,item_id:9,serial_number:"XA-0001",player_id:7,player_name:"兹",item_type_id:3,item_type_name:"榜三指定",bound_actor_id:8,bound_actor_name:"小A",event_type:"granted",occurred_at:"2026-07-19T10:00:00",from_status:null,to_status:"available",purpose:null,reason:'{"operator_user_id":1,"reason":null}',note:null,performance_id:null,designation_id:null}],next_cursor:null});if(["/admin/actors","/admin/roles"].includes(path))return Response.json([]);return Response.json({detail:`unexpected:${path}`},{status:500})}));
   await renderAdminRoute("/admin/entitlements?theater_id=2&tab=ledger");
-  expect(await screen.findByText("XA-0001")).toBeInTheDocument();expect(screen.getByText("兹")).toBeInTheDocument();expect(screen.getByText("榜三指定 · 小A")).toBeInTheDocument();expect(screen.getAllByText("已发放").length).toBeGreaterThan(0);
+  expect(await screen.findByText("XA-0001")).toBeInTheDocument();expect(screen.getByText("兹")).toBeInTheDocument();expect(screen.getByText("榜三指定 · 小A")).toBeInTheDocument();expect(screen.getAllByText("已发放").length).toBeGreaterThan(0);expect(screen.getByText("系统操作")).toBeInTheDocument();expect(screen.queryByText(/operator_user_id/)).not.toBeInTheDocument();
 });
 
 test("业务日期和权益状态保持中文",()=>{const iso=toIsoEndOfDay("2026-07-01")!;expect(formatEntitlementDate(iso)).toBe("2026年7月1日");expect(entitlementLabel("manually_consumed")).toBe("手工核销")});
+
+test("权益流水将审计 JSON 转换为可读业务摘要",()=>{
+  expect(formatLedgerSummary({purpose:null,reason:"月榜发放",note:null})).toBe("月榜发放");
+  expect(formatLedgerSummary({purpose:null,reason:'{"operator_user_id":1,"reason":null}',note:null})).toBe("系统操作");
+  expect(formatLedgerSummary({purpose:null,reason:'{"reason":"人工延期"}',note:null})).toBe("人工延期");
+  expect(formatLedgerSummary({purpose:'{"purpose":"指定核销","reason":"内部原因"}',reason:null,note:null})).toBe("指定核销");
+  expect(formatLedgerSummary({purpose:null,reason:null,note:'{"note":"客服补发"}'})).toBe("客服补发");
+  expect(formatLedgerSummary({purpose:null,reason:null,note:null})).toBe("系统操作");
+  expect(formatLedgerSummary({purpose:null,reason:'{"reason":',note:null})).toBe("操作记录");
+});
 
 test("Element Plus 全局使用中文且来源月份保留稳定提交格式",()=>{
   expect(mainSource).toContain('element-plus/es/locale/lang/zh-cn');
