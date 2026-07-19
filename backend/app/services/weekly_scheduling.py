@@ -1206,6 +1206,15 @@ def persist_schedule(
     batch.published_at = datetime.utcnow() if publish else None
     if publish:
         _reconcile_designations(db, payload, validation, operator.id)
+        from app.services.actor_notifications import reconcile_notification_tasks, shanghai_now
+
+        reconcile_notification_tasks(
+            db,
+            payload.theater_id,
+            payload.week_start,
+            batch.version,
+            shanghai_now(),
+        )
         db.flush()
         result = get_workspace(db, payload.theater_id, payload.week_start)
         operation.status = "completed"

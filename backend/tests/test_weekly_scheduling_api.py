@@ -10,6 +10,7 @@ from app.api.deps import get_db
 from app.main import app
 from app.models.entities import (
     Actor,
+    ActorNotificationTask,
     ActorRoleCapability,
     Designation,
     DesignationLifecycleEvent,
@@ -628,6 +629,41 @@ def test_legacy_batch_without_publish_operation_still_loads_saves_and_publishes(
         assert stale.status_code == 409
         assert stale.json()["detail"]["code"] == "schedule_version_conflict"
         assert stale.json()["detail"]["current_version"] == 2
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_publish_creates_minimal_pending_disclosure_tasks(db_session):
+    theater, actors, roles, performances = _seed_workspace(db_session)
+    client, headers = _client(db_session)
+    try:
+        recommended = client.post(
+            "/admin/weekly-schedules/recommend",
+            headers=headers,
+            json={
+                "theater_id": theater.id,
+                "week_start": "2026-12-28",
+                "expected_version": 0,
+                "assignments": [],
+            },
+        )
+        response = client.post(
+            "/admin/weekly-schedules/publish",
+            headers=headers,
+            json={
+                "theater_id": theater.id,
+                "week_start": "2026-12-28",
+                "expected_version": 0,
+                "assignments": recommended.json()["assignments"],
+                "confirm_conflicts": True,
+            },
+        )
+        assert response.status_code == 200
+        tasks = db_session.query(ActorNotificationTask).all()
+        assert len(tasks) == len(recommended.json()["assignments"])
+        assert all(task.status.value == "pending" for task in tasks)
+        assert all(task.reveal_at.time() == time(21, 0) for task in tasks)
+        assert not hasattr(tasks[0], "player_name_snapshot")
     finally:
         app.dependency_overrides.clear()
 
