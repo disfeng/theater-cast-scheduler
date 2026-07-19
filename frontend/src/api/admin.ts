@@ -263,6 +263,10 @@ export const adminApi = {
     return apiClient.request(`/admin/theaters/${theaterId}/entitlement-grant-batches`, { method: "POST", token, body: payload });
   },
 
+  async matchEntitlementGrantPlayers(token: string, theaterId: number, names: string[]): Promise<{ raw_name: string; player: PlayerProfile | null; candidates: PlayerProfile[]; created: boolean }[]> {
+    return apiClient.request(`/admin/theaters/${theaterId}/entitlement-grant-player-matches`, { method: "POST", token, body: { names } });
+  },
+
   async confirmTheaterGrantBatch(token: string, theaterId: number, batchId: number, key: string): Promise<GrantBatch> {
     return apiClient.request(`/admin/theaters/${theaterId}/entitlement-grant-batches/${batchId}/confirm`, { method: "POST", token, body: {}, headers: { "Idempotency-Key": key } });
   },
