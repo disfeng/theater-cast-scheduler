@@ -195,9 +195,9 @@ test("actor entry and capability workflows", async () => {
       }
       if (path === "/admin/actors") {
         if (method === "POST") {
-          const newActor = { id: 1, display_name: body.display_name, max_consecutive_performances: body.max_consecutive_performances, rating_level: body.rating_level, low_rating_monthly_cap: body.low_rating_monthly_cap, notes: body.notes, role_ids: [] };
+          const newActor = { id: 1, display_name: body.display_name, phone_number: body.phone_number, theater_ids: body.theater_ids, entry_theater_id: body.entry_theater_id, max_consecutive_performances: body.max_consecutive_performances, rating_level: body.rating_level, low_rating_monthly_cap: body.low_rating_monthly_cap, notes: body.notes, role_ids: [] };
           actorsList.push(newActor);
-          return new Response(JSON.stringify(newActor), { status: 200 });
+          return new Response(JSON.stringify({ actor: newActor, credential_delivery: { username: body.phone_number, initial_password: "Abc123456789", filename: "西安幽州剧场-小展.pdf", pdf_base64: "JVBERg==" } }), { status: 200 });
         }
         return new Response(JSON.stringify(actorsList), { status: 200 });
       }
@@ -227,6 +227,7 @@ test("actor entry and capability workflows", async () => {
   await fireEvent.click(screen.getByRole("button", { name: "新增演员" }));
   expect(screen.getByRole("dialog", { name: "新增演员" })).toBeVisible();
   await fireEvent.update(screen.getByLabelText("演员姓名"), "小展");
+  await fireEvent.update(screen.getByLabelText("手机号"), "13800138000");
   await fireEvent.update(screen.getByLabelText("最大连场"), "2");
   await fireEvent.click(await screen.findByRole("checkbox", { name: "西安幽州剧场：长离" }));
   await fireEvent.click(screen.getByRole("button", { name: "保存演员" }));
@@ -250,7 +251,7 @@ test("actor entry and capability workflows", async () => {
     expect(requests).toContainEqual({
       method: "POST",
       path: "/admin/actors",
-      body: { display_name: "小展", max_consecutive_performances: 2, rating_level: "normal", low_rating_monthly_cap: null, notes: null },
+      body: { display_name: "小展", phone_number: "13800138000", theater_ids: [1], entry_theater_id: 1, max_consecutive_performances: 2, rating_level: "normal", low_rating_monthly_cap: null, notes: null },
     });
     expect(requests).toContainEqual({
       method: "PUT",
@@ -260,7 +261,7 @@ test("actor entry and capability workflows", async () => {
     expect(requests).toContainEqual({
       method: "PATCH",
       path: "/admin/actors/1",
-      body: { max_consecutive_performances: 3, rating_level: "normal", low_rating_monthly_cap: null, notes: null },
+      body: { phone_number: "13800138000", theater_ids: [1, 2], entry_theater_id: 1, max_consecutive_performances: 3, rating_level: "normal", low_rating_monthly_cap: null, notes: null },
     });
     expect(requests).toContainEqual({
       method: "PUT",

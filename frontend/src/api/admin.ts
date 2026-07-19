@@ -79,7 +79,13 @@ export type Actor = {
   low_rating_monthly_cap: number | null;
   notes: string | null;
   role_ids: number[];
+  phone_number?: string | null;
+  theater_ids?: number[];
+  entry_theater_id?: number | null;
 };
+
+export type ActorCredentialDelivery = { username: string; initial_password: string; filename: string; pdf_base64: string };
+export type ActorCreateResult = { actor: Actor; credential_delivery: ActorCredentialDelivery };
 
 export type Performance = {
   id: number;
@@ -403,8 +409,12 @@ export const adminApi = {
     return apiClient.request("/admin/actors", { token });
   },
 
-  async createActor(token: string, payload: Omit<Actor, "id" | "role_ids">): Promise<Actor> {
+  async createActor(token: string, payload: Omit<Actor, "id" | "role_ids">): Promise<ActorCreateResult> {
     return apiClient.request("/admin/actors", { method: "POST", token, body: payload });
+  },
+
+  async resetActorPassword(token: string, actorId: number, entryTheaterId: number): Promise<ActorCredentialDelivery> {
+    return apiClient.request(`/admin/actors/${actorId}/reset-password`, { method: "POST", token, body: { entry_theater_id: entryTheaterId } });
   },
 
   async generateMonthlyPlan(token: string, payload: { theater_id: number; year: number; month: number; closed_dates: string[] }): Promise<Performance[]> {

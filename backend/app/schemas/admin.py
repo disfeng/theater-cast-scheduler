@@ -79,6 +79,9 @@ class ActorCreate(BaseModel):
 
 
 class ActorUpdate(BaseModel):
+    phone_number: str | None = None
+    entry_theater_id: int | None = None
+    theater_ids: list[int] | None = None
     max_consecutive_performances: int = Field(ge=1, le=3)
     rating_level: RatingLevel
     low_rating_monthly_cap: int | None = Field(default=None, ge=0)

@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session, selectinload
 from app.models.entities import (
     Actor,
     ActorRoleCapability,
+    ActorTheaterMembership,
     Designation,
     ImportDraftItem,
     LeaveRequest,
@@ -26,6 +27,7 @@ from app.schemas.admin import (
     TheaterSlotUpdate,
     TheaterUpdate,
 )
+from app.services.actor_accounts import normalize_phone
 
 
 class ReferenceConflict(Exception):
@@ -275,6 +277,29 @@ def update_actor(db: Session, actor_id: int, payload: ActorUpdate) -> Actor:
     actor.rating_level = payload.rating_level
     actor.low_rating_monthly_cap = payload.low_rating_monthly_cap
     actor.notes = payload.notes
+    if payload.phone_number is not None:
+        phone = normalize_phone(payload.phone_number)
+        actor.phone_number = phone
+        if actor.user is not None:
+            actor.user.email = phone
+    if payload.theater_ids is not None:
+        theater_ids = set(payload.theater_ids)
+        if payload.entry_theater_id is None or payload.entry_theater_id not in theater_ids:
+            raise ValueError("entry_theater_must_be_assigned")
+        theaters = list(db.scalars(select(Theater).where(Theater.id.in_(theater_ids))))
+        if len(theaters) != len(theater_ids):
+            raise LookupError("theater_not_found")
+        for membership in list(actor.theater_memberships):
+            db.delete(membership)
+        db.flush()
+        for theater_id in sorted(theater_ids):
+            db.add(
+                ActorTheaterMembership(
+                    actor_id=actor.id,
+                    theater_id=theater_id,
+                    is_entry_theater=theater_id == payload.entry_theater_id,
+                )
+            )
     db.commit()
     db.refresh(actor)
     return actor
