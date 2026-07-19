@@ -169,7 +169,7 @@
 </template>
 <script setup lang="ts">
 import { onBeforeUnmount } from "vue";
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { adminApi } from "../../api/admin";
 import { useAuthStore } from "../../auth/store";
@@ -184,6 +184,7 @@ import {
   monthStart,
   toIsoEndOfDay,
 } from "../../features/entitlements/format";
+const props = defineProps<{ theaterId: number; definitions: EntitlementItemType[] }>();
 const auth = useAuthStore(),
   sourceMonth = ref(""),
   title = ref(""),
@@ -203,12 +204,14 @@ const auth = useAuthStore(),
 const readOnly = computed(() => batch.value?.status !== "draft"),
   busy = computed(() => !!pending.value);
 onMounted(async () => {
+  await loadWorkspace();
+});
+watch(() => props.theaterId, loadWorkspace);
+watch(() => props.definitions, (value) => { itemTypes.value = value.filter(item => item.is_active); itemTypeId.value ||= itemTypes.value[0]?.id ?? null; }, { deep: true });
+async function loadWorkspace() {
   if (!auth.token) return;
   try {
-    const [types, saved] = await Promise.all([
-      adminApi.getEntitlementItemTypes(auth.token),
-      adminApi.getGrantBatches(auth.token),
-    ]);
+    const [types, saved] = await Promise.all([adminApi.getTheaterEntitlementItemTypes(auth.token, props.theaterId), adminApi.getTheaterGrantBatches(auth.token, props.theaterId)]);
     itemTypes.value = types;
     itemTypeId.value = types[0]?.id ?? null;
     batches.value = saved;
@@ -217,7 +220,7 @@ onMounted(async () => {
   } finally {
     initialLoading.value = false;
   }
-});
+}
 const typeName = (id: number) =>
     itemTypes.value.find((t) => t.id === id)?.display_name ?? `类型 #${id}`,
   defaultLabel = () =>
@@ -240,7 +243,7 @@ const payload = () => ({
 });
 function openBatch(saved: GrantBatch) {
   batch.value = saved;
-  sourceMonth.value = saved.source_month.slice(0, 7);
+  sourceMonth.value = saved.source_month?.slice(0, 7) || "";
   title.value = saved.title ?? "";
   items.value = saved.draft_items.map((item) => ({
     ...item,
@@ -259,7 +262,7 @@ async function createDraft() {
   pending.value = "create";
   error.value = "";
   try {
-    replaceBatch(await adminApi.createGrantBatch(auth.token, payload()));
+    replaceBatch(await adminApi.createTheaterGrantBatch(auth.token, props.theaterId, payload()));
   } catch (e: any) {
     error.value = e.message;
   } finally {
@@ -365,7 +368,7 @@ async function confirmBatch() {
       { confirmButtonText: "确认", cancelButtonText: "取消", type: "warning" },
     );
     if (!(await persist("confirm"))) return;
-    replaceBatch(await adminApi.confirmGrantBatch(auth.token, batch.value.id));
+    replaceBatch(await adminApi.confirmTheaterGrantBatch(auth.token, props.theaterId, batch.value.id, `grant-${batch.value.id}-${Date.now()}`));
     ElMessage.success("发放已确认");
   } catch (e: any) {
     if (e !== "cancel" && e !== "close") error.value = e.message;

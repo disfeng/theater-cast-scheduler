@@ -1,5 +1,5 @@
 import { apiClient } from "./client";
-import type { EntitlementItem, EntitlementItemType, GrantBatch, GrantBatchPayload, PlayerInventory, PlayerProfile } from "../features/entitlements/types";
+import type { EntitlementItem, EntitlementItemType, EntitlementLedgerPage, GrantBatch, GrantBatchPayload, PlayerInventory, PlayerProfile } from "../features/entitlements/types";
 import type { BoardDraftItem, BoardDraftItemPatch, BoardRevision, PerformanceBoard } from "../features/performance-board/types";
 import type { DesignationMonthWorkspace, PerformanceWorkspace } from "../features/designation-workspace/types";
 
@@ -237,6 +237,52 @@ export const adminApi = {
 
   async getEntitlementItemTypes(token: string): Promise<EntitlementItemType[]> {
     return apiClient.request("/admin/entitlement-item-types", { token });
+  },
+
+  async getTheaterEntitlementItemTypes(token: string, theaterId: number): Promise<EntitlementItemType[]> {
+    return apiClient.request(`/admin/theaters/${theaterId}/entitlement-item-types`, { token });
+  },
+
+  async createEntitlementItemType(token: string, theaterId: number, payload: Omit<EntitlementItemType, "id" | "theater_id">): Promise<EntitlementItemType> {
+    return apiClient.request(`/admin/theaters/${theaterId}/entitlement-item-types`, { method: "POST", token, body: payload });
+  },
+
+  async updateEntitlementItemType(token: string, typeId: number, payload: Partial<EntitlementItemType>): Promise<EntitlementItemType> {
+    return apiClient.request(`/admin/entitlement-item-types/${typeId}`, { method: "PATCH", token, body: payload });
+  },
+
+  async createDefaultDesignationTypes(token: string, theaterId: number): Promise<EntitlementItemType[]> {
+    return apiClient.request(`/admin/theaters/${theaterId}/entitlement-item-types/default-designations`, { method: "POST", token, body: {} });
+  },
+
+  async getTheaterGrantBatches(token: string, theaterId: number): Promise<GrantBatch[]> {
+    return apiClient.request(`/admin/theaters/${theaterId}/entitlement-grant-batches`, { token });
+  },
+
+  async createTheaterGrantBatch(token: string, theaterId: number, payload: GrantBatchPayload): Promise<GrantBatch> {
+    return apiClient.request(`/admin/theaters/${theaterId}/entitlement-grant-batches`, { method: "POST", token, body: payload });
+  },
+
+  async confirmTheaterGrantBatch(token: string, theaterId: number, batchId: number, key: string): Promise<GrantBatch> {
+    return apiClient.request(`/admin/theaters/${theaterId}/entitlement-grant-batches/${batchId}/confirm`, { method: "POST", token, body: {}, headers: { "Idempotency-Key": key } });
+  },
+
+  async getTheaterPlayerInventory(token: string, theaterId: number, playerId: number): Promise<PlayerInventory> {
+    return apiClient.request(`/admin/theaters/${theaterId}/players/${playerId}/inventory`, { token });
+  },
+
+  async previewManualConsumption(token: string, theaterId: number, playerId: number, payload: { item_type_id: number; quantity: number; purpose: string; note: string | null; performance_id: number | null }): Promise<{ item_ids: number[]; serial_numbers: string[] }> {
+    return apiClient.request(`/admin/theaters/${theaterId}/players/${playerId}/inventory/manual-consumption/preview`, { method: "POST", token, body: payload });
+  },
+
+  async commitManualConsumption(token: string, theaterId: number, playerId: number, payload: { item_type_id: number; quantity: number; purpose: string; note: string | null; performance_id: number | null }, key: string): Promise<{ item_ids: number[]; serial_numbers: string[] }> {
+    return apiClient.request(`/admin/theaters/${theaterId}/players/${playerId}/inventory/manual-consumption`, { method: "POST", token, body: payload, headers: { "Idempotency-Key": key } });
+  },
+
+  async getEntitlementLedger(token: string, theaterId: number, filters: Record<string, string | number | null | undefined> = {}): Promise<EntitlementLedgerPage> {
+    const query = new URLSearchParams();
+    Object.entries(filters).forEach(([key, value]) => { if (value !== null && value !== undefined && value !== "") query.set(key, String(value)); });
+    return apiClient.request(`/admin/theaters/${theaterId}/entitlement-ledger${query.size ? `?${query}` : ""}`, { token });
   },
 
   async getGrantBatches(token: string): Promise<GrantBatch[]> {

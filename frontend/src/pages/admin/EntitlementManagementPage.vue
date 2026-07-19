@@ -1,52 +1,43 @@
 <template>
   <section class="page-container">
-    <PageHeader title="权益管理" description="管理月度权益发放、玩家权益背包与权益流水核对。" />
-
+    <PageHeader title="权益管理" description="按剧场配置道具、批量发放权益，并追踪每一张道具的背包与流水。" />
+    <div class="theater-context">
+      <div><span>当前剧场</span><strong>{{ currentTheater?.name || "请选择剧场" }}</strong></div>
+      <el-select v-model="theaterId" placeholder="请选择剧场" aria-label="当前剧场" @change="syncTheater"><el-option v-for="item in theaters" :key="item.id" :label="item.name" :value="item.id"/></el-select>
+    </div>
     <el-tabs v-model="activeTab" class="entitlement-tabs" @tab-change="syncTabQuery">
-      <el-tab-pane label="月度发放" name="grants" lazy>
-        <GrantBatchTab />
-      </el-tab-pane>
-      <el-tab-pane label="权益背包" name="inventory" lazy>
-        <PlayerInventoryTab />
-      </el-tab-pane>
-      <el-tab-pane label="权益流水核对" name="reconciliation" lazy>
-        <ReconciliationPanel />
-      </el-tab-pane>
+      <el-tab-pane label="道具配置" name="catalog" lazy><ItemCatalogTab v-if="theaterId" :theater-id="theaterId" :definitions="definitions" :loading="loading" @refresh="loadDefinitions" /></el-tab-pane>
+      <el-tab-pane label="权益发放" name="grants" lazy><GrantBatchTab v-if="theaterId" :theater-id="theaterId" :definitions="definitions" /></el-tab-pane>
+      <el-tab-pane label="权益背包" name="inventory" lazy><PlayerInventoryTab v-if="theaterId" :theater-id="theaterId" :definitions="definitions" @open-ledger="openLedger" /></el-tab-pane>
+      <el-tab-pane label="权益流水" name="ledger" lazy><EntitlementLedgerTab v-if="theaterId" :theater-id="theaterId" :definitions="definitions" /></el-tab-pane>
     </el-tabs>
+    <el-empty v-if="!loadingTheaters && !theaterId" description="请先选择一个剧场开始管理权益" />
   </section>
 </template>
-
 <script setup lang="ts">
-import { ref, watch } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-
+import { ElMessage } from "element-plus";
+import { adminApi, type Theater } from "../../api/admin";
+import { useAuthStore } from "../../auth/store";
+import type { EntitlementItemType } from "../../features/entitlements/types";
+import ItemCatalogTab from "../../components/admin/ItemCatalogTab.vue";
 import GrantBatchTab from "../../components/admin/GrantBatchTab.vue";
 import PlayerInventoryTab from "../../components/admin/PlayerInventoryTab.vue";
-import ReconciliationPanel from "../../components/admin/ReconciliationPanel.vue";
+import EntitlementLedgerTab from "../../components/admin/EntitlementLedgerTab.vue";
 import PageHeader from "../../components/PageHeader.vue";
-
-const route = useRoute();
-const router = useRouter();
-const allowedTabs = new Set(["grants", "inventory", "reconciliation"]);
-const initialTab = typeof route.query.tab === "string" && allowedTabs.has(route.query.tab)
-  ? route.query.tab
-  : "grants";
-const activeTab = ref(initialTab);
-
-watch(
-  () => route.query.tab,
-  (tab) => {
-    if (typeof tab === "string" && allowedTabs.has(tab)) activeTab.value = tab;
-  },
-);
-
-function syncTabQuery(tab: string | number) {
-  const next = String(tab);
-  if (!allowedTabs.has(next) || route.query.tab === next) return;
-  void router.replace({ query: { ...route.query, tab: next } });
-}
+const route=useRoute(),router=useRouter(),auth=useAuthStore();
+const allowedTabs=new Set(["catalog","grants","inventory","ledger"]), activeTab=ref(typeof route.query.tab==="string"&&allowedTabs.has(route.query.tab)?route.query.tab:"catalog");
+const theaters=ref<Theater[]>([]), theaterId=ref<number|null>(Number(route.query.theater_id)||null), definitions=ref<EntitlementItemType[]>([]),loading=ref(false),loadingTheaters=ref(true);
+const currentTheater=computed(()=>theaters.value.find(i=>i.id===theaterId.value));
+onMounted(async()=>{if(!auth.token)return;try{theaters.value=await adminApi.getTheaters(auth.token);if(!theaterId.value&&theaters.value.length) theaterId.value=theaters.value[0].id;if(theaterId.value) await loadDefinitions();syncRoute();}catch(e:any){ElMessage.error(e.message)}finally{loadingTheaters.value=false}});
+watch(()=>route.query.tab,t=>{if(typeof t==="string"&&allowedTabs.has(t))activeTab.value=t});
+async function loadDefinitions(){if(!auth.token||!theaterId.value)return;loading.value=true;try{definitions.value=await adminApi.getTheaterEntitlementItemTypes(auth.token,theaterId.value)}catch(e:any){ElMessage.error(e.message)}finally{loading.value=false}}
+async function syncTheater(){await loadDefinitions();syncRoute()}
+function syncTabQuery(tab:string|number){activeTab.value=String(tab);syncRoute()}
+function syncRoute(extra:Record<string,string>={}){void router.replace({query:{...route.query,...extra,tab:activeTab.value,...(theaterId.value?{theater_id:String(theaterId.value)}:{})}})}
+function openLedger(filters:{playerId:number;itemId:number}){activeTab.value="ledger";syncRoute({player_id:String(filters.playerId),item_id:String(filters.itemId)})}
 </script>
-
 <style scoped>
-.entitlement-tabs :deep(.el-tabs__content) { padding-top: 8px; }
+.theater-context{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:18px 22px;margin-bottom:18px;background:#fff;border:1px solid var(--el-border-color-lighter);border-radius:14px}.theater-context>div{display:grid;gap:3px}.theater-context span{font-size:13px;color:var(--el-text-color-secondary)}.theater-context .el-select{width:min(360px,48vw)}.entitlement-tabs :deep(.el-tabs__content){padding-top:10px}
 </style>

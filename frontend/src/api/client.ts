@@ -29,11 +29,12 @@ export class ApiClient {
       token?: string | null;
       body?: any;
       signal?: AbortSignal;
+      headers?: Record<string, string>;
     } = {}
   ): Promise<T> {
     const { method = "GET", token, body, signal } = options;
     const url = `${this.baseUrl}${path}`;
-    const headers: Record<string, string> = {};
+    const headers: Record<string, string> = { ...options.headers };
 
     if (token) {
       headers["Authorization"] = `Bearer ${token}`;

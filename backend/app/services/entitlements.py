@@ -569,6 +569,7 @@ def list_entitlement_ledger(
     player_id: int | None = None,
     item_type_id: int | None = None,
     event_type: EntitlementEventType | None = None,
+    item_id: int | None = None,
     cursor: int | None = None,
     limit: int = 50,
 ) -> EntitlementLedgerPageRead:
@@ -587,6 +588,8 @@ def list_entitlement_ledger(
         stmt = stmt.where(EntitlementItem.item_type_id == item_type_id)
     if event_type is not None:
         stmt = stmt.where(EntitlementLedgerEntry.event_type == event_type)
+    if item_id is not None:
+        stmt = stmt.where(EntitlementItem.id == item_id)
     if cursor is not None:
         stmt = stmt.where(EntitlementLedgerEntry.id < cursor)
     rows = list(db.execute(stmt).all())

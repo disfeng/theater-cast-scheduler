@@ -406,9 +406,18 @@ def update_type(
     item_type = db.get(EntitlementItemType, type_id)
     if not item_type:
         raise HTTPException(404, detail="entitlement_item_type_not_found")
-    if item_type.code not in {"universal", "top_three", "paired"}:
-        raise HTTPException(409, detail="entitlement_item_type_not_configurable")
-    for key, value in payload.model_dump(exclude_none=True).items():
+    values = payload.model_dump(exclude_unset=True)
+    resulting_category = values.get("category", item_type.category)
+    resulting_binding = values.get("designation_type", item_type.designation_type)
+    if (
+        resulting_category == EntitlementItemCategory.DESIGNATION
+        and resulting_binding is None
+    ) or (
+        resulting_category == EntitlementItemCategory.GENERAL
+        and resulting_binding is not None
+    ):
+        raise HTTPException(409, detail="entitlement_item_type_binding_invalid")
+    for key, value in values.items():
         setattr(item_type, key, value)
     try:
         db.commit()
@@ -623,6 +632,7 @@ def theater_ledger(
     player_id: int | None = None,
     item_type_id: int | None = None,
     event_type: EntitlementEventType | None = None,
+    item_id: int | None = None,
     cursor: int | None = Query(default=None, ge=1),
     limit: int = Query(default=50, ge=1, le=100),
     _: dict = Depends(require_admin),
@@ -634,6 +644,7 @@ def theater_ledger(
         player_id=player_id,
         item_type_id=item_type_id,
         event_type=event_type,
+        item_id=item_id,
         cursor=cursor,
         limit=limit,
     )

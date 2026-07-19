@@ -87,6 +87,8 @@
             ></el-timeline
           >
           <div class="actions">
+            <el-button size="small" @click="$emit('open-ledger', { playerId: inventory!.player.id, itemId: item.id })">查看流水</el-button>
+            <el-button v-if="isGeneral(item) && item.status === 'available'" size="small" type="primary" plain @click="openConsume(item)">手工核销</el-button>
             <el-button
               size="small"
                 :disabled="busy || item.status === 'revoked'"
@@ -164,6 +166,11 @@
         ></template
       ></el-dialog
     >
+    <el-dialog v-model="consumeOpen" title="手工核销通用道具" width="min(520px, 92vw)" :close-on-click-modal="false">
+      <el-form label-position="top"><el-form-item label="核销数量"><el-input-number v-model="consumeForm.quantity" :min="1" :max="100" /></el-form-item><el-form-item label="用途"><el-input v-model="consumeForm.purpose" placeholder="例如：兑换饮品" /></el-form-item><el-form-item label="备注"><el-input v-model="consumeForm.note" type="textarea" :rows="2" /></el-form-item></el-form>
+      <el-alert v-if="previewSerials.length" :title="`将核销：${previewSerials.join('、')}`" type="warning" :closable="false" show-icon />
+      <template #footer><el-button @click="consumeOpen=false">取消</el-button><el-button :loading="consumeBusy" @click="previewConsume">预览</el-button><el-button type="primary" :disabled="!previewSerials.length" :loading="consumeBusy" @click="commitConsume">确认核销</el-button></template>
+    </el-dialog>
     <el-alert
       v-if="error"
       :title="error"
@@ -189,6 +196,8 @@ import {
   formatEntitlementDate,
   toIsoEndOfDay,
 } from "../../features/entitlements/format";
+const props = defineProps<{ theaterId: number; definitions: EntitlementItemType[] }>();
+defineEmits<{ "open-ledger": [payload: { playerId: number; itemId: number }] }>();
 const auth = useAuthStore(),
   query = ref(""),
   players = ref<PlayerProfile[]>([]),
@@ -201,7 +210,8 @@ const auth = useAuthStore(),
   dialogOpen = ref(false),
   selectedItem = ref<EntitlementItem | null>(null),
   action = ref<"extend" | "void" | "restore">("void"),
-  actionForm = reactive({ date: "", reason: "" });
+  actionForm = reactive({ date: "", reason: "" }),
+  consumeOpen = ref(false), consumeBusy = ref(false), consumeItem = ref<EntitlementItem|null>(null), previewSerials = ref<string[]>([]), consumeForm = reactive({ quantity: 1, purpose: "", note: "" });
 const busy = computed(() => !!pending.value),
   dialogTitle = computed(
     () =>
@@ -221,12 +231,7 @@ const busy = computed(() => !!pending.value),
       (action.value !== "extend" || !!actionForm.date),
   );
 onMounted(async () => {
-  if (auth.token)
-    try {
-      itemTypes.value = await adminApi.getEntitlementItemTypes(auth.token);
-    } catch (e: any) {
-      error.value = e.message;
-    }
+  itemTypes.value = props.definitions;
 });
 const typeName = (id: number) =>
     itemTypes.value.find((t) => t.id === id)?.display_name ?? `类型 #${id}`,
@@ -258,7 +263,7 @@ async function loadInventory(id: number) {
   inventory.value = null;
   error.value = "";
   try {
-    inventory.value = await adminApi.getPlayerInventory(auth.token, id);
+    inventory.value = await adminApi.getTheaterPlayerInventory(auth.token, props.theaterId, id);
   } catch (e: any) {
     error.value = e.message;
   } finally {
@@ -266,6 +271,11 @@ async function loadInventory(id: number) {
     loadingPlayer.value = null;
   }
 }
+function isGeneral(item: EntitlementItem) { return itemTypes.value.find(type => type.id === item.item_type_id)?.category === "general"; }
+function openConsume(item: EntitlementItem){ consumeItem.value=item; consumeForm.quantity=1;consumeForm.purpose="";consumeForm.note="";previewSerials.value=[];consumeOpen.value=true; }
+function consumePayload(){return { item_type_id: consumeItem.value!.item_type_id, quantity: consumeForm.quantity, purpose: consumeForm.purpose.trim(), note: consumeForm.note.trim()||null, performance_id:null };}
+async function previewConsume(){if(!auth.token||!inventory.value||!consumeItem.value||!consumeForm.purpose.trim())return ElMessage.warning("请填写核销用途");consumeBusy.value=true;try{previewSerials.value=(await adminApi.previewManualConsumption(auth.token,props.theaterId,inventory.value.player.id,consumePayload())).serial_numbers}catch(e:any){ElMessage.error(e.message)}finally{consumeBusy.value=false}}
+async function commitConsume(){if(!auth.token||!inventory.value||!previewSerials.value.length)return;consumeBusy.value=true;try{await adminApi.commitManualConsumption(auth.token,props.theaterId,inventory.value.player.id,consumePayload(),`consume-${Date.now()}`);ElMessage.success("核销完成");consumeOpen.value=false;await loadInventory(inventory.value.player.id)}catch(e:any){ElMessage.error(e.message)}finally{consumeBusy.value=false}}
 function openAction(next: typeof action.value, item: EntitlementItem) {
   action.value = next;
   selectedItem.value = item;
