@@ -5,6 +5,9 @@ import type { DesignationMonthWorkspace, PerformanceWorkspace } from "../feature
 
 export type Theater = { id: number; name: string; is_active: boolean };
 export type AiParserSettings = { enabled: boolean; endpoint: string; api_key_masked: string | null; model_name: string; timeout_seconds: number; prompt_version: string; last_test_ok: boolean | null; last_test_message: string | null; last_tested_at: string | null };
+export type ActorNotificationSettings = { sms_enabled: boolean; actor_portal_url: string; credentials_configured: boolean; access_key_id_masked: string | null; sign_name: string | null; template_code: string | null; endpoint: string };
+export type TheaterActorNotificationSettings = { reveal_days_before: number; reveal_time: string; sms_enabled: boolean };
+export type SmsDeliveryLog = { id: number; theater_id: number; actor_id: number; masked_phone: string; status: string; attempt_count: number; provider_request_id: string | null; failure_reason: string | null; created_at: string };
 export type TheaterSlot = {
   id: number;
   theater_id: number;
@@ -203,6 +206,12 @@ export const adminApi = {
   async getAiParserSettings(token: string): Promise<AiParserSettings> { return apiClient.request("/admin/system-settings/ai-parser", { token }); },
   async updateAiParserSettings(token: string, payload: { enabled: boolean; endpoint: string; api_key?: string; model_name: string; timeout_seconds: number }): Promise<AiParserSettings> { return apiClient.request("/admin/system-settings/ai-parser", { method: "PUT", token, body: payload }); },
   async testAiParserConnection(token: string): Promise<{ ok: boolean; message: string }> { return apiClient.request("/admin/system-settings/ai-parser/test", { method: "POST", token, body: {} }); },
+  async getActorNotificationSettings(token: string): Promise<ActorNotificationSettings> { return apiClient.request("/admin/system-settings/actor-notifications", { token }); },
+  async updateActorNotificationSettings(token: string, payload: Record<string, unknown>): Promise<ActorNotificationSettings> { return apiClient.request("/admin/system-settings/actor-notifications", { method: "PUT", token, body: payload }); },
+  async testActorNotificationSms(token: string, phone_number: string): Promise<{ ok: boolean; request_id: string }> { return apiClient.request("/admin/system-settings/actor-notifications/test", { method: "POST", token, body: { phone_number } }); },
+  async getActorNotificationSmsLogs(token: string): Promise<SmsDeliveryLog[]> { return apiClient.request("/admin/system-settings/actor-notifications/logs", { token }); },
+  async getTheaterActorNotificationSettings(token: string, theaterId: number): Promise<TheaterActorNotificationSettings> { return apiClient.request(`/admin/theaters/${theaterId}/actor-notification-settings`, { token }); },
+  async updateTheaterActorNotificationSettings(token: string, theaterId: number, payload: TheaterActorNotificationSettings): Promise<TheaterActorNotificationSettings> { return apiClient.request(`/admin/theaters/${theaterId}/actor-notification-settings`, { method: "PUT", token, body: payload }); },
   async getPerformanceBoard(token: string, performanceId: number, signal?: AbortSignal): Promise<PerformanceBoard> {
     return apiClient.request(`/admin/performances/${performanceId}/board`, { token, signal });
   },

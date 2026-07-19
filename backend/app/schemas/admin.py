@@ -22,6 +22,36 @@ class TheaterRead(TheaterCreate):
     is_active: bool
 
 
+class ActorNotificationSettingsRead(BaseModel):
+    sms_enabled: bool
+    actor_portal_url: str
+    credentials_configured: bool
+    access_key_id_masked: str | None = None
+    sign_name: str | None = None
+    template_code: str | None = None
+    endpoint: str
+
+
+class ActorNotificationSettingsUpdate(BaseModel):
+    sms_enabled: bool = False
+    actor_portal_url: str = Field(min_length=1, max_length=500)
+    access_key_id: str | None = None
+    access_key_secret: str | None = None
+    sign_name: str | None = Field(default=None, max_length=120)
+    template_code: str | None = Field(default=None, max_length=120)
+    endpoint: str = Field(default="dysmsapi.aliyuncs.com", min_length=1, max_length=253)
+
+
+class TheaterActorNotificationSettings(BaseModel):
+    reveal_days_before: int = Field(default=1, ge=0, le=30)
+    reveal_time: time = time(21, 0)
+    sms_enabled: bool = False
+
+
+class SmsTestInput(BaseModel):
+    phone_number: str = Field(min_length=11, max_length=20)
+
+
 class TheaterSlotCreate(BaseModel):
     name: str = Field(min_length=1, max_length=80)
     start_time: time

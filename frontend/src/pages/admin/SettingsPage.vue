@@ -35,7 +35,9 @@
 
     <el-card shadow="never" class="configuration-card">
       <el-tabs v-model="activeSettingsTab" class="configuration-tabs">
-        <el-tab-pane label="系统设置" name="system"><AiParserSettings /></el-tab-pane>
+        <el-tab-pane label="系统设置" name="system">
+          <div class="system-settings-stack"><AiParserSettings /><SmsSettingsPanel :token="token()" :theater-id="selectedTheaterId" /></div>
+        </el-tab-pane>
         <el-tab-pane label="场次配置" name="slots">
           <el-empty v-if="!selectedTheater" description="请先新增或选择剧场" />
           <template v-else>
@@ -120,6 +122,7 @@ import { adminApi, type Actor, type Role, type Theater, type TheaterSlot, type W
 import { useAuthStore } from "../../auth/store";
 import PageHeader from "../../components/PageHeader.vue";
 import AiParserSettings from "../../components/admin/AiParserSettings.vue";
+import SmsSettingsPanel from "../../components/admin/SmsSettingsPanel.vue";
 import { confirmAction } from "../../features/dialogs/confirm-action";
 
 const DAYS = [{ key: "monday", label: "周一" }, { key: "tuesday", label: "周二" }, { key: "wednesday", label: "周三" }, { key: "thursday", label: "周四" }, { key: "friday", label: "周五" }, { key: "saturday", label: "周六" }, { key: "sunday", label: "周日" }];
@@ -179,6 +182,7 @@ onMounted(() => refreshTheaters().catch(report));
 
 <style scoped>
 .settings-page { width: 100%; display: grid; gap: 16px; }
+.system-settings-stack { display: grid; gap: 18px; }
 .overview-card :deep(.el-card__body) { padding: 16px 20px; }
 .overview { display: flex; align-items: center; gap: 24px; min-height: 40px; }
 .theater-picker { display: flex; align-items: center; gap: 10px; }

@@ -1,4 +1,7 @@
-from fastapi import APIRouter, Depends, HTTPException, Response
+from datetime import datetime
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -13,6 +16,7 @@ from app.models.entities import (
     Designation,
     ScheduleAssignment,
     ImportDraftItem,
+    SmsDelivery,
 )
 from app.models.enums import LeaveStatus
 from app.schemas.admin import (
@@ -40,6 +44,10 @@ from app.schemas.admin import (
     TheaterSlotRead,
     TheaterSlotUpdate,
     WeeklyTemplateUpdate,
+    ActorNotificationSettingsRead,
+    ActorNotificationSettingsUpdate,
+    TheaterActorNotificationSettings,
+    SmsTestInput,
 )
 from app.services.admin_data import (
     create_actor,
@@ -76,8 +84,122 @@ from app.services.monthly_plan import (
     list_month_performances,
     replace_monthly_plan,
 )
+from app.services.sms_notifications import (
+    AlibabaSmsProvider,
+    get_sms_settings,
+    read_sms_settings,
+    update_sms_settings,
+    reschedule_pending_tasks_for_theater,
+)
 
 router = APIRouter(prefix="/admin", tags=["admin"])
+
+
+@router.get(
+    "/system-settings/actor-notifications",
+    response_model=ActorNotificationSettingsRead,
+)
+def get_actor_notification_settings(
+    _: dict[str, str] = Depends(require_admin), db: Session = Depends(get_db)
+):
+    return read_sms_settings(get_sms_settings(db))
+
+
+@router.put(
+    "/system-settings/actor-notifications",
+    response_model=ActorNotificationSettingsRead,
+)
+def put_actor_notification_settings(
+    payload: ActorNotificationSettingsUpdate,
+    _: dict[str, str] = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    try:
+        row = update_sms_settings(db, payload)
+        db.commit()
+        return read_sms_settings(row)
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.post("/system-settings/actor-notifications/test")
+def test_actor_notification_sms(
+    payload: SmsTestInput,
+    _: dict[str, str] = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    row = get_sms_settings(db)
+    if not row.encrypted_access_key_id or not row.encrypted_access_key_secret:
+        raise HTTPException(status_code=409, detail="sms_credentials_not_configured")
+    receipt = AlibabaSmsProvider(row).send(
+        payload.phone_number,
+        {"message": "您有新的演出通知，请登录演员工作台查看。"},
+    )
+    return {"ok": True, "request_id": receipt.request_id}
+
+
+@router.get("/system-settings/actor-notifications/logs")
+def get_actor_notification_sms_logs(
+    limit: int = Query(default=50, ge=1, le=100),
+    _: dict[str, str] = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    rows = db.scalars(select(SmsDelivery).order_by(SmsDelivery.id.desc()).limit(limit)).all()
+    return [
+        {
+            "id": row.id,
+            "theater_id": row.theater_id,
+            "actor_id": row.actor_id,
+            "masked_phone": row.masked_phone,
+            "status": row.status.value,
+            "attempt_count": row.attempt_count,
+            "provider_request_id": row.provider_request_id,
+            "failure_reason": row.failure_reason,
+            "created_at": row.created_at,
+        }
+        for row in rows
+    ]
+
+
+@router.get(
+    "/theaters/{theater_id}/actor-notification-settings",
+    response_model=TheaterActorNotificationSettings,
+)
+def get_theater_actor_notification_settings(
+    theater_id: int,
+    _: dict[str, str] = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    theater = db.get(Theater, theater_id)
+    if theater is None:
+        raise HTTPException(status_code=404, detail="theater_not_found")
+    return TheaterActorNotificationSettings(
+        reveal_days_before=theater.reveal_days_before,
+        reveal_time=theater.reveal_time,
+        sms_enabled=theater.actor_sms_enabled,
+    )
+
+
+@router.put(
+    "/theaters/{theater_id}/actor-notification-settings",
+    response_model=TheaterActorNotificationSettings,
+)
+def put_theater_actor_notification_settings(
+    theater_id: int,
+    payload: TheaterActorNotificationSettings,
+    _: dict[str, str] = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    theater = db.get(Theater, theater_id)
+    if theater is None:
+        raise HTTPException(status_code=404, detail="theater_not_found")
+    theater.reveal_days_before = payload.reveal_days_before
+    theater.reveal_time = payload.reveal_time
+    theater.actor_sms_enabled = payload.sms_enabled
+    reschedule_pending_tasks_for_theater(db, theater_id, datetime.now())
+    db.commit()
+    return payload
 
 
 @router.get("/dashboard", response_model=DashboardRead)

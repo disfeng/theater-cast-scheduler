@@ -102,6 +102,23 @@ class AiParserSettingsAudit(Base):
     )
 
 
+class EncryptedActorNotificationSettings(Base):
+    __tablename__ = "actor_notification_settings"
+
+    id: Mapped[int] = mapped_column(primary_key=True, default=1)
+    sms_enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    actor_portal_url: Mapped[str] = mapped_column(
+        String(500), default="http://localhost:7003/actor"
+    )
+    encrypted_access_key_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    encrypted_access_key_secret: Mapped[str | None] = mapped_column(Text, nullable=True)
+    sign_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    template_code: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    endpoint: Mapped[str] = mapped_column(
+        String(253), default="dysmsapi.aliyuncs.com", server_default="dysmsapi.aliyuncs.com"
+    )
+
+
 class PlayerAlias(Base):
     __tablename__ = "player_aliases"
 
