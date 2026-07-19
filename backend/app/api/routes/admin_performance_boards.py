@@ -211,14 +211,21 @@ def designation_review_read(db: Session, row: Designation) -> DesignationReviewR
     )
     owner = db.get(PlayerProfile, row.owner_player_id) if row.owner_player_id else None
     item = db.get(EntitlementItem, row.entitlement_item_id) if row.entitlement_item_id else None
-    typ = db.scalar(
-        select(EntitlementItemType).where(EntitlementItemType.code == row.designation_type.value)
-    )
     actor, role = db.get(Actor, row.actor_id), db.get(Role, row.role_id)
     perf = db.get(Performance, row.performance_id) if row.performance_id else None
+    eligible_types = list(
+        db.scalars(
+            select(EntitlementItemType).where(
+                EntitlementItemType.theater_id == (perf.theater_id if perf else None),
+                EntitlementItemType.designation_type == row.designation_type,
+                EntitlementItemType.is_active.is_(True),
+            )
+        )
+    )
+    typ = item.item_type if item else max(eligible_types, key=lambda value: value.priority, default=None)
     verifier = db.get(User, row.verified_by) if row.verified_by else None
     available = []
-    if row.owner_player_id and typ:
+    if row.owner_player_id and eligible_types:
         available = [
             {
                 "id": candidate.id,
@@ -231,7 +238,8 @@ def designation_review_read(db: Session, row: Designation) -> DesignationReviewR
                 select(EntitlementItem)
                 .where(
                     EntitlementItem.owner_id == row.owner_player_id,
-                    EntitlementItem.item_type_id == typ.id,
+                    EntitlementItem.theater_id == perf.theater_id,
+                    EntitlementItem.item_type_id.in_([value.id for value in eligible_types]),
                     EntitlementItem.status == EntitlementItemStatus.AVAILABLE,
                 )
                 .order_by(EntitlementItem.expires_at, EntitlementItem.id)
@@ -264,22 +272,19 @@ def designation_review_read(db: Session, row: Designation) -> DesignationReviewR
             .order_by(DesignationLifecycleEvent.created_at, DesignationLifecycleEvent.id)
         ).all()
     ]
-    conflict_type = (
-        db.scalar(
-            select(EntitlementItemType).where(
-                EntitlementItemType.code == conflict_row.designation_type.value
-            )
-        )
-        if conflict_row
+    conflict_item = (
+        db.get(EntitlementItem, conflict_row.entitlement_item_id)
+        if conflict_row and conflict_row.entitlement_item_id
         else None
     )
+    conflict_type = conflict_item.item_type if conflict_item else None
     comparison = None
     if conflict_type and typ:
         comparison = (
             "higher"
-            if typ.priority < conflict_type.priority
-            else "lower"
             if typ.priority > conflict_type.priority
+            else "lower"
+            if typ.priority < conflict_type.priority
             else "equal"
         )
     outcome = (

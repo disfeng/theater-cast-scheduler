@@ -17,7 +17,12 @@ from app.models.entities import (
     Role,
     User,
 )
-from app.models.enums import EntitlementEventType, EntitlementItemStatus, PlayerStatus
+from app.models.enums import (
+    EntitlementEventType,
+    EntitlementItemCategory,
+    EntitlementItemStatus,
+    PlayerStatus,
+)
 from app.services.designation_workspace import project_designation_conflicts
 
 
@@ -141,7 +146,12 @@ def _validate(db, row, item, allow_own_reserved=False):
         raise DesignationConflict("actor_role_capability_missing")
     if item.owner_id != row.owner_player_id:
         raise DesignationConflict("entitlement_owner_mismatch")
-    if item.item_type.code != row.designation_type.value:
+    if item.theater_id != performance.theater_id or item.item_type.theater_id != performance.theater_id:
+        raise DesignationConflict("entitlement_theater_mismatch")
+    if (
+        item.item_type.category != EntitlementItemCategory.DESIGNATION
+        or item.item_type.designation_type != row.designation_type
+    ):
         raise DesignationConflict("entitlement_type_mismatch")
     if item.status == EntitlementItemStatus.RESERVED:
         if allow_own_reserved and item.current_designation_id == row.id:
@@ -201,9 +211,9 @@ def _reserve_or_pending(db, row, item, operator, action, key, payload):
         occupied_item = _item(db, occupied.entitlement_item_id)
         comparison = (
             "higher"
-            if item.item_type.priority < occupied_item.item_type.priority
-            else "lower"
             if item.item_type.priority > occupied_item.item_type.priority
+            else "lower"
+            if item.item_type.priority < occupied_item.item_type.priority
             else "equal"
         )
         row.lifecycle_status = "pending_conflict" if comparison != "equal" else "manual_review"
@@ -374,7 +384,7 @@ def replace_predesignation(
         ).all()
     }
     new, old = items[incoming.entitlement_item_id], items[replaced.entitlement_item_id]
-    if new.item_type.priority >= old.item_type.priority:
+    if new.item_type.priority <= old.item_type.priority:
         raise DesignationConflict("designation_priority_conflict")
     _validate(db, incoming, new)
     old_status = old.status

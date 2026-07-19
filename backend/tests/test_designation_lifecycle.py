@@ -19,7 +19,13 @@ from app.models.entities import (
     User,
     DesignationLifecycleEvent,
 )
-from app.models.enums import DesignationType, EntitlementItemStatus, PlayerStatus, UserRole
+from app.models.enums import (
+    DesignationType,
+    EntitlementItemCategory,
+    EntitlementItemStatus,
+    PlayerStatus,
+    UserRole,
+)
 from app.services.designations import (
     DesignationConflict,
     activate_predesignation,
@@ -73,9 +79,19 @@ def _world(db):
     db.add(pp)
     db.flush()
     types = []
-    for code, priority in (("universal", 1), ("top_three", 2), ("paired", 3)):
+    for code, priority, binding in (
+        ("universal", 300, DesignationType.UNIVERSAL),
+        ("top_three", 200, DesignationType.TOP_THREE),
+        ("paired", 100, DesignationType.PAIRED),
+    ):
         typ = EntitlementItemType(
-            code=code, display_name=code, priority=priority, default_validity_months=3
+            theater_id=theater.id,
+            code=code,
+            display_name=code,
+            category=EntitlementItemCategory.DESIGNATION,
+            designation_type=binding,
+            priority=priority,
+            default_validity_months=3,
         )
         db.add(typ)
         db.flush()
@@ -86,6 +102,7 @@ def _world(db):
 
 def _item(db, owner, typ, serial, days=30):
     item = EntitlementItem(
+        theater_id=typ.theater_id,
         serial_number=serial,
         owner_id=owner.id,
         item_type_id=typ.id,
@@ -98,6 +115,40 @@ def _item(db, owner, typ, serial, days=30):
     db.add(item)
     db.commit()
     return item
+
+
+def test_custom_designation_item_code_uses_binding_and_theater_scope(db_session):
+    perf, pp, _, beneficiary, actor, role, op, types = _world(db_session)
+    custom = EntitlementItemType(
+        theater_id=perf.theater_id,
+        code="summer_vip_choice",
+        display_name="夏季万能指定",
+        category=EntitlementItemCategory.DESIGNATION,
+        designation_type=DesignationType.UNIVERSAL,
+        priority=350,
+        default_validity_days=90,
+    )
+    db_session.add(custom)
+    db_session.commit()
+    item = _item(db_session, beneficiary, custom, "CUSTOM")
+    row = _designation(db_session, perf, pp, beneficiary, actor, role, types[0])
+
+    result = verify_self_designation(db_session, row.id, item.id, op.id)
+
+    assert result.lifecycle_status == "predesignated"
+
+    other = Theater(name="Other custom item theater")
+    db_session.add(other)
+    db_session.flush()
+    custom.theater_id = other.id
+    item.theater_id = other.id
+    item.status = EntitlementItemStatus.AVAILABLE
+    item.current_designation_id = None
+    row.lifecycle_status = "draft"
+    row.entitlement_item_id = None
+    db_session.commit()
+    with pytest.raises(DesignationConflict, match="entitlement_theater_mismatch"):
+        verify_self_designation(db_session, row.id, item.id, op.id)
 
 
 def _designation(db, perf, pp, owner, actor, role, kind, usage="self"):

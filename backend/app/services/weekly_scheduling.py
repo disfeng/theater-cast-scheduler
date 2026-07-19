@@ -81,10 +81,15 @@ class PublishOperationConflict(Exception):
 
 
 DESIGNATION_PRIORITY = {
-    DesignationType.UNIVERSAL: 0,
-    DesignationType.TOP_THREE: 1,
-    DesignationType.PAIRED: 2,
+    DesignationType.UNIVERSAL: 300,
+    DesignationType.TOP_THREE: 200,
+    DesignationType.PAIRED: 100,
 }
+
+
+def _designation_priority(db: Session, row: Designation) -> int:
+    item = db.get(EntitlementItem, row.entitlement_item_id) if row.entitlement_item_id else None
+    return item.item_type.priority if item else DESIGNATION_PRIORITY[row.designation_type]
 
 
 def _week_end(week_start: date) -> date:
@@ -655,7 +660,7 @@ def recommend_schedule(db: Session, payload: ScheduleMutationRequest) -> dict[st
     )
     sorted_designations = sorted(
         designations,
-        key=lambda row: (DESIGNATION_PRIORITY[row.designation_type], row.submitted_at, row.id),
+        key=lambda row: (-_designation_priority(db, row), row.submitted_at, row.id),
     )
     fulfilled_designation_ids = {
         designation.id
@@ -690,7 +695,7 @@ def recommend_schedule(db: Session, payload: ScheduleMutationRequest) -> dict[st
 
     def slot_priority(slot: dict[str, int]) -> tuple[int, int, int]:
         matches = [
-            DESIGNATION_PRIORITY[row.designation_type]
+            -_designation_priority(db, row)
             for row in sorted_designations
             if row.id not in fulfilled_designation_ids
             and row.role_id == slot["role_id"]
@@ -709,12 +714,12 @@ def recommend_schedule(db: Session, payload: ScheduleMutationRequest) -> dict[st
         ]
         candidates.sort(
             key=lambda actor: (
-                DESIGNATION_PRIORITY[
-                    matching_designation(
+                -_designation_priority(db, designation_match)
+                if (
+                    designation_match := matching_designation(
                         actor["id"], slot["role_id"], slot["performance_id"]
-                    ).designation_type
-                ]
-                if matching_designation(actor["id"], slot["role_id"], slot["performance_id"])
+                    )
+                )
                 else 99,
                 0
                 if any(
