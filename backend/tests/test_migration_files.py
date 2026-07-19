@@ -79,12 +79,30 @@ def test_all_migration_revision_ids_fit_alembic_version_column():
     assert all(len(revision.revision) <= 32 for revision in script.walk_revisions())
 
 
+def test_theater_entitlement_management_is_migration_head():
+    script = ScriptDirectory.from_config(Config("alembic.ini"))
+    revision = script.get_revision("0012_theater_entitlements")
+
+    assert script.get_current_head() == revision.revision
+    assert revision.down_revision == "0011_weekly_publish_operations"
+    migration = Path(revision.path).read_text()
+    for required in (
+        "theater_id",
+        "category",
+        "designation_type",
+        "default_validity_days",
+        "source_type",
+        "purpose",
+    ):
+        assert required in migration
+
+
 def test_performance_board_migration_advances_head_and_declares_contract():
     script = ScriptDirectory.from_config(Config("alembic.ini"))
     head = script.get_current_head()
     revision = script.get_revision("0007_performance_boards")
 
-    assert head == "0011_weekly_publish_operations"
+    assert head == "0012_theater_entitlements"
     assert revision.down_revision == "0006_entitlement_inventory"
     migration = Path(revision.path).read_text()
     for table in (
@@ -124,7 +142,7 @@ def test_performance_board_migration_advances_head_and_declares_contract():
     assert wish_revision.down_revision == lifecycle_revision.revision
     wish_migration = Path(wish_revision.path).read_text()
     assert "wish_lifecycle_events" in wish_migration
-    publish_revision = script.get_revision(head)
+    publish_revision = script.get_revision("0011_weekly_publish_operations")
     assert publish_revision.down_revision == wish_revision.revision
     publish_migration = Path(publish_revision.path).read_text()
     assert "weekly_publish_operations" in publish_migration
@@ -237,7 +255,7 @@ def test_performance_board_sqlite_constraints_reject_cross_board_scope(tmp_path)
     engine.dispose()
     environment = {**os.environ, "DATABASE_URL": database_url}
     subprocess.run(
-        ["alembic", "downgrade", "0006_entitlement_inventory"],
+        ["alembic", "downgrade", "0011_weekly_publish_operations"],
         check=True,
         env=environment,
         capture_output=True,
@@ -280,10 +298,10 @@ def test_entitlement_migration_contract_and_round_trip(tmp_path):
     assert expected_tables <= set(inspector.get_table_names())
 
     with engine.connect() as connection:
-        seeds = connection.execute(
+        definitions = connection.execute(
             text("SELECT code, priority FROM entitlement_item_types ORDER BY priority")
         ).all()
-    assert seeds == [("universal", 1), ("top_three", 2), ("paired", 3)]
+    assert definitions == []
 
     with engine.connect() as connection:
         trigger_names = {
@@ -302,6 +320,9 @@ def test_entitlement_migration_contract_and_round_trip(tmp_path):
     assert expected_triggers <= trigger_names
 
     with engine.begin() as connection:
+        theater_id = connection.execute(
+            text("INSERT INTO theaters (name, is_active) VALUES ('权益测试剧场', 1) RETURNING id")
+        ).scalar_one()
         player_id = connection.execute(
             text(
                 "INSERT INTO player_profiles (display_name, normalized_name) "
@@ -309,23 +330,28 @@ def test_entitlement_migration_contract_and_round_trip(tmp_path):
             )
         ).scalar_one()
         type_id = connection.execute(
-            text("SELECT id FROM entitlement_item_types WHERE code = 'universal'")
+            text(
+                "INSERT INTO entitlement_item_types "
+                "(theater_id, code, display_name, category, designation_type, priority, default_validity_days) "
+                "VALUES (:theater_id, 'universal', '万能指定', 'DESIGNATION', 'UNIVERSAL', 300, 90) RETURNING id"
+            ),
+            {"theater_id": theater_id},
         ).scalar_one()
         item_id = connection.execute(
             text(
                 "INSERT INTO entitlement_items "
-                "(serial_number, owner_id, item_type_id, source_month, source_label, granted_at, expires_at) "
-                "VALUES ('TRIGGER-0001', :owner_id, :type_id, '2026-04-01', 'Trigger Test', "
+                "(theater_id, serial_number, owner_id, item_type_id, source_type, source_month, source_label, granted_at, expires_at) "
+                "VALUES (:theater_id, 'TRIGGER-0001', :owner_id, :type_id, 'OTHER', '2026-04-01', 'Trigger Test', "
                 "'2026-05-01 00:00:00', '2026-08-01 00:00:00') RETURNING id"
             ),
-            {"owner_id": player_id, "type_id": type_id},
+            {"theater_id": theater_id, "owner_id": player_id, "type_id": type_id},
         ).scalar_one()
         ledger_id = connection.execute(
             text(
-                "INSERT INTO entitlement_ledger_entries (item_id, event_type, note) "
-                "VALUES (:item_id, 'GRANTED', NULL) RETURNING id"
+                "INSERT INTO entitlement_ledger_entries (theater_id, item_id, event_type, note) "
+                "VALUES (:theater_id, :item_id, 'GRANTED', NULL) RETURNING id"
             ),
-            {"item_id": item_id},
+            {"theater_id": theater_id, "item_id": item_id},
         ).scalar_one()
 
     with engine.connect() as connection:
@@ -361,14 +387,15 @@ def test_entitlement_migration_contract_and_round_trip(tmp_path):
     }
     assert ("normalized_alias",) in aliases_uniques
     assert "is_primary" in {item["name"] for item in inspector.get_columns("player_aliases")}
-    assert ("code",) in type_uniques
+    assert ("theater_id", "code") in type_uniques
     assert ("serial_number",) in item_uniques
 
     type_checks = {
         item["name"] for item in inspector.get_check_constraints("entitlement_item_types")
     }
     assert "ck_entitlement_item_types_priority_non_negative" in type_checks
-    assert "ck_entitlement_item_types_validity_months_positive" in type_checks
+    assert "ck_entitlement_types_validity_positive" in type_checks
+    assert "ck_entitlement_types_category_binding" in type_checks
 
     ledger_columns = {
         item["name"]: item for item in inspector.get_columns("entitlement_ledger_entries")
@@ -388,6 +415,9 @@ def test_entitlement_migration_contract_and_round_trip(tmp_path):
         "created_by",
         "confirmed_by",
         "confirmed_at",
+        "theater_id",
+        "source_type",
+        "idempotency_key",
     } <= batch_columns.keys()
     assert {
         "batch_id",
@@ -398,7 +428,7 @@ def test_entitlement_migration_contract_and_round_trip(tmp_path):
         "expires_at",
         "notes",
     } <= draft_columns.keys()
-    assert "notes" in item_columns
+    assert {"notes", "theater_id", "source_type"} <= item_columns.keys()
     assert {
         "from_status",
         "to_status",
@@ -406,6 +436,8 @@ def test_entitlement_migration_contract_and_round_trip(tmp_path):
         "designation_id",
         "reason",
         "operator_user_id",
+        "theater_id",
+        "purpose",
     } <= ledger_columns.keys()
     assert ledger_columns["item_id"]["nullable"] is False
     assert item_columns["current_designation_id"]["nullable"] is True
@@ -453,7 +485,7 @@ def test_entitlement_migration_contract_and_round_trip(tmp_path):
         reseeded = connection.execute(
             text("SELECT code, priority FROM entitlement_item_types ORDER BY priority")
         ).all()
-    assert reseeded == [("universal", 1), ("top_three", 2), ("paired", 3)]
+    assert reseeded == []
 
 
 def test_upgrade_from_0005_preserves_representative_legacy_rows(tmp_path):

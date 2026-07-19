@@ -1,10 +1,13 @@
 from datetime import date, datetime
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.models.enums import (
+    DesignationType,
     EntitlementEventType,
+    EntitlementItemCategory,
     EntitlementItemStatus,
+    EntitlementSourceType,
     GrantBatchStatus,
     PlayerStatus,
 )
@@ -22,6 +25,29 @@ class PlayerMatchResult(BaseModel):
     player: PlayerRead | None = None
     candidates: list[PlayerRead] = Field(default_factory=list)
     created: bool = False
+
+
+class BulkPlayerMatchRequest(BaseModel):
+    names: list[str] = Field(min_length=1, max_length=500)
+
+    @field_validator("names")
+    @classmethod
+    def clean_names(cls, values: list[str]) -> list[str]:
+        cleaned: list[str] = []
+        seen: set[str] = set()
+        for value in values:
+            name = value.strip()
+            normalized = name.casefold()
+            if name and normalized not in seen:
+                seen.add(normalized)
+                cleaned.append(name)
+        if not cleaned:
+            raise ValueError("player_names_required")
+        return cleaned
+
+
+class BulkPlayerMatchRead(PlayerMatchResult):
+    raw_name: str
 
 
 class PlayerCreate(BaseModel):
@@ -78,11 +104,18 @@ class PlayerMergeRequest(BaseModel):
     source_player_id: int
 
 
-class ItemTypeWrite(BaseModel):
-    code: str = Field(min_length=1, max_length=40)
+class ItemTypeCreate(BaseModel):
+    code: str = Field(pattern=r"^[a-z][a-z0-9_]{1,39}$")
     display_name: str = Field(min_length=1, max_length=120)
-    priority: int = Field(ge=0)
-    default_validity_months: int = Field(gt=0)
+    category: EntitlementItemCategory
+    designation_type: DesignationType | None = None
+    priority: int = Field(default=0, ge=0)
+    default_validity_days: int = Field(default=90, ge=1, le=3650)
+    color: str = Field(default="#409eff", pattern=r"^#[0-9A-Fa-f]{6}$")
+    icon: str | None = Field(default=None, max_length=80)
+    description: str | None = Field(default=None, max_length=1000)
+    is_active: bool = True
+    sort_order: int = Field(default=0, ge=0)
 
     @field_validator("code", "display_name")
     @classmethod
@@ -92,11 +125,26 @@ class ItemTypeWrite(BaseModel):
             raise ValueError("must not be blank")
         return value
 
+    @model_validator(mode="after")
+    def valid_category_binding(self):
+        if self.category == EntitlementItemCategory.DESIGNATION and self.designation_type is None:
+            raise ValueError("designation_type_required")
+        if self.category == EntitlementItemCategory.GENERAL and self.designation_type is not None:
+            raise ValueError("general_item_cannot_bind_designation")
+        return self
+
 
 class ItemTypeUpdate(BaseModel):
     display_name: str | None = Field(default=None, min_length=1, max_length=120)
+    category: EntitlementItemCategory | None = None
+    designation_type: DesignationType | None = None
     priority: int | None = Field(default=None, ge=0)
-    default_validity_months: int | None = Field(default=None, gt=0)
+    default_validity_days: int | None = Field(default=None, ge=1, le=3650)
+    color: str | None = Field(default=None, pattern=r"^#[0-9A-Fa-f]{6}$")
+    icon: str | None = Field(default=None, max_length=80)
+    description: str | None = Field(default=None, max_length=1000)
+    is_active: bool | None = None
+    sort_order: int | None = Field(default=None, ge=0)
 
     @field_validator("display_name")
     @classmethod
@@ -109,9 +157,10 @@ class ItemTypeUpdate(BaseModel):
         return value
 
 
-class ItemTypeRead(ItemTypeWrite):
+class ItemTypeRead(ItemTypeCreate):
     model_config = ConfigDict(from_attributes=True)
     id: int
+    theater_id: int | None
 
 
 class GrantDraftItemWrite(BaseModel):
@@ -146,7 +195,8 @@ class GrantDraftItemRead(BaseModel):
 
 
 class GrantBatchCreate(BaseModel):
-    source_month: date
+    source_type: EntitlementSourceType = EntitlementSourceType.OTHER
+    source_month: date | None = None
     source_label: str = Field(min_length=1, max_length=120)
     title: str | None = Field(default=None, min_length=1, max_length=120)
     grant_date: date | None = None
@@ -176,7 +226,9 @@ class GrantBatchCreate(BaseModel):
 class GrantBatchRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int
-    source_month: date
+    theater_id: int | None
+    source_type: EntitlementSourceType
+    source_month: date | None
     source_label: str
     title: str | None
     grant_date: date | None
@@ -241,6 +293,7 @@ class AdjustmentRequest(BaseModel):
 class LedgerRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int
+    theater_id: int | None
     event_type: EntitlementEventType
     occurred_at: datetime
     from_status: EntitlementItemStatus | None
@@ -248,16 +301,19 @@ class LedgerRead(BaseModel):
     performance_id: int | None
     designation_id: int | None
     reason: str | None
+    purpose: str | None
     operator_user_id: int | None
 
 
 class EntitlementItemRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int
+    theater_id: int | None
     serial_number: str
     owner_id: int
     item_type_id: int
-    source_month: date
+    source_type: EntitlementSourceType
+    source_month: date | None
     source_label: str
     granted_at: datetime
     expires_at: datetime

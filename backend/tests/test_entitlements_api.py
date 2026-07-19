@@ -13,6 +13,7 @@ from app.models.entities import (
     EntitlementLedgerEntry,
     PlayerAlias,
     PlayerProfile,
+    Theater,
     User,
 )
 from app.models.enums import (
@@ -37,6 +38,103 @@ def _client(db_session):
     client = TestClient(app)
     client.headers["Authorization"] = f"Bearer {create_access_token('admin@example.com', 'admin')}"
     return client
+
+
+def test_theater_item_definition_crud_and_category_validation(db_session):
+    client = _client(db_session)
+    theater = Theater(name="权益配置剧场")
+    db_session.add(theater)
+    db_session.commit()
+    try:
+        invalid = client.post(
+            f"/admin/theaters/{theater.id}/entitlement-item-types",
+            json={
+                "code": "drink",
+                "display_name": "饮品券",
+                "category": "general",
+                "designation_type": "universal",
+                "priority": 0,
+                "default_validity_days": 30,
+                "color": "#409eff",
+                "is_active": True,
+                "sort_order": 0,
+            },
+        )
+        assert invalid.status_code == 422
+
+        created = client.post(
+            f"/admin/theaters/{theater.id}/entitlement-item-types",
+            json={
+                "code": "drink",
+                "display_name": "饮品券",
+                "category": "general",
+                "priority": 0,
+                "default_validity_days": 30,
+                "color": "#409eff",
+                "is_active": True,
+                "sort_order": 0,
+            },
+        )
+        assert created.status_code == 200
+        assert created.json()["theater_id"] == theater.id
+        assert client.get(
+            f"/admin/theaters/{theater.id}/entitlement-item-types"
+        ).json()[0]["display_name"] == "饮品券"
+
+        defaults = client.post(
+            f"/admin/theaters/{theater.id}/entitlement-item-types/default-designations"
+        )
+        assert defaults.status_code == 200
+        assert [(row["designation_type"], row["priority"]) for row in defaults.json()] == [
+            ("universal", 300),
+            ("top_three", 200),
+            ("paired", 100),
+        ]
+
+        player = PlayerProfile(display_name="发放玩家", normalized_name="发放玩家")
+        db_session.add(player)
+        db_session.commit()
+        batch = client.post(
+            f"/admin/theaters/{theater.id}/entitlement-grant-batches",
+            json={
+                "source_type": "campaign",
+                "source_label": "开业活动",
+                "grant_date": "2026-07-19",
+                "default_expires_at": "2026-10-19T23:59:59",
+                "items": [
+                    {
+                        "player_id": player.id,
+                        "item_type_id": created.json()["id"],
+                        "quantity": 2,
+                    }
+                ],
+            },
+        )
+        assert batch.status_code == 200
+        confirmed = client.post(
+            f"/admin/theaters/{theater.id}/entitlement-grant-batches/{batch.json()['id']}/confirm",
+            headers={"Idempotency-Key": "grant-config-test"},
+        )
+        assert confirmed.status_code == 200
+        repeated = client.post(
+            f"/admin/theaters/{theater.id}/entitlement-grant-batches/{batch.json()['id']}/confirm",
+            headers={"Idempotency-Key": "grant-config-test"},
+        )
+        assert repeated.status_code == 200
+        inventory = client.get(
+            f"/admin/theaters/{theater.id}/players/{player.id}/inventory"
+        )
+        assert len(inventory.json()["items"]) == 2
+
+        matches = client.post(
+            f"/admin/theaters/{theater.id}/entitlement-grant-player-matches",
+            json={"names": ["发放玩家", "待确认新玩家", "发放玩家"]},
+        )
+        assert matches.status_code == 200
+        assert [row["raw_name"] for row in matches.json()] == ["发放玩家", "待确认新玩家"]
+        assert matches.json()[1]["player"]["status"] == "provisional"
+    finally:
+        app.dependency_overrides.clear()
 
 
 def test_player_search_create_alias_and_merge(db_session):

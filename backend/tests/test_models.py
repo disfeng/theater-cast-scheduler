@@ -18,7 +18,48 @@ from app.models.entities import (
     TheaterWeeklyTemplateEntry,
     WeeklyBatch,
 )
-from app.models.enums import EntitlementEventType, EntitlementItemStatus
+from app.models.enums import (
+    DesignationType,
+    EntitlementEventType,
+    EntitlementItemCategory,
+    EntitlementItemStatus,
+)
+
+
+def test_entitlement_definitions_are_scoped_to_theater(db_session):
+    first = Theater(name="一号剧场")
+    second = Theater(name="二号剧场")
+    db_session.add_all([first, second])
+    db_session.flush()
+    db_session.add_all(
+        [
+            EntitlementItemType(
+                theater_id=first.id,
+                code="universal",
+                display_name="万能指定",
+                category=EntitlementItemCategory.DESIGNATION,
+                designation_type=DesignationType.UNIVERSAL,
+                priority=300,
+                default_validity_days=90,
+                is_active=True,
+                sort_order=0,
+            ),
+            EntitlementItemType(
+                theater_id=second.id,
+                code="universal",
+                display_name="万能指定",
+                category=EntitlementItemCategory.DESIGNATION,
+                designation_type=DesignationType.UNIVERSAL,
+                priority=300,
+                default_validity_days=90,
+                is_active=True,
+                sort_order=0,
+            ),
+        ]
+    )
+    db_session.commit()
+
+    assert db_session.query(EntitlementItemType).count() == 2
 
 
 def test_player_can_own_a_typed_entitlement_item(db_session):

@@ -1,6 +1,6 @@
 from datetime import date
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response
 from sqlalchemy import or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
@@ -13,16 +13,25 @@ from app.models.entities import (
     EntitlementItemType,
     PlayerAlias,
     PlayerProfile,
+    Theater,
     User,
 )
-from app.models.enums import GrantBatchStatus, PlayerStatus
+from app.models.enums import (
+    DesignationType,
+    EntitlementItemCategory,
+    GrantBatchStatus,
+    PlayerStatus,
+)
 from app.schemas.entitlements import (
     AdjustmentRequest,
     AliasCreate,
+    BulkPlayerMatchRead,
+    BulkPlayerMatchRequest,
     EntitlementItemRead,
     ExtensionRequest,
     GrantBatchCreate,
     GrantBatchRead,
+    ItemTypeCreate,
     ItemTypeRead,
     ItemTypeUpdate,
     PlayerCreate,
@@ -121,6 +130,25 @@ def search_players(q: str = "", _: dict = Depends(require_admin), db: Session = 
             )
         )
     return list(db.scalars(stmt).all())
+
+
+@router.post(
+    "/theaters/{theater_id}/entitlement-grant-player-matches",
+    response_model=list[BulkPlayerMatchRead],
+)
+def match_grant_players(
+    theater_id: int,
+    payload: BulkPlayerMatchRequest,
+    _: dict = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    if db.get(Theater, theater_id) is None:
+        raise HTTPException(404, detail="theater_not_found")
+    rows: list[BulkPlayerMatchRead] = []
+    for name in payload.names:
+        match = create_or_match_player(db, name)
+        rows.append(BulkPlayerMatchRead(raw_name=name, **match.model_dump()))
+    return rows
 
 
 @router.post("/player-profiles", response_model=PlayerMatchResult)
@@ -272,6 +300,95 @@ def list_types(_: dict = Depends(require_admin), db: Session = Depends(get_db)):
     )
 
 
+@router.get(
+    "/theaters/{theater_id}/entitlement-item-types", response_model=list[ItemTypeRead]
+)
+def list_theater_types(
+    theater_id: int, _: dict = Depends(require_admin), db: Session = Depends(get_db)
+):
+    if db.get(Theater, theater_id) is None:
+        raise HTTPException(404, detail="theater_not_found")
+    return list(
+        db.scalars(
+            select(EntitlementItemType)
+            .where(EntitlementItemType.theater_id == theater_id)
+            .order_by(EntitlementItemType.sort_order, EntitlementItemType.id)
+        ).all()
+    )
+
+
+@router.post(
+    "/theaters/{theater_id}/entitlement-item-types", response_model=ItemTypeRead
+)
+def create_theater_type(
+    theater_id: int,
+    payload: ItemTypeCreate,
+    _: dict = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    if db.get(Theater, theater_id) is None:
+        raise HTTPException(404, detail="theater_not_found")
+    item_type = EntitlementItemType(theater_id=theater_id, **payload.model_dump())
+    db.add(item_type)
+    try:
+        db.commit()
+        db.refresh(item_type)
+        return item_type
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(409, detail="entitlement_item_type_conflict") from exc
+
+
+@router.post(
+    "/theaters/{theater_id}/entitlement-item-types/default-designations",
+    response_model=list[ItemTypeRead],
+)
+def create_default_designation_types(
+    theater_id: int, _: dict = Depends(require_admin), db: Session = Depends(get_db)
+):
+    if db.get(Theater, theater_id) is None:
+        raise HTTPException(404, detail="theater_not_found")
+    specs = (
+        ("universal", "万能指定", DesignationType.UNIVERSAL, 300),
+        ("top_three", "榜三指定", DesignationType.TOP_THREE, 200),
+        ("paired", "对位指定", DesignationType.PAIRED, 100),
+    )
+    existing = set(
+        db.scalars(
+            select(EntitlementItemType.code).where(
+                EntitlementItemType.theater_id == theater_id,
+                EntitlementItemType.code.in_([spec[0] for spec in specs]),
+            )
+        ).all()
+    )
+    if existing:
+        raise HTTPException(409, detail="entitlement_default_type_conflict")
+    rows = [
+        EntitlementItemType(
+            theater_id=theater_id,
+            code=code,
+            display_name=name,
+            category=EntitlementItemCategory.DESIGNATION,
+            designation_type=binding,
+            priority=priority,
+            default_validity_days=90,
+            color="#7c3aed",
+            is_active=True,
+            sort_order=index,
+        )
+        for index, (code, name, binding, priority) in enumerate(specs)
+    ]
+    db.add_all(rows)
+    try:
+        db.commit()
+        for row in rows:
+            db.refresh(row)
+        return rows
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(409, detail="entitlement_default_type_conflict") from exc
+
+
 @router.patch("/entitlement-item-types/{type_id}", response_model=ItemTypeRead)
 def update_type(
     type_id: int,
@@ -301,7 +418,12 @@ def _populate_batch(batch: EntitlementGrantBatch, payload: GrantBatchCreate, db:
     for spec in payload.items:
         player = db.get(PlayerProfile, spec.player_id)
         item_type = db.get(EntitlementItemType, spec.item_type_id)
-        if player is None or item_type is None:
+        if (
+            player is None
+            or item_type is None
+            or item_type.theater_id != batch.theater_id
+            or not item_type.is_active
+        ):
             db.rollback()
             raise HTTPException(409, detail="entitlement_grant_reference_invalid")
         if player.status != PlayerStatus.ACTIVE:
@@ -381,6 +503,72 @@ def delete_batch(batch_id: int, _: dict = Depends(require_admin), db: Session = 
     db.delete(batch)
     db.commit()
     return Response(status_code=204)
+
+
+@router.get(
+    "/theaters/{theater_id}/entitlement-grant-batches", response_model=list[GrantBatchRead]
+)
+def list_theater_batches(
+    theater_id: int, _: dict = Depends(require_admin), db: Session = Depends(get_db)
+):
+    return list(
+        db.scalars(
+            select(EntitlementGrantBatch)
+            .where(EntitlementGrantBatch.theater_id == theater_id)
+            .options(selectinload(EntitlementGrantBatch.draft_items))
+            .order_by(EntitlementGrantBatch.id.desc())
+        ).all()
+    )
+
+
+@router.post(
+    "/theaters/{theater_id}/entitlement-grant-batches", response_model=GrantBatchRead
+)
+def create_theater_batch(
+    theater_id: int,
+    payload: GrantBatchCreate,
+    user: dict = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    if db.get(Theater, theater_id) is None:
+        raise HTTPException(404, detail="theater_not_found")
+    batch = EntitlementGrantBatch(theater_id=theater_id, created_by=_operator(user, db))
+    return _populate_batch(batch, payload, db)
+
+
+@router.post(
+    "/theaters/{theater_id}/entitlement-grant-batches/{batch_id}/confirm",
+    response_model=GrantBatchRead,
+)
+def confirm_theater_batch(
+    theater_id: int,
+    batch_id: int,
+    idempotency_key: str = Header(alias="Idempotency-Key", min_length=8, max_length=120),
+    user: dict = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    try:
+        return confirm_grant_batch(
+            db, batch_id, _operator(user, db), theater_id, idempotency_key
+        )
+    except (EntitlementNotFound, EntitlementConflict) as exc:
+        _raise(exc)
+
+
+@router.get(
+    "/theaters/{theater_id}/players/{player_id}/inventory",
+    response_model=PlayerInventoryRead,
+)
+def theater_inventory(
+    theater_id: int,
+    player_id: int,
+    _: dict = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    try:
+        return inventory_for_player(db, player_id, theater_id)
+    except EntitlementNotFound as exc:
+        _raise(exc)
 
 
 @router.post("/entitlement-grant-batches/{batch_id}/confirm", response_model=GrantBatchRead)

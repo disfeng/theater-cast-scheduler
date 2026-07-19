@@ -166,6 +166,7 @@ def _ledger(
 ) -> None:
     db.add(
         EntitlementLedgerEntry(
+            theater_id=item.theater_id,
             item=item,
             event_type=event,
             from_status=old,
@@ -180,7 +181,11 @@ def _ledger(
 
 
 def _confirm_grant_batch_once(
-    db: Session, batch_id: int, operator_user_id: int
+    db: Session,
+    batch_id: int,
+    operator_user_id: int,
+    theater_id: int | None = None,
+    idempotency_key: str | None = None,
 ) -> EntitlementGrantBatch:
     try:
         batch = db.scalar(
@@ -191,12 +196,22 @@ def _confirm_grant_batch_once(
         )
         if batch is None:
             raise EntitlementNotFound("entitlement_grant_batch_not_found")
+        if theater_id is not None and batch.theater_id != theater_id:
+            raise EntitlementNotFound("entitlement_grant_batch_not_found")
+        if batch.status == GrantBatchStatus.GRANTED and idempotency_key:
+            if batch.idempotency_key == idempotency_key:
+                return batch
         if batch.status != GrantBatchStatus.DRAFT:
             raise EntitlementConflict("entitlement_grant_batch_not_draft")
         if not batch.draft_items:
             raise EntitlementConflict("entitlement_grant_batch_empty")
         now = utcnow()
-        prefix = f"DT-{batch.source_month:%Y%m}-"
+        date_key = batch.source_month or batch.grant_date or now.date()
+        prefix = (
+            f"T{batch.theater_id}-{date_key:%Y%m}-"
+            if batch.theater_id is not None
+            else f"DT-{date_key:%Y%m}-"
+        )
         existing = list(
             db.scalars(
                 select(EntitlementItem.serial_number).where(
@@ -208,21 +223,25 @@ def _confirm_grant_batch_once(
         for sequence, draft in enumerate(batch.draft_items, start=start + 1):
             item_type = db.get(EntitlementItemType, draft.item_type_id)
             player = db.get(PlayerProfile, draft.player_id)
-            if item_type is None or player is None:
+            if item_type is None or player is None or item_type.theater_id != batch.theater_id:
                 raise EntitlementConflict("entitlement_grant_draft_reference_invalid")
+            if not item_type.is_active:
+                raise EntitlementConflict("entitlement_item_type_inactive")
             if player.status != PlayerStatus.ACTIVE:
                 raise EntitlementConflict("player_not_confirmed")
             item = EntitlementItem(
-                serial_number=f"DT-{batch.source_month:%Y%m}-{sequence:04d}",
+                theater_id=batch.theater_id,
+                serial_number=f"{prefix}{sequence:04d}",
                 owner_id=draft.player_id,
                 item_type_id=draft.item_type_id,
                 grant_batch_id=batch.id,
+                source_type=batch.source_type,
                 source_month=draft.source_month or batch.source_month,
                 source_label=draft.source_label or batch.source_label,
                 granted_at=now,
                 expires_at=draft.expires_at
                 or batch.default_expires_at
-                or _add_months(now, item_type.default_validity_months),
+                or now + timedelta(days=item_type.default_validity_days),
                 notes=draft.notes,
             )
             db.add(item)
@@ -236,6 +255,7 @@ def _confirm_grant_batch_once(
         batch.status = GrantBatchStatus.GRANTED
         batch.granted_at = batch.confirmed_at = now
         batch.confirmed_by = operator_user_id
+        batch.idempotency_key = idempotency_key
         db.commit()
         db.refresh(batch)
         return batch
@@ -244,10 +264,18 @@ def _confirm_grant_batch_once(
         raise
 
 
-def confirm_grant_batch(db: Session, batch_id: int, operator_user_id: int) -> EntitlementGrantBatch:
+def confirm_grant_batch(
+    db: Session,
+    batch_id: int,
+    operator_user_id: int,
+    theater_id: int | None = None,
+    idempotency_key: str | None = None,
+) -> EntitlementGrantBatch:
     for attempt in range(3):
         try:
-            return _confirm_grant_batch_once(db, batch_id, operator_user_id)
+            return _confirm_grant_batch_once(
+                db, batch_id, operator_user_id, theater_id, idempotency_key
+            )
         except IntegrityError as exc:
             db.rollback()
             if not _is_serial_unique_conflict(exc):
@@ -396,14 +424,19 @@ def extend_item(
         raise
 
 
-def inventory_for_player(db: Session, player_id: int) -> PlayerInventoryRead:
+def inventory_for_player(
+    db: Session, player_id: int, theater_id: int | None = None
+) -> PlayerInventoryRead:
     player = db.get(PlayerProfile, player_id)
     if player is None:
         raise EntitlementNotFound("player_not_found")
+    condition = EntitlementItem.owner_id == player_id
+    if theater_id is not None:
+        condition = and_(condition, EntitlementItem.theater_id == theater_id)
     items = list(
         db.scalars(
             select(EntitlementItem)
-            .where(EntitlementItem.owner_id == player_id)
+            .where(condition)
             .options(selectinload(EntitlementItem.ledger_entries))
             .order_by(EntitlementItem.id)
         ).all()

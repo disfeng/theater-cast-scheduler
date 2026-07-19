@@ -69,6 +69,19 @@ class GrantBatchStatus(StrEnum):
     CANCELLED = "cancelled"
 
 
+class EntitlementItemCategory(StrEnum):
+    DESIGNATION = "designation"
+    GENERAL = "general"
+
+
+class EntitlementSourceType(StrEnum):
+    MONTHLY_RANKING = "monthly_ranking"
+    CAMPAIGN = "campaign"
+    REISSUE = "reissue"
+    MANUAL_ADJUSTMENT = "manual_adjustment"
+    OTHER = "other"
+
+
 class EntitlementItemStatus(StrEnum):
     AVAILABLE = "available"
     RESERVED = "reserved"
@@ -82,6 +95,7 @@ class EntitlementEventType(StrEnum):
     RESERVED = "reserved"
     RELEASED = "released"
     CONSUMED = "consumed"
+    MANUALLY_CONSUMED = "manually_consumed"
     EXPIRED = "expired"
     REVOKED = "revoked"
     EXTENDED = "extended"

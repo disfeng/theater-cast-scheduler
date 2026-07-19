@@ -27,7 +27,9 @@ from app.models.enums import (
     DraftItemKind,
     DraftValidationStatus,
     EntitlementEventType,
+    EntitlementItemCategory,
     EntitlementItemStatus,
+    EntitlementSourceType,
     GrantBatchStatus,
     ImportDraftStatus,
     LeaveStatus,
@@ -112,25 +114,53 @@ class EntitlementItemType(Base):
     __tablename__ = "entitlement_item_types"
     __table_args__ = (
         CheckConstraint("priority >= 0", name="ck_entitlement_item_types_priority_non_negative"),
+        CheckConstraint("default_validity_days > 0", name="ck_entitlement_types_validity_positive"),
         CheckConstraint(
-            "default_validity_months > 0",
-            name="ck_entitlement_item_types_validity_months_positive",
+            "(category = 'DESIGNATION' AND designation_type IS NOT NULL) OR "
+            "(category = 'GENERAL' AND designation_type IS NULL)",
+            name="ck_entitlement_types_category_binding",
         ),
+        UniqueConstraint("theater_id", "code", name="uq_entitlement_types_theater_code"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    code: Mapped[str] = mapped_column(String(40), unique=True, index=True)
+    theater_id: Mapped[int | None] = mapped_column(ForeignKey("theaters.id"), nullable=True, index=True)
+    code: Mapped[str] = mapped_column(String(40), index=True)
     display_name: Mapped[str] = mapped_column(String(120))
+    category: Mapped[EntitlementItemCategory] = mapped_column(
+        Enum(EntitlementItemCategory), default=EntitlementItemCategory.GENERAL, index=True
+    )
+    designation_type: Mapped[DesignationType | None] = mapped_column(
+        Enum(DesignationType), nullable=True, index=True
+    )
     priority: Mapped[int] = mapped_column(Integer)
-    default_validity_months: Mapped[int] = mapped_column(Integer)
+    default_validity_days: Mapped[int] = mapped_column(Integer)
+    color: Mapped[str] = mapped_column(String(7), default="#409eff", server_default="#409eff")
+    icon: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1", index=True)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    theater: Mapped[Theater | None] = relationship()
     items: Mapped[list[EntitlementItem]] = relationship(back_populates="item_type")
+
+    @property
+    def default_validity_months(self) -> int:
+        return max(1, round(self.default_validity_days / 30))
+
+    @default_validity_months.setter
+    def default_validity_months(self, value: int) -> None:
+        self.default_validity_days = value * 30
 
 
 class EntitlementGrantBatch(Base):
     __tablename__ = "entitlement_grant_batches"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    source_month: Mapped[date] = mapped_column(Date, index=True)
+    theater_id: Mapped[int | None] = mapped_column(ForeignKey("theaters.id"), nullable=True, index=True)
+    source_type: Mapped[EntitlementSourceType] = mapped_column(
+        Enum(EntitlementSourceType), default=EntitlementSourceType.OTHER, index=True
+    )
+    source_month: Mapped[date | None] = mapped_column(Date, nullable=True, index=True)
     source_label: Mapped[str] = mapped_column(String(120))
     title: Mapped[str | None] = mapped_column(String(120), nullable=True)
     grant_date: Mapped[date | None] = mapped_column(Date, nullable=True)
@@ -148,6 +178,8 @@ class EntitlementGrantBatch(Base):
     )
     granted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     confirmed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    idempotency_key: Mapped[str | None] = mapped_column(String(120), nullable=True, unique=True)
+    theater: Mapped[Theater | None] = relationship()
     items: Mapped[list[EntitlementItem]] = relationship(back_populates="grant_batch")
     draft_items: Mapped[list[EntitlementGrantDraftItem]] = relationship(
         back_populates="batch", cascade="all, delete-orphan"
@@ -174,13 +206,17 @@ class EntitlementItem(Base):
     __tablename__ = "entitlement_items"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    theater_id: Mapped[int | None] = mapped_column(ForeignKey("theaters.id"), nullable=True, index=True)
     serial_number: Mapped[str] = mapped_column(String(80), unique=True, index=True)
     owner_id: Mapped[int] = mapped_column(ForeignKey("player_profiles.id"), index=True)
     item_type_id: Mapped[int] = mapped_column(ForeignKey("entitlement_item_types.id"), index=True)
     grant_batch_id: Mapped[int | None] = mapped_column(
         ForeignKey("entitlement_grant_batches.id"), nullable=True, index=True
     )
-    source_month: Mapped[date] = mapped_column(Date, index=True)
+    source_type: Mapped[EntitlementSourceType] = mapped_column(
+        Enum(EntitlementSourceType), default=EntitlementSourceType.OTHER, index=True
+    )
+    source_month: Mapped[date | None] = mapped_column(Date, nullable=True, index=True)
     source_label: Mapped[str] = mapped_column(String(120))
     granted_at: Mapped[datetime] = mapped_column(DateTime)
     expires_at: Mapped[datetime] = mapped_column(DateTime, index=True)
@@ -192,6 +228,7 @@ class EntitlementItem(Base):
     )
     current_designation_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    theater: Mapped[Theater | None] = relationship()
     owner: Mapped[PlayerProfile] = relationship(back_populates="entitlement_items")
     item_type: Mapped[EntitlementItemType] = relationship(back_populates="items")
     grant_batch: Mapped[EntitlementGrantBatch | None] = relationship(back_populates="items")
@@ -202,6 +239,7 @@ class EntitlementLedgerEntry(Base):
     __tablename__ = "entitlement_ledger_entries"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    theater_id: Mapped[int | None] = mapped_column(ForeignKey("theaters.id"), nullable=True, index=True)
     item_id: Mapped[int] = mapped_column(ForeignKey("entitlement_items.id"), index=True)
     event_type: Mapped[EntitlementEventType] = mapped_column(Enum(EntitlementEventType), index=True)
     occurred_at: Mapped[datetime] = mapped_column(
@@ -214,11 +252,13 @@ class EntitlementLedgerEntry(Base):
     to_status: Mapped[EntitlementItemStatus | None] = mapped_column(
         Enum(EntitlementItemStatus), nullable=True
     )
-    performance_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    designation_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    performance_id: Mapped[int | None] = mapped_column(ForeignKey("performances.id"), nullable=True)
+    designation_id: Mapped[int | None] = mapped_column(ForeignKey("designations.id"), nullable=True)
     reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    purpose: Mapped[str | None] = mapped_column(String(200), nullable=True)
     operator_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     item: Mapped[EntitlementItem] = relationship(back_populates="ledger_entries")
+    theater: Mapped[Theater | None] = relationship()
 
 
 class EntitlementLedgerImmutableError(RuntimeError):
