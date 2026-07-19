@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { renderAdminRoute } from "./helpers/render-app";
 import { entitlementLabel, formatEntitlementDate, toIsoEndOfDay } from "../src/features/entitlements/format";
 import { applyGrantPlayerMatch, createGrantRow, expandGrantItems, grantRowIsResolved, parsePastedPlayerNames } from "../src/features/entitlements/grant-table";
-import { summarizeCardResults } from "../src/features/entitlements/top-three-grants";
+import { summarizeCardResults, topThreeCardInvalidReason } from "../src/features/entitlements/top-three-grants";
 import mainSource from "../src/main.ts?raw";
 import grantBatchSource from "../src/components/admin/GrantBatchTab.vue?raw";
 const baseStyles=readFileSync(`${process.cwd()}/src/styles/base.css`,"utf8");
@@ -40,6 +40,11 @@ test("Element Plus 全局使用中文且来源月份保留稳定提交格式",()
   expect(grantBatchSource).toContain('value-format="YYYY-MM"');
 });
 
+test("来源名称显示必填标识",()=>{
+  expect(grantBatchSource).toContain('来源名称<span class="required-mark">必填</span>');
+  expect(grantBatchSource).toContain('placeholder="可选"');
+});
+
 test("批量玩家去重并按动态道具数量展开实例",()=>{const definitions=[{id:3,theater_id:2,code:"drink",display_name:"饮品券",category:"general",designation_type:null,priority:0,default_validity_days:30,color:"#409eff",icon:null,description:null,is_active:true,sort_order:0}] as any;expect(parsePastedPlayerNames(" 小A\nKiki\n小a \n")).toEqual(["小A","Kiki"]);const row=createGrantRow("小A",definitions);row.playerId=7;row.status="matched";row.quantities[3]=2;expect(expandGrantItems([row],"2026-07-01","七月活动",null)).toHaveLength(2)});
 
 test("发放玩家匹配结果统一映射为行状态",()=>{
@@ -57,6 +62,14 @@ test("榜三批量结果区分成功跳过与失败 Card",()=>{
     {actorId:2,actorName:"小银",outcome:"skipped",reason:"存在待确认玩家"},
     {actorId:3,actorName:"小奇",outcome:"failed",reason:"网络错误"},
   ])).toEqual({successful:["小A"],skipped:["小银（存在待确认玩家）"],failed:["小奇（网络错误）"]});
+});
+
+test("榜三 Card 精确返回无效原因",()=>{
+  expect(topThreeCardInvalidReason({sourceLabel:"",playerCount:2,totalItems:2,unresolved:0})).toBe("未填写来源名称");
+  expect(topThreeCardInvalidReason({sourceLabel:"七月榜单",playerCount:0,totalItems:0,unresolved:0})).toBe("未添加玩家");
+  expect(topThreeCardInvalidReason({sourceLabel:"七月榜单",playerCount:2,totalItems:0,unresolved:0})).toBe("道具数量为 0");
+  expect(topThreeCardInvalidReason({sourceLabel:"七月榜单",playerCount:2,totalItems:2,unresolved:1})).toBe("存在待确认玩家");
+  expect(topThreeCardInvalidReason({sourceLabel:"七月榜单",playerCount:2,totalItems:2,unresolved:0})).toBeNull();
 });
 
 test("权益发放区分通用批量与绑定演员的榜三模式",async()=>{

@@ -20,6 +20,21 @@ export type TopThreeActorCardExpose = {
   confirmGrant: () => Promise<CardOperationResult>;
 };
 
+export type TopThreeCardValidationInput = {
+  sourceLabel: string;
+  playerCount: number;
+  totalItems: number;
+  unresolved: number;
+};
+
+export function topThreeCardInvalidReason(input: TopThreeCardValidationInput): string | null {
+  if (!input.sourceLabel.trim()) return "未填写来源名称";
+  if (!input.playerCount) return "未添加玩家";
+  if (!input.totalItems) return "道具数量为 0";
+  if (input.unresolved) return "存在待确认玩家";
+  return null;
+}
+
 export function summarizeCardResults(results: CardOperationResult[]) {
   return {
     successful: results.filter(item => item.outcome === "saved" || item.outcome === "granted").map(item => item.actorName),
