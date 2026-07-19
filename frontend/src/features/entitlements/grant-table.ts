@@ -1,14 +1,14 @@
-import type { EntitlementItemType } from "./types";
+import type { EntitlementItemType, PlayerProfile } from "./types";
 
 export function parsePastedPlayerNames(text: string): string[] {
   const seen=new Set<string>();
   return text.split(/\r?\n/).map(value=>value.trim()).filter(value=>{const key=value.toLocaleLowerCase();if(!value||seen.has(key))return false;seen.add(key);return true});
 }
 
-export type GrantPlayerRow = { rawName: string; playerId: number | null; playerName: string; status: "matched" | "pending" | "ambiguous"; quantities: Record<number, number> };
+export type GrantPlayerRow = { rawName: string; playerId: number | null; playerName: string; status: "matched" | "pending" | "ambiguous"; candidates: PlayerProfile[]; quantities: Record<number, number> };
 
 export function createGrantRow(rawName:string, definitions:EntitlementItemType[]):GrantPlayerRow {
-  return {rawName,playerId:null,playerName:rawName,status:"pending",quantities:Object.fromEntries(definitions.map(item=>[item.id,0]))};
+  return {rawName,playerId:null,playerName:rawName,status:"pending",candidates:[],quantities:Object.fromEntries(definitions.map(item=>[item.id,0]))};
 }
 
 export function expandGrantItems(rows:GrantPlayerRow[], sourceMonth:string|null, sourceLabel:string, expiresAt:string|null, boundActorId:number|null=null) {

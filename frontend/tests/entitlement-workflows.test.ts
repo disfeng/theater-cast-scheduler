@@ -1,10 +1,12 @@
 import { fireEvent, screen, waitFor } from "@testing-library/vue";
 import { beforeEach, expect, test, vi } from "vitest";
+import { readFileSync } from "node:fs";
 import { renderAdminRoute } from "./helpers/render-app";
 import { entitlementLabel, formatEntitlementDate, toIsoEndOfDay } from "../src/features/entitlements/format";
 import { createGrantRow, expandGrantItems, parsePastedPlayerNames } from "../src/features/entitlements/grant-table";
 import mainSource from "../src/main.ts?raw";
 import grantBatchSource from "../src/components/admin/GrantBatchTab.vue?raw";
+const baseStyles=readFileSync(`${process.cwd()}/src/styles/base.css`,"utf8");
 
 beforeEach(()=>{localStorage.clear();vi.restoreAllMocks()});
 
@@ -59,6 +61,66 @@ test("权益发放区分通用批量与绑定演员的榜三模式",async()=>{
   expect(await screen.findByRole("combobox",{name:"榜单演员"})).toBeInTheDocument();
   expect(screen.getByRole("columnheader",{name:"榜三指定"})).toBeInTheDocument();
   expect(screen.queryByRole("columnheader",{name:"万能指定"})).not.toBeInTheDocument();
+  await fireEvent.click(screen.getByRole("combobox",{name:"榜单演员"}));
+  const actorOption=await screen.findByRole("option",{name:"小A"});
+  await fireEvent.click(actorOption);
+  await waitFor(()=>expect(actorOption).toHaveAttribute("aria-selected","true"));
+});
+
+test("全局原生表单样式不覆盖 Element Plus 内部输入框",()=>{
+  expect(baseStyles).toContain('input:not([class^="el-"])');
+  expect(baseStyles).not.toContain('input:not(.el-input__inner)');
+});
+
+test("发放页可行内确认临时玩家",async()=>{
+  const requests:{path:string;method:string;body:any}[]=[];
+  vi.stubGlobal("fetch",vi.fn(async(input:RequestInfo|URL,init?:RequestInit)=>{
+    const path=String(input).replace(/https?:\/\/localhost:\d+/,"");
+    const method=init?.method||"GET";
+    const body=init?.body?JSON.parse(String(init.body)):null;
+    requests.push({path,method,body});
+    if(path==="/admin/theaters")return Response.json([{id:2,name:"西安幽州剧场",is_active:true}]);
+    if(path==="/admin/theaters/2/entitlement-item-types")return Response.json([{id:1,theater_id:2,code:"universal",display_name:"万能指定",category:"designation",designation_type:"universal",priority:300,default_validity_days:90,color:"#409eff",icon:null,description:null,is_active:true,sort_order:0}]);
+    if(path==="/admin/theaters/2/entitlement-grant-batches")return Response.json([]);
+    if(path==="/admin/actors"||path.startsWith("/admin/roles?"))return Response.json([]);
+    if(path==="/admin/theaters/2/entitlement-grant-player-matches")return Response.json([{raw_name:"新玩家",player:{id:7,display_name:"新玩家",normalized_name:"新玩家",status:"provisional"},candidates:[],created:true}]);
+    if(path==="/admin/player-profiles/7"&&method==="PATCH")return Response.json({id:7,display_name:"新玩家",normalized_name:"新玩家",status:"active"});
+    return Response.json({detail:`unexpected:${method}:${path}`},{status:500});
+  }));
+  await renderAdminRoute("/admin/entitlements?theater_id=2&tab=grants");
+  await fireEvent.click(await screen.findByRole("button",{name:"批量粘贴玩家"}));
+  await fireEvent.update(screen.getByPlaceholderText(/每行一个玩家昵称/),"新玩家");
+  await fireEvent.click(screen.getByRole("button",{name:"匹配并添加"}));
+  expect(await screen.findByText("待确认")).toBeInTheDocument();
+  await fireEvent.click(screen.getByRole("button",{name:"确认玩家"}));
+  await fireEvent.click(await screen.findByRole("button",{name:"确认玩家身份"}));
+  await waitFor(()=>expect(screen.getByText("已匹配")).toBeInTheDocument());
+  expect(requests).toContainEqual({path:"/admin/player-profiles/7",method:"PATCH",body:{status:"active"}});
+});
+
+test("发放页可从重名候选中选择已有正式玩家",async()=>{
+  vi.stubGlobal("fetch",vi.fn(async(input:RequestInfo|URL)=>{
+    const path=String(input).replace(/https?:\/\/localhost:\d+/,"");
+    if(path==="/admin/theaters")return Response.json([{id:2,name:"西安幽州剧场",is_active:true}]);
+    if(path==="/admin/theaters/2/entitlement-item-types")return Response.json([{id:1,theater_id:2,code:"universal",display_name:"万能指定",category:"designation",designation_type:"universal",priority:300,default_validity_days:90,color:"#409eff",icon:null,description:null,is_active:true,sort_order:0}]);
+    if(path==="/admin/theaters/2/entitlement-grant-batches")return Response.json([]);
+    if(path==="/admin/actors"||path.startsWith("/admin/roles?"))return Response.json([]);
+    if(path==="/admin/theaters/2/entitlement-grant-player-matches")return Response.json([{raw_name:"小雨",player:null,candidates:[{id:8,display_name:"小雨（微信A）",normalized_name:"小雨a",status:"active"},{id:9,display_name:"小雨（微信B）",normalized_name:"小雨b",status:"active"}],created:false}]);
+    return Response.json({detail:`unexpected:${path}`},{status:500});
+  }));
+  await renderAdminRoute("/admin/entitlements?theater_id=2&tab=grants");
+  await fireEvent.click(await screen.findByRole("button",{name:"批量粘贴玩家"}));
+  await fireEvent.update(screen.getByPlaceholderText(/每行一个玩家昵称/),"小雨");
+  await fireEvent.click(screen.getByRole("button",{name:"匹配并添加"}));
+  const candidateSelect=await screen.findByRole("combobox",{name:"选择小雨对应玩家"});
+  await fireEvent.click(candidateSelect);
+  await fireEvent.click(await screen.findByRole("option",{name:"小雨（微信A）"}));
+  await waitFor(()=>expect(screen.getByText("已匹配")).toBeInTheDocument());
+});
+
+test("发放玩家列使用紧凑固定宽度",()=>{
+  expect(grantBatchSource).toContain('width="300"');
+  expect(grantBatchSource).not.toContain('label="玩家" fixed min-width="190"');
 });
 
 test("道具运营卡只展示名称不显示内部编码",async()=>{

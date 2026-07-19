@@ -231,6 +231,10 @@ export const adminApi = {
     return apiClient.request(`/admin/player-profiles?q=${encodeURIComponent(query)}`, { token, signal });
   },
 
+  async updatePlayerProfile(token: string, playerId: number, payload: { status: "active" }): Promise<PlayerProfile> {
+    return apiClient.request(`/admin/player-profiles/${playerId}`, { method: "PATCH", token, body: payload });
+  },
+
   async getPlayerInventory(token: string, playerId: number): Promise<PlayerInventory> {
     return apiClient.request(`/admin/players/${playerId}/inventory`, { token });
   },
