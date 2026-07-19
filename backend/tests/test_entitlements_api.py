@@ -106,6 +106,163 @@ def test_top_three_grant_requires_and_persists_bound_actor(db_session):
         app.dependency_overrides.clear()
 
 
+def test_theater_player_inventory_summaries_include_zero_inventory_and_counts(db_session):
+    client = _client(db_session)
+    theater = Theater(name="背包摘要剧场")
+    other_theater = Theater(name="其他剧场")
+    player_a = PlayerProfile(display_name="阿年", normalized_name="阿年")
+    player_b = PlayerProfile(display_name="微醺", normalized_name="微醺")
+    inactive = PlayerProfile(
+        display_name="已停用", normalized_name="已停用", status=PlayerStatus.INACTIVE
+    )
+    item_type = EntitlementItemType(
+        theater=theater,
+        code="summary-ticket",
+        display_name="摘要券",
+        category=EntitlementItemCategory.GENERAL,
+        priority=0,
+        default_validity_days=30,
+    )
+    db_session.add_all([theater, other_theater, player_a, player_b, inactive, item_type])
+    db_session.flush()
+    now = datetime.utcnow()
+    db_session.add_all(
+        [
+            EntitlementItem(
+                theater_id=theater.id,
+                serial_number="SUMMARY-AVAILABLE",
+                owner_id=player_a.id,
+                item_type_id=item_type.id,
+                source_type="campaign",
+                source_label="活动",
+                granted_at=now,
+                expires_at=now + timedelta(days=30),
+                status=EntitlementItemStatus.AVAILABLE,
+            ),
+            EntitlementItem(
+                theater_id=theater.id,
+                serial_number="SUMMARY-EXPIRED-BY-DATE",
+                owner_id=player_a.id,
+                item_type_id=item_type.id,
+                source_type="campaign",
+                source_label="活动",
+                granted_at=now - timedelta(days=60),
+                expires_at=now - timedelta(days=1),
+                status=EntitlementItemStatus.AVAILABLE,
+            ),
+            EntitlementItem(
+                theater_id=theater.id,
+                serial_number="SUMMARY-CONSUMED",
+                owner_id=player_a.id,
+                item_type_id=item_type.id,
+                source_type="campaign",
+                source_label="活动",
+                granted_at=now,
+                expires_at=now + timedelta(days=30),
+                status=EntitlementItemStatus.CONSUMED,
+            ),
+            EntitlementItem(
+                theater_id=other_theater.id,
+                serial_number="SUMMARY-OTHER-THEATER",
+                owner_id=player_a.id,
+                item_type_id=item_type.id,
+                source_type="campaign",
+                source_label="活动",
+                granted_at=now,
+                expires_at=now + timedelta(days=30),
+                status=EntitlementItemStatus.AVAILABLE,
+            ),
+        ]
+    )
+    db_session.commit()
+    try:
+        response = client.get(
+            f"/admin/theaters/{theater.id}/player-inventory-summaries"
+        )
+        assert response.status_code == 200
+        rows = response.json()
+        assert [row["display_name"] for row in rows] == ["阿年", "微醺"]
+        assert rows[0]["item_count"] == 2
+        assert rows[0]["expired_count"] == 1
+        assert rows[0]["sort_key"].startswith("a")
+        assert rows[1]["item_count"] == 0
+        assert rows[1]["expired_count"] == 0
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_designation_manual_consumption_requires_note_and_is_idempotent(db_session):
+    client = _client(db_session)
+    theater = Theater(name="指定核销剧场")
+    player = PlayerProfile(display_name="核销玩家", normalized_name="核销玩家")
+    definition = EntitlementItemType(
+        theater=theater,
+        code="manual-universal",
+        display_name="万能指定",
+        category=EntitlementItemCategory.DESIGNATION,
+        designation_type=DesignationType.UNIVERSAL,
+        priority=300,
+        default_validity_days=90,
+    )
+    db_session.add_all([theater, player, definition])
+    db_session.flush()
+    item = EntitlementItem(
+        theater_id=theater.id,
+        serial_number="MANUAL-DESIGNATION-1",
+        owner_id=player.id,
+        item_type_id=definition.id,
+        source_type="monthly_ranking",
+        source_label="七月榜单",
+        granted_at=datetime.utcnow(),
+        expires_at=datetime.utcnow() + timedelta(days=90),
+        status=EntitlementItemStatus.AVAILABLE,
+    )
+    db_session.add(item)
+    db_session.commit()
+    url = f"/admin/theaters/{theater.id}/players/{player.id}/inventory/manual-consumption"
+    payload = {
+        "item_type_id": definition.id,
+        "quantity": 1,
+        "purpose": "特殊运营核销",
+        "note": "客服确认玩家放弃使用",
+    }
+    try:
+        missing_note = client.post(
+            url,
+            headers={"Idempotency-Key": "missing-note-test"},
+            json={key: value for key, value in payload.items() if key != "note"},
+        )
+        assert missing_note.status_code == 422
+
+        first = client.post(
+            url,
+            headers={"Idempotency-Key": "designation-consume-1"},
+            json=payload,
+        )
+        assert first.status_code == 200
+        assert first.json()["serial_numbers"] == ["MANUAL-DESIGNATION-1"]
+        second = client.post(
+            url,
+            headers={"Idempotency-Key": "designation-consume-1"},
+            json=payload,
+        )
+        assert second.status_code == 200
+        assert second.json() == first.json()
+        ledgers = list(
+            db_session.scalars(
+                select(EntitlementLedgerEntry).where(
+                    EntitlementLedgerEntry.item_id == item.id,
+                    EntitlementLedgerEntry.event_type
+                    == EntitlementEventType.MANUALLY_CONSUMED,
+                )
+            ).all()
+        )
+        assert len(ledgers) == 1
+        assert ledgers[0].reason == "客服确认玩家放弃使用"
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_theater_item_definition_crud_and_category_validation(db_session):
     client = _client(db_session)
     theater = Theater(name="权益配置剧场")

@@ -1,421 +1,69 @@
 <template>
-  <div class="workspace">
-    <el-card shadow="never"
-      ><template #header><strong>玩家权益背包</strong></template>
-      <div class="search inventory-search-bar">
-        <el-input
-          v-model="query"
-          aria-label="搜索玩家权益"
-          placeholder="输入玩家名或别名"
-          :disabled="busy"
-          @keyup.enter="search"
-        /><el-button
-          type="primary"
-          :loading="pending === 'search'"
-          :disabled="busy"
-          @click="search"
-          >搜索</el-button
-        >
+  <div class="inventory-workspace">
+    <aside class="player-index">
+      <div class="index-header"><div><h3>玩家</h3><span>{{ filteredPlayers.length }} 人</span></div><el-input v-model="query" class="inventory-search-bar" aria-label="检索玩家" clearable placeholder="检索玩家名称" /></div>
+      <div v-if="pending==='summaries'" class="loading" role="status">正在加载玩家…</div>
+      <el-empty v-else-if="!filteredPlayers.length" description="暂无匹配玩家" />
+      <div v-else class="player-list">
+        <button v-for="player in filteredPlayers" :key="player.player_id" type="button" class="player-row" :class="{active:selectedPlayerId===player.player_id}" :aria-pressed="selectedPlayerId===player.player_id" :aria-label="`${player.display_name}，数量 ${player.item_count}，已过期 ${player.expired_count}`" @click="selectPlayer(player.player_id)"><strong>{{ player.display_name }}</strong><span>数量 {{ player.item_count }} · 已过期 {{ player.expired_count }}</span></button>
       </div>
-      <div v-if="pending === 'search'" role="status">正在搜索玩家…</div>
-      <el-empty
-        v-else-if="searchDone && !players.length"
-        description="未找到匹配玩家"
-      />
-      <div v-else class="players">
-        <div v-for="player in players" :key="player.id" class="player">
-          <span
-            ><strong>{{ player.display_name }}</strong
-            ><el-tag
-              size="small"
-              :type="player.status === 'active' ? 'success' : 'warning'"
-              >{{ player.status === "active" ? "正式" : "待确认" }}</el-tag
-            ></span
-          ><el-button
-            size="small"
-            :loading="pending === 'inventory' && loadingPlayer === player.id"
-            :disabled="busy"
-            :aria-label="`查看 ${player.display_name} 的权益`"
-            @click="loadInventory(player.id)"
-            >查看背包</el-button
-          >
-        </div>
-      </div>
-    </el-card>
-    <div v-if="pending === 'inventory'" role="status">正在加载权益背包…</div>
-    <template v-else-if="inventory"
-      ><div class="heading">
-        <div>
-          <h3>{{ inventory.player.display_name }}的权益背包</h3>
-          <p>每张权益独立展示来源、有效期与完整流水。</p>
-        </div>
-        <el-tag>{{ inventory.items.length }} 张</el-tag>
-      </div>
-      <el-empty v-if="!inventory.items.length" description="该玩家暂无权益" />
-      <div class="grid">
-        <el-card
-          v-for="item in inventory.items"
-          :key="item.id"
-          data-testid="inventory-item-card"
-          shadow="hover"
-          ><template #header
-            ><div class="heading">
-              <strong>{{ item.serial_number }}</strong
-              ><el-tag size="small" :type="statusType(item.status)">{{
-                entitlementLabel(item.status)
-              }}</el-tag>
-            </div></template
-          >
-          <dl>
-            <dt>权益类型</dt>
-            <dd>{{ itemDisplayName(item) }}</dd>
-            <dt>来源</dt>
-            <dd>{{ item.source_label }}</dd>
-            <dt>到期</dt>
-            <dd>{{ formatEntitlementDate(item.expires_at) }}</dd>
-          </dl>
-          <el-timeline
-            ><el-timeline-item
-              v-for="entry in item.ledger_entries"
-              :key="entry.id"
-              :timestamp="formatEntitlementDate(entry.occurred_at)"
-              placement="top"
-              ><strong>{{ entitlementLabel(entry.event_type) }}</strong
-              ><span v-if="entry.reason">
-                · {{ entry.reason }}</span
-              ></el-timeline-item
-            ></el-timeline
-          >
-          <div class="actions">
-            <el-button size="small" @click="$emit('open-ledger', { playerId: inventory!.player.id, itemId: item.id })">查看流水</el-button>
-            <el-button v-if="isGeneral(item) && item.status === 'available'" size="small" type="primary" plain @click="openConsume(item)">手工核销</el-button>
-            <el-button
-              size="small"
-                :disabled="busy || item.status === 'revoked'"
-              @click="openAction('extend', item)"
-              >延期</el-button
-            ><el-button
-                v-if="item.status !== 'revoked'"
-              size="small"
-              type="danger"
-              plain
-              :disabled="busy"
-              @click="openAction('void', item)"
-              >作废</el-button
-            ><el-button
-              v-else
-              size="small"
-              type="success"
-              plain
-              :disabled="busy"
-              @click="openAction('restore', item)"
-              >恢复</el-button
-            >
-          </div></el-card
-        >
-      </div></template
-    >
-    <el-dialog
-      v-model="dialogOpen"
-      :title="dialogTitle"
-      width="min(480px, calc(100vw - 32px))"
-      class="app-dialog"
-      :close-on-click-modal="false"
-      ><template v-if="selectedItem"
-        ><el-descriptions :column="1" border
-          ><el-descriptions-item label="权益序列号">{{
-            selectedItem.serial_number
-          }}</el-descriptions-item
-          ><el-descriptions-item label="当前状态">{{
-            entitlementLabel(selectedItem.status)
-          }}</el-descriptions-item
-          ><el-descriptions-item v-if="action === 'extend'" label="原到期日">{{
-            formatEntitlementDate(selectedItem.expires_at)
-          }}</el-descriptions-item></el-descriptions
-        ><el-alert
-          v-if="action === 'void'"
-          title="作废后该权益将不可用于指定；如需恢复必须再次明确操作。"
-          type="warning"
-          show-icon
-          :closable="false" /><el-alert
-          v-if="action === 'restore'"
-          title="恢复后权益将按当前到期日重新计算可用状态。"
-          type="info"
-          show-icon
-          :closable="false" /><label v-if="action === 'extend'" class="field"
-          >新到期日<input
-            v-model="actionForm.date"
-            aria-label="新到期日"
-            type="date" /></label
-        ><label class="field"
-          >操作原因<textarea
-            v-model="actionForm.reason"
-            aria-label="操作原因"
-            rows="3"
-          /></label></template
-      ><template #footer
-        ><el-button
-          :disabled="pending === 'mutation'"
-          @click="dialogOpen = false"
-          >取消</el-button
-        ><el-button
-          type="primary"
-          :loading="pending === 'mutation'"
-          :disabled="!validAction"
-          @click="submitAction"
-          >{{ confirmLabel }}</el-button
-        ></template
-      ></el-dialog
-    >
-    <el-dialog v-model="consumeOpen" title="手工核销通用道具" width="min(520px, calc(100vw - 32px))" class="app-dialog" :close-on-click-modal="false">
-      <el-form label-position="top"><el-form-item label="核销数量"><el-input-number v-model="consumeForm.quantity" :min="1" :max="100" /></el-form-item><el-form-item label="用途"><el-input v-model="consumeForm.purpose" placeholder="例如：兑换饮品" /></el-form-item><el-form-item label="备注"><el-input v-model="consumeForm.note" type="textarea" :rows="2" /></el-form-item></el-form>
-      <el-alert v-if="previewSerials.length" :title="`将核销：${previewSerials.join('、')}`" type="warning" :closable="false" show-icon />
-      <template #footer><el-button @click="consumeOpen=false">取消</el-button><el-button :loading="consumeBusy" @click="previewConsume">预览</el-button><el-button type="primary" :disabled="!previewSerials.length" :loading="consumeBusy" @click="commitConsume">确认核销</el-button></template>
-    </el-dialog>
-    <el-alert
-      v-if="error"
-      :title="error"
-      type="error"
-      show-icon
-      :closable="false"
-    />
+    </aside>
+
+    <main class="backpack-panel">
+      <div v-if="pending==='inventory'&&!inventory" class="loading" role="status">正在加载权益背包…</div>
+      <el-empty v-else-if="!inventory" description="请选择玩家查看权益背包" />
+      <template v-else>
+        <header class="backpack-header"><div><span class="eyebrow">玩家权益背包</span><h2>{{ inventory.player.display_name }}</h2><p>按来源与有效期管理每一张独立道具。</p></div><div class="header-tools"><el-tag>{{ presentItemCount }} 张</el-tag><el-radio-group v-model="groupMode" size="small" aria-label="背包排序方式"><el-radio-button value="month">按发放月份</el-radio-button><el-radio-button value="type">按类型</el-radio-button></el-radio-group></div></header>
+        <el-empty v-if="!inventory.items.length" description="该玩家暂无权益" />
+        <section v-for="group in groups" :key="group.key" class="item-group"><div class="group-heading"><h3>{{ group.label }}</h3><span>{{ group.items.length }} 张</span></div><div class="item-grid">
+          <article v-for="item in group.items" :key="item.id" class="item-card" data-testid="inventory-item-card">
+            <div class="item-top"><div><strong>{{ itemDisplayName(item) }}</strong><el-tag v-if="item.bound_actor_name" size="small" effect="plain">绑定：{{ item.bound_actor_name }}</el-tag></div><div class="item-state"><el-tag size="small" :type="statusType(itemStatus(item))">{{ entitlementLabel(itemStatus(item)) }}</el-tag><span>{{ item.serial_number }}</span></div></div>
+            <dl><dt>来源</dt><dd>{{ item.source_label }}</dd><dt>有效期</dt><dd>{{ formatEntitlementDate(item.granted_at) }}—{{ formatEntitlementDate(item.expires_at) }}</dd></dl>
+            <div v-if="latestEntry(item)" class="latest-event"><span></span>{{ formatEntitlementDate(latestEntry(item)!.occurred_at) }} · {{ entitlementLabel(latestEntry(item)!.event_type) }}</div>
+            <div class="card-actions"><el-button link @click="$emit('open-ledger',{playerId:inventory!.player.id,itemId:item.id})">查看流水</el-button><el-button size="small" :disabled="busy||item.status==='revoked'" @click="openAction('extend',item)">延期</el-button><el-button v-if="canConsume(item)" size="small" type="primary" @click="openConsume(item)">手工核销</el-button><el-dropdown trigger="click" @command="handleMore($event,item)"><el-button size="small">更多</el-button><template #dropdown><el-dropdown-menu><el-dropdown-item v-if="item.status!=='revoked'" command="void">作废</el-dropdown-item><el-dropdown-item v-else command="restore">恢复</el-dropdown-item></el-dropdown-menu></template></el-dropdown></div>
+          </article>
+        </div></section>
+      </template>
+    </main>
+
+    <el-dialog v-model="dialogOpen" :title="dialogTitle" width="min(480px, calc(100vw - 32px))" class="app-dialog" :close-on-click-modal="false"><template v-if="selectedItem"><el-descriptions :column="1" border><el-descriptions-item label="权益序列号">{{ selectedItem.serial_number }}</el-descriptions-item><el-descriptions-item label="当前状态">{{ entitlementLabel(itemStatus(selectedItem)) }}</el-descriptions-item><el-descriptions-item v-if="action==='extend'" label="原到期日">{{ formatEntitlementDate(selectedItem.expires_at) }}</el-descriptions-item></el-descriptions><label v-if="action==='extend'" class="field">新到期日<input v-model="actionForm.date" aria-label="新到期日" type="date" /></label><label class="field">操作原因<span class="required">必填</span><textarea v-model="actionForm.reason" aria-label="操作原因" rows="3" /></label></template><template #footer><el-button @click="dialogOpen=false">取消</el-button><el-button type="primary" :loading="pending==='mutation'" :disabled="!validAction" @click="submitAction">{{ confirmLabel }}</el-button></template></el-dialog>
+
+    <el-dialog v-model="consumeOpen" title="手工核销道具" width="min(520px, calc(100vw - 32px))" class="app-dialog" :close-on-click-modal="false"><template v-if="consumeItem"><div class="consume-summary"><strong>{{ itemDisplayName(consumeItem) }}</strong><span>{{ consumeItem.serial_number }}</span></div><label class="field">核销备注<span class="required">必填</span><el-input v-model="consumeNote" type="textarea" :rows="3" aria-label="核销备注" placeholder="记录客服确认、玩家意愿或其他特殊操作原因" /></label><el-alert v-if="previewSerials.length" :title="`将核销：${previewSerials.join('、')}`" type="warning" :closable="false" show-icon /></template><template #footer><el-button @click="consumeOpen=false">取消</el-button><el-button :loading="consumeBusy" :disabled="!consumeNote.trim()" @click="previewConsume">预览核销</el-button><el-button type="primary" :disabled="!previewSerials.length||!consumeNote.trim()" :loading="consumeBusy" @click="commitConsume">确认核销</el-button></template></el-dialog>
   </div>
 </template>
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from "vue";
+import { computed, onMounted, reactive, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
 import { adminApi } from "../../api/admin";
 import { useAuthStore } from "../../auth/store";
-import type {
-  EntitlementItem,
-  EntitlementItemType,
-  PlayerInventory,
-  PlayerProfile,
-} from "../../features/entitlements/types";
-import {
-  entitlementLabel,
-  formatEntitlementDate,
-  toIsoEndOfDay,
-} from "../../features/entitlements/format";
-const props = defineProps<{ theaterId: number; definitions: EntitlementItemType[] }>();
-defineEmits<{ "open-ledger": [payload: { playerId: number; itemId: number }] }>();
-const auth = useAuthStore(),
-  query = ref(""),
-  players = ref<PlayerProfile[]>([]),
-  inventory = ref<PlayerInventory | null>(null),
-  itemTypes = ref<EntitlementItemType[]>([]),
-  error = ref(""),
-  pending = ref<"" | "search" | "inventory" | "mutation">(""),
-  searchDone = ref(false),
-  loadingPlayer = ref<number | null>(null),
-  dialogOpen = ref(false),
-  selectedItem = ref<EntitlementItem | null>(null),
-  action = ref<"extend" | "void" | "restore">("void"),
-  actionForm = reactive({ date: "", reason: "" }),
-  consumeOpen = ref(false), consumeBusy = ref(false), consumeItem = ref<EntitlementItem|null>(null), previewSerials = ref<string[]>([]), consumeForm = reactive({ quantity: 1, purpose: "", note: "" });
-const busy = computed(() => !!pending.value),
-  dialogTitle = computed(
-    () =>
-      ({ extend: "延期权益", void: "作废权益", restore: "恢复权益" })[
-        action.value
-      ],
-  ),
-  confirmLabel = computed(
-    () =>
-      ({ extend: "确认延期", void: "确认作废", restore: "确认恢复" })[
-        action.value
-      ],
-  ),
-  validAction = computed(
-    () =>
-      !!actionForm.reason.trim() &&
-      (action.value !== "extend" || !!actionForm.date),
-  );
-onMounted(async () => {
-  itemTypes.value = props.definitions;
-});
-const typeName = (id: number) =>
-    itemTypes.value.find((t) => t.id === id)?.display_name ?? `类型 #${id}`,
-  statusType = (s: string) =>
-  s === "available" ? "success" : s === "revoked" ? "danger" : "warning";
-const itemDisplayName = (item: EntitlementItem) =>
-  item.bound_actor_name
-    ? `${typeName(item.item_type_id)} · ${item.bound_actor_name}`
-    : typeName(item.item_type_id);
-async function search() {
-  if (!auth.token || busy.value) return;
-  pending.value = "search";
-  searchDone.value = false;
-  inventory.value = null;
-  players.value = [];
-  error.value = "";
-  try {
-    players.value = await adminApi.getPlayerProfiles(
-      auth.token,
-      query.value.trim(),
-    );
-  } catch (e: any) {
-    error.value = e.message;
-  } finally {
-    pending.value = "";
-    searchDone.value = true;
-  }
-}
-async function loadInventory(id: number) {
-  if (!auth.token || busy.value) return;
-  pending.value = "inventory";
-  loadingPlayer.value = id;
-  inventory.value = null;
-  error.value = "";
-  try {
-    inventory.value = await adminApi.getTheaterPlayerInventory(auth.token, props.theaterId, id);
-  } catch (e: any) {
-    error.value = e.message;
-  } finally {
-    pending.value = "";
-    loadingPlayer.value = null;
-  }
-}
-function isGeneral(item: EntitlementItem) { return itemTypes.value.find(type => type.id === item.item_type_id)?.category === "general"; }
-function openConsume(item: EntitlementItem){ consumeItem.value=item; consumeForm.quantity=1;consumeForm.purpose="";consumeForm.note="";previewSerials.value=[];consumeOpen.value=true; }
-function consumePayload(){return { item_type_id: consumeItem.value!.item_type_id, quantity: consumeForm.quantity, purpose: consumeForm.purpose.trim(), note: consumeForm.note.trim()||null, performance_id:null };}
-async function previewConsume(){if(!auth.token||!inventory.value||!consumeItem.value||!consumeForm.purpose.trim())return ElMessage.warning("请填写核销用途");consumeBusy.value=true;try{previewSerials.value=(await adminApi.previewManualConsumption(auth.token,props.theaterId,inventory.value.player.id,consumePayload())).serial_numbers}catch(e:any){ElMessage.error(e.message)}finally{consumeBusy.value=false}}
-async function commitConsume(){if(!auth.token||!inventory.value||!previewSerials.value.length)return;consumeBusy.value=true;try{await adminApi.commitManualConsumption(auth.token,props.theaterId,inventory.value.player.id,consumePayload(),`consume-${Date.now()}`);ElMessage.success("核销完成");consumeOpen.value=false;await loadInventory(inventory.value.player.id)}catch(e:any){ElMessage.error(e.message)}finally{consumeBusy.value=false}}
-function openAction(next: typeof action.value, item: EntitlementItem) {
-  action.value = next;
-  selectedItem.value = item;
-  actionForm.date = "";
-  actionForm.reason = "";
-  dialogOpen.value = true;
-}
-function replace(item: EntitlementItem) {
-  if (inventory.value)
-    inventory.value.items = inventory.value.items.map((old) =>
-      old.id === item.id ? item : old,
-    );
-}
-async function submitAction() {
-  if (!auth.token || !selectedItem.value || !validAction.value || busy.value)
-    return;
-  pending.value = "mutation";
-  error.value = "";
-  try {
-    let next;
-    if (action.value === "extend")
-      next = await adminApi.extendEntitlementItem(
-        auth.token,
-        selectedItem.value.id,
-        {
-          expires_at: toIsoEndOfDay(actionForm.date)!,
-          reason: actionForm.reason.trim(),
-        },
-      );
-    else if (action.value === "void")
-      next = await adminApi.voidEntitlementItem(
-        auth.token,
-        selectedItem.value.id,
-        { reason: actionForm.reason.trim() },
-      );
-    else
-      next = await adminApi.restoreEntitlementItem(
-        auth.token,
-        selectedItem.value.id,
-        { reason: actionForm.reason.trim() },
-      );
-    replace(next);
-    dialogOpen.value = false;
-    ElMessage.success("权益状态已更新");
-  } catch (e: any) {
-    error.value = e.message;
-  } finally {
-    pending.value = "";
-  }
-}
+import type { EntitlementItem, EntitlementItemType, PlayerInventory, PlayerInventorySummary } from "../../features/entitlements/types";
+import { entitlementLabel, formatEntitlementDate, toIsoEndOfDay } from "../../features/entitlements/format";
+import { filterAndSortPlayers, groupInventoryItems, type InventoryGroupMode } from "../../features/entitlements/inventory-workspace";
+import { confirmAction } from "../../features/dialogs/confirm-action";
+const props=defineProps<{theaterId:number;definitions:EntitlementItemType[]}>();
+defineEmits<{"open-ledger":[payload:{playerId:number;itemId:number}]}>();
+const auth=useAuthStore(),query=ref(""),players=ref<PlayerInventorySummary[]>([]),selectedPlayerId=ref<number|null>(null),inventory=ref<PlayerInventory|null>(null),pending=ref<""|"summaries"|"inventory"|"mutation">(""),groupMode=ref<InventoryGroupMode>("month");
+const dialogOpen=ref(false),selectedItem=ref<EntitlementItem|null>(null),action=ref<"extend"|"void"|"restore">("void"),actionForm=reactive({date:"",reason:""});
+const consumeOpen=ref(false),consumeBusy=ref(false),consumeItem=ref<EntitlementItem|null>(null),consumeNote=ref(""),previewSerials=ref<string[]>([]);
+const busy=computed(()=>!!pending.value||consumeBusy.value),filteredPlayers=computed(()=>filterAndSortPlayers(players.value,query.value)),groups=computed(()=>groupInventoryItems(inventory.value?.items??[],props.definitions,groupMode.value)),presentItemCount=computed(()=>inventory.value?.items.filter(item=>["available","expired"].includes(itemStatus(item))).length??0),dialogTitle=computed(()=>({extend:"延期权益",void:"作废权益",restore:"恢复权益"})[action.value]),confirmLabel=computed(()=>({extend:"确认延期",void:"确认作废",restore:"确认恢复"})[action.value]),validAction=computed(()=>!!actionForm.reason.trim()&&(action.value!=="extend"||!!actionForm.date));
+const typeName=(id:number)=>props.definitions.find(item=>item.id===id)?.display_name??`类型 #${id}`;
+const itemDisplayName=(item:EntitlementItem)=>typeName(item.item_type_id);
+const itemStatus=(item:EntitlementItem)=>item.status==="available"&&new Date(item.expires_at).getTime()<Date.now()?"expired":item.status;
+const statusType=(status:string)=>status==="available"?"success":status==="revoked"?"danger":"warning";
+const canConsume=(item:EntitlementItem)=>item.status==="available"&&new Date(item.expires_at).getTime()>Date.now();
+const latestEntry=(item:EntitlementItem)=>item.ledger_entries.slice().sort((a,b)=>b.occurred_at.localeCompare(a.occurred_at))[0]??null;
+onMounted(loadSummaries);watch(()=>props.theaterId,()=>{query.value="";selectedPlayerId.value=null;inventory.value=null;void loadSummaries()});
+async function loadSummaries(preferredId:number|null=null){if(!auth.token)return;pending.value="summaries";try{players.value=await adminApi.getTheaterPlayerInventorySummaries(auth.token,props.theaterId);const next=preferredId&&players.value.some(item=>item.player_id===preferredId)?preferredId:filterAndSortPlayers(players.value,"")[0]?.player_id??null;selectedPlayerId.value=next;if(next)await loadInventory(next)}catch(e:any){ElMessage.error(e.message)}finally{if(pending.value==="summaries")pending.value=""}}
+async function selectPlayer(id:number){if(id===selectedPlayerId.value&&inventory.value)return;selectedPlayerId.value=id;await loadInventory(id)}
+async function loadInventory(id:number){if(!auth.token)return;pending.value="inventory";try{const next=await adminApi.getTheaterPlayerInventory(auth.token,props.theaterId,id);inventory.value=next}catch(e:any){ElMessage.error(e.message)}finally{pending.value=""}}
+function openConsume(item:EntitlementItem){consumeItem.value=item;consumeNote.value="";previewSerials.value=[];consumeOpen.value=true}
+function consumePayload(){return {item_type_id:consumeItem.value!.item_type_id,quantity:1,purpose:"手工核销",note:consumeNote.value.trim(),performance_id:null}}
+async function previewConsume(){if(!auth.token||!inventory.value||!consumeItem.value||!consumeNote.value.trim())return;consumeBusy.value=true;try{previewSerials.value=(await adminApi.previewManualConsumption(auth.token,props.theaterId,inventory.value.player.id,consumePayload())).serial_numbers}catch(e:any){ElMessage.error(e.message)}finally{consumeBusy.value=false}}
+async function commitConsume(){if(!auth.token||!inventory.value||!consumeItem.value||!previewSerials.value.length)return;try{await confirmAction({title:"确认手工核销",message:`将核销 ${itemDisplayName(consumeItem.value)}（${previewSerials.value.join("、")}）。\n备注：${consumeNote.value.trim()}`,tone:"warning",confirmButtonText:"确认核销"})}catch{return}consumeBusy.value=true;const playerId=inventory.value.player.id;try{await adminApi.commitManualConsumption(auth.token,props.theaterId,playerId,consumePayload(),`consume-${consumeItem.value.id}-${Date.now()}`);consumeOpen.value=false;ElMessage.success("核销完成");await loadSummaries(playerId)}catch(e:any){ElMessage.error(e.message)}finally{consumeBusy.value=false}}
+function handleMore(command:unknown,item:EntitlementItem){openAction(String(command) as typeof action.value,item)}
+function openAction(next:typeof action.value,item:EntitlementItem){action.value=next;selectedItem.value=item;actionForm.date="";actionForm.reason="";dialogOpen.value=true}
+async function submitAction(){if(!auth.token||!selectedItem.value||!validAction.value)return;pending.value="mutation";try{let next:EntitlementItem;if(action.value==="extend")next=await adminApi.extendEntitlementItem(auth.token,selectedItem.value.id,{expires_at:toIsoEndOfDay(actionForm.date)!,reason:actionForm.reason.trim()});else if(action.value==="void")next=await adminApi.voidEntitlementItem(auth.token,selectedItem.value.id,{reason:actionForm.reason.trim()});else next=await adminApi.restoreEntitlementItem(auth.token,selectedItem.value.id,{reason:actionForm.reason.trim()});if(inventory.value)inventory.value.items=inventory.value.items.map(item=>item.id===next.id?next:item);dialogOpen.value=false;ElMessage.success("权益状态已更新");if(selectedPlayerId.value)await loadSummaries(selectedPlayerId.value)}catch(e:any){ElMessage.error(e.message)}finally{pending.value=""}}
 </script>
 <style scoped>
-.workspace {
-  display: grid;
-  gap: 14px;
-}
-.search {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.search .el-input { flex: 1; min-width: 0; }
-.search .el-button { flex: 0 0 auto; }
-.field input,
-.field textarea {
-  padding: 8px 10px;
-  border: 1px solid var(--panel-border);
-  border-radius: 6px;
-  background: var(--panel-bg);
-  color: var(--text-primary);
-}
-.players {
-  display: grid;
-  gap: 8px;
-  margin-top: 12px;
-}
-.player,
-.heading {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-}
-.player {
-  padding: 8px 10px;
-  border: 1px solid var(--panel-border);
-  border-radius: 6px;
-}
-.player span {
-  display: flex;
-  gap: 8px;
-}
-.heading h3,
-.heading p {
-  margin: 0;
-}
-.heading p {
-  font-size: 13px;
-  color: var(--text-secondary);
-}
-.grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
-}
-dl {
-  display: grid;
-  grid-template-columns: 70px 1fr;
-  gap: 7px;
-  font-size: 13px;
-}
-dt {
-  color: var(--text-secondary);
-}
-dd {
-  margin: 0;
-}
-.actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 6px;
-}
-.field {
-  display: grid;
-  gap: 6px;
-  margin-top: 14px;
-}
-@media (max-width: 1000px) {
-  .grid {
-    grid-template-columns: 1fr 1fr;
-  }
-}
-@media (max-width: 640px) {
-  .grid {
-    grid-template-columns: 1fr;
-  }
-}
+.inventory-workspace{display:grid;grid-template-columns:320px minmax(0,1fr);gap:18px;min-height:620px}.player-index,.backpack-panel{border:1px solid var(--el-border-color-lighter);border-radius:14px;background:#fff}.player-index{overflow:hidden}.index-header{display:grid;gap:14px;padding:20px;border-bottom:1px solid var(--el-border-color-lighter)}.index-header>div,.backpack-header,.header-tools,.item-top,.item-top>div,.item-state,.group-heading,.card-actions,.consume-summary{display:flex;align-items:center;gap:10px}.index-header>div,.backpack-header,.group-heading,.item-top{justify-content:space-between}.index-header h3,.backpack-header h2,.backpack-header p,.group-heading h3{margin:0}.index-header span,.backpack-header p,.group-heading span{color:var(--el-text-color-secondary);font-size:13px}.player-list{display:grid;gap:6px;padding:10px;max-height:720px;overflow:auto}.player-row{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;padding:12px;border:1px solid transparent;border-radius:10px;background:transparent;color:var(--el-text-color-primary);cursor:pointer;text-align:left}.player-row span{color:var(--el-text-color-secondary);font-size:12px;white-space:nowrap}.player-row:hover{background:var(--el-fill-color-light)}.player-row.active{border-color:#b9d3ff;background:#edf5ff;color:var(--el-color-primary)}.backpack-panel{min-width:0;padding:22px}.backpack-header{margin-bottom:20px}.eyebrow{color:var(--el-color-primary);font-size:12px;font-weight:700}.header-tools{flex-wrap:wrap;justify-content:flex-end}.item-group+.item-group{margin-top:24px}.group-heading{margin-bottom:10px}.item-grid{display:grid;grid-template-columns:repeat(2,minmax(300px,1fr));gap:12px}.item-card{display:grid;gap:14px;padding:16px;border:1px solid var(--el-border-color-lighter);border-radius:12px;background:#fff;transition:.2s}.item-card:hover{border-color:#c8d6ea;box-shadow:0 8px 24px rgba(31,45,61,.07)}.item-top>div,.item-state{flex-wrap:wrap}.item-state{justify-content:flex-end;color:var(--el-text-color-placeholder);font-size:12px}.item-card dl{display:grid;grid-template-columns:56px 1fr;gap:7px;margin:0;font-size:13px}.item-card dt{color:var(--el-text-color-secondary)}.item-card dd{margin:0}.latest-event{display:flex;align-items:center;gap:7px;color:var(--el-text-color-secondary);font-size:12px}.latest-event>span{width:7px;height:7px;border-radius:50%;background:var(--el-color-primary-light-5)}.card-actions{justify-content:flex-end;padding-top:2px}.loading{padding:28px;color:var(--el-text-color-secondary)}.field{display:grid;grid-template-columns:auto auto 1fr;gap:6px;margin-top:14px}.field>*:last-child{grid-column:1/-1}.field input,.field textarea{padding:8px 10px;border:1px solid var(--el-border-color);border-radius:7px;background:#fff}.required{color:var(--el-color-danger);font-size:12px}.consume-summary{justify-content:space-between;padding:14px;border-radius:10px;background:var(--el-fill-color-light);color:var(--el-text-color-secondary)}@media(max-width:1100px){.inventory-workspace{grid-template-columns:280px minmax(0,1fr)}.item-grid{grid-template-columns:1fr}}@media(max-width:760px){.inventory-workspace{grid-template-columns:1fr}.player-list{max-height:320px}.backpack-header{align-items:flex-start;flex-direction:column}.header-tools{justify-content:flex-start}}
 </style>

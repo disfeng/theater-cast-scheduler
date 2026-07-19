@@ -40,6 +40,7 @@ from app.schemas.entitlements import (
     EntitlementLedgerPageRead,
     PlayerCreate,
     PlayerInventoryRead,
+    PlayerInventorySummaryRead,
     PlayerMatchResult,
     PlayerMergeRequest,
     PlayerRead,
@@ -56,6 +57,7 @@ from app.services.entitlements import (
     extend_item,
     inventory_for_player,
     list_entitlement_ledger,
+    list_theater_inventory_summaries,
     manual_consume,
     normalize_player_name,
     reconciliation_drill,
@@ -578,6 +580,18 @@ def confirm_theater_batch(
         )
     except (EntitlementNotFound, EntitlementConflict) as exc:
         _raise(exc)
+
+
+@router.get(
+    "/theaters/{theater_id}/player-inventory-summaries",
+    response_model=list[PlayerInventorySummaryRead],
+)
+def theater_inventory_summaries(
+    theater_id: int,
+    _: dict = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    return list_theater_inventory_summaries(db, theater_id)
 
 
 @router.get(

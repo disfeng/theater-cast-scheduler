@@ -1,5 +1,5 @@
 import { apiClient } from "./client";
-import type { EntitlementItem, EntitlementItemType, EntitlementLedgerPage, GrantBatch, GrantBatchPayload, PlayerInventory, PlayerProfile } from "../features/entitlements/types";
+import type { EntitlementItem, EntitlementItemType, EntitlementLedgerPage, GrantBatch, GrantBatchPayload, PlayerInventory, PlayerInventorySummary, PlayerProfile } from "../features/entitlements/types";
 import type { BoardDraftItem, BoardDraftItemPatch, BoardRevision, PerformanceBoard } from "../features/performance-board/types";
 import type { DesignationMonthWorkspace, PerformanceWorkspace } from "../features/designation-workspace/types";
 
@@ -277,6 +277,10 @@ export const adminApi = {
 
   async getTheaterPlayerInventory(token: string, theaterId: number, playerId: number): Promise<PlayerInventory> {
     return apiClient.request(`/admin/theaters/${theaterId}/players/${playerId}/inventory`, { token });
+  },
+
+  async getTheaterPlayerInventorySummaries(token: string, theaterId: number): Promise<PlayerInventorySummary[]> {
+    return apiClient.request(`/admin/theaters/${theaterId}/player-inventory-summaries`, { token });
   },
 
   async previewManualConsumption(token: string, theaterId: number, playerId: number, payload: { item_type_id: number; quantity: number; purpose: string; note: string | null; performance_id: number | null }): Promise<{ item_ids: number[]; serial_numbers: string[] }> {

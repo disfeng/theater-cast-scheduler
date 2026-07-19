@@ -5,6 +5,7 @@ import { renderAdminRoute } from "./helpers/render-app";
 import { entitlementLabel, formatEntitlementDate, toIsoEndOfDay } from "../src/features/entitlements/format";
 import { applyGrantPlayerMatch, createGrantRow, expandGrantItems, grantRowIsResolved, parsePastedPlayerNames } from "../src/features/entitlements/grant-table";
 import { summarizeCardResults, topThreeCardInvalidReason } from "../src/features/entitlements/top-three-grants";
+import { filterAndSortPlayers, groupInventoryItems } from "../src/features/entitlements/inventory-workspace";
 import mainSource from "../src/main.ts?raw";
 import grantBatchSource from "../src/components/admin/GrantBatchTab.vue?raw";
 const baseStyles=readFileSync(`${process.cwd()}/src/styles/base.css`,"utf8");
@@ -43,6 +44,60 @@ test("Element Plus 全局使用中文且来源月份保留稳定提交格式",()
 test("来源名称显示必填标识",()=>{
   expect(grantBatchSource).toContain('来源名称<span class="required-mark">必填</span>');
   expect(grantBatchSource).toContain('placeholder="可选"');
+});
+
+test("背包玩家索引按拼音排序并即时筛选",()=>{
+  const rows=[
+    {player_id:2,display_name:"微醺",normalized_name:"微醺",sort_key:"weixun",status:"active",item_count:0,expired_count:0},
+    {player_id:1,display_name:"阿年",normalized_name:"阿年",sort_key:"anian",status:"active",item_count:3,expired_count:1},
+  ] as any;
+  expect(filterAndSortPlayers(rows,"").map(item=>item.display_name)).toEqual(["阿年","微醺"]);
+  expect(filterAndSortPlayers(rows,"微").map(item=>item.display_name)).toEqual(["微醺"]);
+});
+
+test("背包道具分组优先来源月份并支持类型排序",()=>{
+  const definitions=[
+    {id:1,display_name:"万能指定",sort_order:2},
+    {id:2,display_name:"饮品券",sort_order:1},
+  ] as any;
+  const items=[
+    {id:1,item_type_id:1,source_month:"2026-06-01",granted_at:"2026-07-19T00:00:00",expires_at:"2026-10-01T00:00:00"},
+    {id:2,item_type_id:2,source_month:null,granted_at:"2026-07-10T00:00:00",expires_at:"2026-08-01T00:00:00"},
+    {id:3,item_type_id:1,source_month:"2026-07-01",granted_at:"2026-07-01T00:00:00",expires_at:"2026-09-01T00:00:00"},
+  ] as any;
+  const months=groupInventoryItems(items,definitions,"month");
+  expect(months.map(group=>group.key)).toEqual(["2026-07","2026-06"]);
+  expect(months[0].items.map(item=>item.id)).toEqual([2,3]);
+  const types=groupInventoryItems(items,definitions,"type");
+  expect(types.map(group=>group.label)).toEqual(["饮品券","万能指定"]);
+});
+
+test("权益背包双栏工作台展示全部玩家并按需切换背包",async()=>{
+  const requests:string[]=[];
+  vi.stubGlobal("fetch",vi.fn(async(input:RequestInfo|URL)=>{
+    const path=String(input).replace(/https?:\/\/localhost:\d+/,"");requests.push(path);
+    if(path==="/admin/theaters")return Response.json([{id:2,name:"西安幽州剧场",is_active:true}]);
+    if(path==="/admin/theaters/2/entitlement-item-types")return Response.json([{id:1,theater_id:2,code:"universal",display_name:"万能指定",category:"designation",designation_type:"universal",priority:300,default_validity_days:90,color:"#409eff",icon:null,description:null,is_active:true,sort_order:0}]);
+    if(path==="/admin/theaters/2/player-inventory-summaries")return Response.json([
+      {player_id:1,display_name:"阿年",normalized_name:"阿年",sort_key:"anian",status:"active",item_count:1,expired_count:0},
+      {player_id:2,display_name:"微醺",normalized_name:"微醺",sort_key:"weixun",status:"active",item_count:0,expired_count:0},
+    ]);
+    if(path==="/admin/theaters/2/players/1/inventory")return Response.json({player:{id:1,display_name:"阿年",normalized_name:"阿年",status:"active"},items:[{id:10,theater_id:2,serial_number:"T2-1",owner_id:1,item_type_id:1,source_type:"monthly_ranking",source_month:"2026-07-01",source_label:"七月热力",granted_at:"2026-07-19T00:00:00",expires_at:"2026-10-01T00:00:00",status:"available",current_designation_id:null,notes:null,bound_actor_id:null,bound_actor_name:null,ledger_entries:[]}]});
+    if(path==="/admin/theaters/2/players/2/inventory")return Response.json({player:{id:2,display_name:"微醺",normalized_name:"微醺",status:"active"},items:[]});
+    return Response.json({detail:`unexpected:${path}`},{status:500});
+  }));
+  await renderAdminRoute("/admin/entitlements?theater_id=2&tab=inventory");
+  expect(await screen.findByRole("button",{name:/阿年.*数量 1.*已过期 0/})).toHaveAttribute("aria-pressed","true");
+  expect(screen.getByRole("button",{name:/微醺.*数量 0.*已过期 0/})).toBeInTheDocument();
+  expect(await screen.findByText("2026年7月")).toBeInTheDocument();
+  await fireEvent.click(screen.getByRole("button",{name:"手工核销"}));
+  expect(screen.getByRole("textbox",{name:"核销备注"})).toBeInTheDocument();
+  expect(screen.getByRole("button",{name:"预览核销"})).toBeDisabled();
+  await fireEvent.click(screen.getByRole("button",{name:"取消"}));
+  await fireEvent.update(screen.getByRole("textbox",{name:"检索玩家"}),"微");
+  expect(screen.queryByRole("button",{name:/阿年.*数量/})).not.toBeInTheDocument();
+  await fireEvent.click(screen.getByRole("button",{name:/微醺.*数量 0.*已过期 0/}));
+  await waitFor(()=>expect(requests).toContain("/admin/theaters/2/players/2/inventory"));
 });
 
 test("批量玩家去重并按动态道具数量展开实例",()=>{const definitions=[{id:3,theater_id:2,code:"drink",display_name:"饮品券",category:"general",designation_type:null,priority:0,default_validity_days:30,color:"#409eff",icon:null,description:null,is_active:true,sort_order:0}] as any;expect(parsePastedPlayerNames(" 小A\nKiki\n小a \n")).toEqual(["小A","Kiki"]);const row=createGrantRow("小A",definitions);row.playerId=7;row.status="matched";row.quantities[3]=2;expect(expandGrantItems([row],"2026-07-01","七月活动",null)).toHaveLength(2)});

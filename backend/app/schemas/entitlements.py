@@ -334,11 +334,21 @@ class PlayerInventoryRead(BaseModel):
     items: list[EntitlementItemRead]
 
 
+class PlayerInventorySummaryRead(BaseModel):
+    player_id: int
+    display_name: str
+    normalized_name: str
+    sort_key: str
+    status: PlayerStatus
+    item_count: int
+    expired_count: int
+
+
 class ManualConsumeRequest(BaseModel):
     item_type_id: int
     quantity: int = Field(ge=1, le=100)
     purpose: str = Field(min_length=1, max_length=200)
-    note: str | None = Field(default=None, max_length=4000)
+    note: str = Field(min_length=1, max_length=4000)
     performance_id: int | None = None
 
     @field_validator("purpose", "note")

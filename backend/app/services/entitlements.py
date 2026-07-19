@@ -3,9 +3,10 @@ import json
 import re
 from datetime import datetime, timedelta
 
-from sqlalchemy import and_, func, literal, or_, select, union_all
+from sqlalchemy import and_, case, func, literal, or_, select, union_all
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
+from pypinyin import lazy_pinyin
 
 from app.models.entities import (
     Actor,
@@ -35,6 +36,7 @@ from app.schemas.entitlements import (
     ManualConsumeRead,
     ManualConsumeRequest,
     PlayerInventoryRead,
+    PlayerInventorySummaryRead,
     PlayerMatchResult,
 )
 
@@ -490,6 +492,60 @@ def inventory_for_player(
     return PlayerInventoryRead(player=player, items=items)
 
 
+def list_theater_inventory_summaries(
+    db: Session, theater_id: int, now: datetime | None = None
+) -> list[PlayerInventorySummaryRead]:
+    current = now or utcnow()
+    present = EntitlementItem.status.in_(
+        [EntitlementItemStatus.AVAILABLE, EntitlementItemStatus.EXPIRED]
+    )
+    expired = and_(
+        present,
+        or_(
+            EntitlementItem.status == EntitlementItemStatus.EXPIRED,
+            EntitlementItem.expires_at < current,
+        ),
+    )
+    rows = db.execute(
+        select(
+            PlayerProfile.id,
+            PlayerProfile.display_name,
+            PlayerProfile.normalized_name,
+            PlayerProfile.status,
+            func.sum(case((present, 1), else_=0)).label("item_count"),
+            func.sum(case((expired, 1), else_=0)).label("expired_count"),
+        )
+        .outerjoin(
+            EntitlementItem,
+            and_(
+                EntitlementItem.owner_id == PlayerProfile.id,
+                EntitlementItem.theater_id == theater_id,
+            ),
+        )
+        .where(PlayerProfile.status == PlayerStatus.ACTIVE)
+        .group_by(
+            PlayerProfile.id,
+            PlayerProfile.display_name,
+            PlayerProfile.normalized_name,
+            PlayerProfile.status,
+        )
+    ).all()
+    result = [
+        PlayerInventorySummaryRead(
+            player_id=row.id,
+            display_name=row.display_name,
+            normalized_name=row.normalized_name,
+            sort_key="".join(lazy_pinyin(row.display_name)).casefold()
+            or row.normalized_name.casefold(),
+            status=row.status,
+            item_count=int(row.item_count or 0),
+            expired_count=int(row.expired_count or 0),
+        )
+        for row in rows
+    ]
+    return sorted(result, key=lambda row: (row.sort_key, row.normalized_name, row.player_id))
+
+
 def _manual_consumption_items(
     db: Session,
     theater_id: int,
@@ -506,8 +562,6 @@ def _manual_consumption_items(
     )
     if item_type is None:
         raise EntitlementNotFound("entitlement_item_type_not_found")
-    if item_type.category != EntitlementItemCategory.GENERAL:
-        raise EntitlementConflict("designation_item_manual_consumption_forbidden")
     if payload.performance_id is not None:
         performance = db.get(Performance, payload.performance_id)
         if performance is None or performance.theater_id != theater_id:
