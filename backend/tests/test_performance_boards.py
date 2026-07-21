@@ -11,6 +11,7 @@ from app.db.base import Base
 from app.models.entities import (
     BoardDraftItem,
     Actor,
+    ActorNotification,
     ActorRoleCapability,
     Designation,
     Performance,
@@ -23,7 +24,13 @@ from app.models.entities import (
     Role,
     Wish,
 )
-from app.models.enums import BoardChangeType, BoardItemKind, BoardRevisionStatus, DesignationType
+from app.models.enums import (
+    ActorNotificationType,
+    BoardChangeType,
+    BoardItemKind,
+    BoardRevisionStatus,
+    DesignationType,
+)
 from app.schemas.performance_boards import BoardItemPatch
 from app.services.performance_boards import (
     BoardConflict,
@@ -126,6 +133,46 @@ def test_confirming_player_item_is_idempotent_and_only_then_writes_performance_p
     assert players[0].theater_visit_ordinal == 14
 
 
+def test_activating_board_backfills_player_on_already_revealed_actor_notification(db_session):
+    performance = _performance(db_session)
+    actor = Actor(display_name="小A", phone_number="13800000000")
+    role = Role(theater_id=performance.theater_id, name="长离")
+    db_session.add_all([actor, role])
+    db_session.flush()
+    notification = ActorNotification(
+        task_id=None,
+        theater_id=performance.theater_id,
+        performance_id=performance.id,
+        role_id=role.id,
+        actor_id=actor.id,
+        notification_type=ActorNotificationType.NEW_ASSIGNMENT,
+        schedule_version=1,
+        theater_name_snapshot=performance.theater.name,
+        performance_date_snapshot=performance.performance_date,
+        slot_name_snapshot=performance.slot_name_snapshot,
+        start_time_snapshot=performance.start_time_snapshot,
+        role_name_snapshot=role.name,
+        player_name_snapshot=None,
+        designation_type_snapshot=None,
+        idempotency_key="already-revealed-before-board",
+    )
+    db_session.add(notification)
+    db_session.commit()
+    revision = create_board_revision(
+        db_session,
+        performance.id,
+        "#玩家信息\n【昭昭】长离（恋）：Jennifer-14-3",
+        7,
+    )
+    for item in revision.draft_items:
+        confirm_board_item(db_session, item.id, BoardItemPatch(), 7)
+
+    activate_revision(db_session, revision.id, 7)
+
+    db_session.refresh(notification)
+    assert notification.player_name_snapshot == "Jennifer"
+
+
 def test_confirmed_item_in_review_revision_can_be_reopened_and_confirmed_again(db_session):
     performance = _performance(db_session)
     revision = create_board_revision(
@@ -210,6 +257,45 @@ def test_wish_without_global_profile_links_unique_player_from_same_board_revisio
     performance_player = db_session.scalar(select(PerformancePlayer))
     wish = db_session.scalar(select(Wish))
     assert confirmed_wish.matched_player_id is None
+    assert performance_player.player_profile_id is None
+    assert wish.performance_player_id == performance_player.id
+    assert wish.player_name == "微醺未醒"
+
+
+def test_wish_with_global_profile_falls_back_to_same_board_player_name(db_session):
+    performance = _performance(db_session)
+    actor = Actor(display_name="小A")
+    role = Role(theater_id=performance.theater_id, name="林月棠")
+    db_session.add_all([actor, role])
+    db_session.flush()
+    db_session.add(ActorRoleCapability(actor_id=actor.id, role_id=role.id))
+    db_session.commit()
+    revision = create_board_revision(
+        db_session,
+        performance.id,
+        "#玩家信息\n【柳余潮】林月棠（恋）：微醺未醒-31-13\n#指定信息\n【虔诚许愿】-小A/林月棠-微醺未醒",
+        7,
+    )
+    player_item = next(row for row in revision.draft_items if row.item_kind == "player")
+    wish_item = next(row for row in revision.draft_items if row.item_kind == "wish")
+
+    confirm_board_item(db_session, player_item.id, BoardItemPatch(), 7)
+    assert player_item.matched_player_id is None
+    profile = PlayerProfile(display_name="微醺未醒", normalized_name="微醺未醒")
+    db_session.add(profile)
+    db_session.flush()
+    confirmed_wish = confirm_board_item(
+        db_session,
+        wish_item.id,
+        BoardItemPatch(actor_id=actor.id, role_id=role.id),
+        7,
+    )
+
+    assert confirmed_wish.matched_player_id == profile.id
+    activate_revision(db_session, revision.id, 7)
+
+    performance_player = db_session.scalar(select(PerformancePlayer))
+    wish = db_session.scalar(select(Wish))
     assert performance_player.player_profile_id is None
     assert wish.performance_player_id == performance_player.id
     assert wish.player_name == "微醺未醒"

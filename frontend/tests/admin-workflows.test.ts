@@ -118,6 +118,9 @@ test("settings groups theater configuration into focused tabs", async () => {
 
   const view = await renderAdminRoute("/admin/settings");
 
+  expect(screen.getByRole("tab", { name: "登记信息解析设置" })).toBeVisible();
+  expect(screen.getByRole("tab", { name: "演员通知与披露" })).toBeVisible();
+  expect(screen.queryByRole("tab", { name: "系统设置" })).not.toBeInTheDocument();
   expect(await screen.findByRole("button", { name: "新增场次" })).toBeVisible();
   expect(screen.queryByRole("button", { name: "保存周模板" })).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "新增角色" })).not.toBeInTheDocument();
@@ -146,7 +149,7 @@ test("AI parser settings keep the stored mask separate from a replacement key", 
     return new Response("[]");
   }));
   await renderAdminRoute("/admin/settings");
-  await fireEvent.click(screen.getByRole("tab", { name: "系统设置" }));
+  await fireEvent.click(screen.getByRole("tab", { name: "登记信息解析设置" }));
   expect(await screen.findByText("已保存：••••••••")).toBeVisible();
   await fireEvent.update(screen.getByLabelText("模型名称"), "model-b");
   await fireEvent.update(screen.getByLabelText("API Key"), "replacement-secret");

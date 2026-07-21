@@ -27,6 +27,7 @@ from app.services.entitlements import (
     extend_item,
     normalize_player_name,
     release_item,
+    reverse_consumption,
     reserve_item,
 )
 
@@ -67,6 +68,44 @@ def _available_item(db_session, *, expires_at=None):
 
 def test_normalized_name_ignores_whitespace_and_english_case():
     assert normalize_player_name("  Alice \t SMITH\n") == normalize_player_name("alice smith")
+
+
+def test_reverse_consumption_restores_original_item_once(db_session):
+    item = _available_item(db_session, expires_at=datetime.utcnow() + timedelta(days=30))
+    reserve_item(db_session, item.id, designation_id=9, performance_id=7, operator_user_id=1)
+    consume_item(db_session, item.id, operator_user_id=1)
+    consumed = db_session.scalar(
+        select(EntitlementLedgerEntry).where(
+            EntitlementLedgerEntry.item_id == item.id,
+            EntitlementLedgerEntry.event_type == EntitlementEventType.CONSUMED,
+        )
+    )
+
+    restored = reverse_consumption(
+        db_session,
+        consumed.id,
+        designation_id=9,
+        reason="排班换演员",
+        operator_user_id=1,
+        idempotency_key="reverse-9",
+    )
+    replay = reverse_consumption(
+        db_session,
+        consumed.id,
+        designation_id=9,
+        reason="排班换演员",
+        operator_user_id=1,
+        idempotency_key="reverse-9",
+    )
+
+    assert restored.status == EntitlementItemStatus.AVAILABLE
+    assert replay.id == restored.id
+    reversal = db_session.scalar(
+        select(EntitlementLedgerEntry).where(
+            EntitlementLedgerEntry.reverses_entry_id == consumed.id
+        )
+    )
+    assert reversal.event_type == EntitlementEventType.REVERSED
 
 
 def test_ambiguous_alias_returns_candidates_without_creating_player(db_session):

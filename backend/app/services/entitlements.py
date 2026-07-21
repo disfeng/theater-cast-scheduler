@@ -439,6 +439,69 @@ def consume_item(db: Session, item_id: int, operator_user_id: int) -> Entitlemen
         raise
 
 
+def reverse_consumption(
+    db: Session,
+    ledger_entry_id: int,
+    designation_id: int,
+    reason: str,
+    operator_user_id: int,
+    idempotency_key: str,
+    *,
+    commit: bool = True,
+) -> EntitlementItem:
+    try:
+        existing = db.scalar(
+            select(EntitlementLedgerEntry).where(
+                EntitlementLedgerEntry.reverses_entry_id == ledger_entry_id
+            )
+        )
+        if existing is not None:
+            return _locked_item(db, existing.item_id)
+        source = db.scalar(
+            select(EntitlementLedgerEntry)
+            .where(EntitlementLedgerEntry.id == ledger_entry_id)
+            .with_for_update()
+        )
+        if source is None or source.event_type != EntitlementEventType.CONSUMED:
+            raise EntitlementConflict("consumption_ledger_not_found")
+        item = _locked_item(db, source.item_id)
+        if item.status != EntitlementItemStatus.CONSUMED:
+            raise EntitlementConflict("entitlement_not_consumed")
+        old = item.status
+        item.status = (
+            EntitlementItemStatus.EXPIRED
+            if item.expires_at <= utcnow()
+            else EntitlementItemStatus.AVAILABLE
+        )
+        item.current_designation_id = None
+        db.add(
+            EntitlementLedgerEntry(
+                theater_id=item.theater_id,
+                item_id=item.id,
+                event_type=EntitlementEventType.REVERSED,
+                from_status=old,
+                to_status=item.status,
+                performance_id=source.performance_id,
+                designation_id=designation_id,
+                reason=reason,
+                idempotency_key=idempotency_key,
+                operator_user_id=operator_user_id,
+                reverses_entry_id=source.id,
+                note=_note(operator_user_id=operator_user_id, reason=reason),
+            )
+        )
+        if commit:
+            db.commit()
+            db.refresh(item)
+        else:
+            db.flush()
+        return item
+    except Exception:
+        if commit:
+            db.rollback()
+        raise
+
+
 def extend_item(
     db: Session, item_id: int, expires_at: datetime, reason: str, operator_user_id: int
 ) -> EntitlementItem:
@@ -843,7 +906,7 @@ def _anomaly_statement(now: datetime):
             item.status == EntitlementItemStatus.CONSUMED,
             or_(
                 designation.id.is_(None),
-                designation.lifecycle_status != "fulfilled",
+                designation.lifecycle_status.not_in(("effective", "fulfilled")),
                 designation.entitlement_item_id != item.id,
             ),
         )
@@ -865,7 +928,7 @@ def _anomaly_statement(now: datetime):
                     ),
                 ),
                 and_(
-                    designation.lifecycle_status == "fulfilled",
+                    designation.lifecycle_status.in_(("effective", "fulfilled")),
                     or_(
                         designation.entitlement_item_id.is_(None),
                         item.id.is_(None),
@@ -884,7 +947,7 @@ def _anomaly_statement(now: datetime):
         )
     ).where(
         designation.entitlement_item_id.is_not(None),
-        designation.lifecycle_status.not_in(("predesignated", "fulfilled")),
+        designation.lifecycle_status.not_in(("predesignated", "effective", "fulfilled")),
     )
     available_expired = select(*projection("available_item_expired", item.id)).where(
         item.status == EntitlementItemStatus.AVAILABLE, item.expires_at <= now

@@ -5,10 +5,12 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_db, require_admin
+from app.api.deps import get_db, require_admin, require_super_admin
+from app.services.admin_scope import AdminScope
 from app.models.entities import (
     Actor,
     LeaveRequest,
+    LeaveApplication,
     Performance,
     Role,
     Theater,
@@ -78,6 +80,8 @@ from app.services.admin_data import (
 from app.services.actor_accounts import create_actor_account
 from app.services.actor_accounts import reset_actor_password
 from app.schemas.actor_workspace import ActorPasswordResetInput
+from app.schemas.actor_workspace import LeaveApplicationDayRead, LeaveApplicationRead, LeaveDayReviewInput, LeavePendingReviewInput
+from app.services.actor_leaves import list_leave_applications, review_leave_day, review_pending_days
 from app.services.monthly_plan import (
     MonthlyPlanConflict,
     generate_monthly_plan,
@@ -100,7 +104,7 @@ router = APIRouter(prefix="/admin", tags=["admin"])
     response_model=ActorNotificationSettingsRead,
 )
 def get_actor_notification_settings(
-    _: dict[str, str] = Depends(require_admin), db: Session = Depends(get_db)
+    _: AdminScope = Depends(require_super_admin), db: Session = Depends(get_db)
 ):
     return read_sms_settings(get_sms_settings(db))
 
@@ -111,7 +115,7 @@ def get_actor_notification_settings(
 )
 def put_actor_notification_settings(
     payload: ActorNotificationSettingsUpdate,
-    _: dict[str, str] = Depends(require_admin),
+    _: AdminScope = Depends(require_super_admin),
     db: Session = Depends(get_db),
 ):
     try:
@@ -126,7 +130,7 @@ def put_actor_notification_settings(
 @router.post("/system-settings/actor-notifications/test")
 def test_actor_notification_sms(
     payload: SmsTestInput,
-    _: dict[str, str] = Depends(require_admin),
+    _: AdminScope = Depends(require_super_admin),
     db: Session = Depends(get_db),
 ):
     row = get_sms_settings(db)
@@ -142,7 +146,7 @@ def test_actor_notification_sms(
 @router.get("/system-settings/actor-notifications/logs")
 def get_actor_notification_sms_logs(
     limit: int = Query(default=50, ge=1, le=100),
-    _: dict[str, str] = Depends(require_admin),
+    _: AdminScope = Depends(require_super_admin),
     db: Session = Depends(get_db),
 ):
     rows = db.scalars(select(SmsDelivery).order_by(SmsDelivery.id.desc()).limit(limit)).all()
@@ -168,9 +172,10 @@ def get_actor_notification_sms_logs(
 )
 def get_theater_actor_notification_settings(
     theater_id: int,
-    _: dict[str, str] = Depends(require_admin),
+    scope: AdminScope = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
+    scope.require_theater(theater_id)
     theater = db.get(Theater, theater_id)
     if theater is None:
         raise HTTPException(status_code=404, detail="theater_not_found")
@@ -188,9 +193,10 @@ def get_theater_actor_notification_settings(
 def put_theater_actor_notification_settings(
     theater_id: int,
     payload: TheaterActorNotificationSettings,
-    _: dict[str, str] = Depends(require_admin),
+    scope: AdminScope = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
+    scope.require_theater(theater_id)
     theater = db.get(Theater, theater_id)
     if theater is None:
         raise HTTPException(status_code=404, detail="theater_not_found")
@@ -215,16 +221,17 @@ def dashboard(_: dict[str, str] = Depends(require_admin)) -> DashboardRead:
 @router.get("/theaters", response_model=list[TheaterRead])
 def get_theaters(
     include_inactive: bool = False,
-    _: dict[str, str] = Depends(require_admin),
+    scope: AdminScope = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> list[Theater]:
-    return list_theaters(db, include_inactive)
+    rows = list_theaters(db, include_inactive)
+    return rows if scope.is_super_admin else [row for row in rows if row.id in scope.allowed_theater_ids]
 
 
 @router.post("/theaters", response_model=TheaterRead)
 def post_theater(
     payload: TheaterCreate,
-    _: dict[str, str] = Depends(require_admin),
+    _: AdminScope = Depends(require_super_admin),
     db: Session = Depends(get_db),
 ) -> Theater:
     return _write(lambda: create_theater(db, payload), db)
@@ -234,15 +241,16 @@ def post_theater(
 def patch_theater(
     theater_id: int,
     payload: TheaterUpdate,
-    _: dict[str, str] = Depends(require_admin),
+    scope: AdminScope = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
+    scope.require_theater(theater_id)
     return _write(lambda: update_theater(db, theater_id, payload), db)
 
 
 @router.delete("/theaters/{theater_id}", status_code=204)
 def remove_theater(
-    theater_id: int, _: dict[str, str] = Depends(require_admin), db: Session = Depends(get_db)
+    theater_id: int, _: AdminScope = Depends(require_super_admin), db: Session = Depends(get_db)
 ):
     _write(lambda: delete_theater(db, theater_id), db)
     return Response(status_code=204)
@@ -250,15 +258,17 @@ def remove_theater(
 
 @router.post("/theaters/{theater_id}/archive", response_model=TheaterRead)
 def archive_theater(
-    theater_id: int, _: dict[str, str] = Depends(require_admin), db: Session = Depends(get_db)
+    theater_id: int, scope: AdminScope = Depends(require_admin), db: Session = Depends(get_db)
 ):
+    scope.require_theater(theater_id)
     return _write(lambda: set_theater_active(db, theater_id, False), db)
 
 
 @router.post("/theaters/{theater_id}/restore", response_model=TheaterRead)
 def restore_theater(
-    theater_id: int, _: dict[str, str] = Depends(require_admin), db: Session = Depends(get_db)
+    theater_id: int, scope: AdminScope = Depends(require_admin), db: Session = Depends(get_db)
 ):
+    scope.require_theater(theater_id)
     return _write(lambda: set_theater_active(db, theater_id, True), db)
 
 
@@ -266,9 +276,10 @@ def restore_theater(
 def get_slots(
     theater_id: int,
     include_inactive: bool = False,
-    _: dict[str, str] = Depends(require_admin),
+    scope: AdminScope = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
+    scope.require_theater(theater_id)
     return _write(lambda: list_theater_slots(db, theater_id, include_inactive), db)
 
 
@@ -276,9 +287,10 @@ def get_slots(
 def post_slot(
     theater_id: int,
     payload: TheaterSlotCreate,
-    _: dict[str, str] = Depends(require_admin),
+    scope: AdminScope = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
+    scope.require_theater(theater_id)
     return _write(lambda: create_theater_slot(db, theater_id, payload), db)
 
 
@@ -316,8 +328,9 @@ def restore_slot(
 
 @router.get("/theaters/{theater_id}/weekly-template")
 def get_template(
-    theater_id: int, _: dict[str, str] = Depends(require_admin), db: Session = Depends(get_db)
+    theater_id: int, scope: AdminScope = Depends(require_admin), db: Session = Depends(get_db)
 ):
+    scope.require_theater(theater_id)
     return _write(lambda: get_weekly_template(db, theater_id), db)
 
 
@@ -325,9 +338,10 @@ def get_template(
 def put_template(
     theater_id: int,
     payload: WeeklyTemplateUpdate,
-    _: dict[str, str] = Depends(require_admin),
+    scope: AdminScope = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
+    scope.require_theater(theater_id)
     return _write(lambda: replace_weekly_template(db, theater_id, payload.template), db)
 
 
@@ -335,18 +349,22 @@ def put_template(
 def get_roles(
     theater_id: int | None = None,
     include_inactive: bool = False,
-    _: dict[str, str] = Depends(require_admin),
+    scope: AdminScope = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> list[Role]:
-    return list_roles(db, theater_id, include_inactive)
+    if theater_id is not None:
+        scope.require_theater(theater_id)
+    rows = list_roles(db, theater_id, include_inactive)
+    return rows if scope.is_super_admin else [row for row in rows if row.theater_id in scope.allowed_theater_ids]
 
 
 @router.post("/roles", response_model=RoleRead)
 def post_role(
     payload: RoleCreate,
-    _: dict[str, str] = Depends(require_admin),
+    scope: AdminScope = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> Role:
+    scope.require_theater(payload.theater_id)
     return _write(lambda: create_role(db, payload), db)
 
 
@@ -384,17 +402,24 @@ def restore_role(
 
 @router.get("/actors", response_model=list[ActorRead])
 def get_actors(
-    _: dict[str, str] = Depends(require_admin), db: Session = Depends(get_db)
+    scope: AdminScope = Depends(require_admin), db: Session = Depends(get_db)
 ) -> list[ActorRead]:
-    return [_actor_read(actor) for actor in list_actors(db)]
+    rows = list_actors(db)
+    if not scope.is_super_admin:
+        rows = [actor for actor in rows if any(item.theater_id in scope.allowed_theater_ids for item in actor.theater_memberships)]
+    return [_actor_read(actor) for actor in rows]
 
 
 @router.post("/actors", response_model=ActorRead | ActorCreateResult)
 def post_actor(
     payload: ActorCreate,
-    _: dict[str, str] = Depends(require_admin),
+    scope: AdminScope = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> ActorRead | ActorCreateResult:
+    for theater_id in payload.theater_ids:
+        scope.require_theater(theater_id)
+    if payload.entry_theater_id is not None:
+        scope.require_theater(payload.entry_theater_id)
     if payload.phone_number is None:
         return _actor_read(create_actor(db, payload))
     try:
@@ -432,7 +457,7 @@ def post_actor_password_reset(
 def patch_actor(
     actor_id: int,
     payload: ActorUpdate,
-    _: dict[str, str] = Depends(require_admin),
+    scope: AdminScope = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> ActorRead:
     try:
@@ -476,6 +501,66 @@ def post_leave_review(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+def _leave_application_read(row: LeaveApplication) -> LeaveApplicationRead:
+    return LeaveApplicationRead(
+        id=row.id, actor_id=row.actor_id, actor_name=row.actor.display_name,
+        theater_id=row.theater_id, theater_name=row.theater.name, note=row.note,
+        created_at=row.created_at,
+        days=[LeaveApplicationDayRead(
+            id=day.id, leave_date=day.leave_date,
+            status="withdrawn" if day.withdrawn_at else day.status.value,
+            has_schedule_conflict=day.has_schedule_conflict,
+            review_reason=day.review_reason, reviewed_at=day.reviewed_at,
+            withdrawn_at=day.withdrawn_at,
+        ) for day in row.days],
+    )
+
+
+@router.get("/leave-applications", response_model=list[LeaveApplicationRead])
+def get_leave_applications(
+    theater_id: int | None = None,
+    status: LeaveStatus | None = None,
+    _: dict[str, object] = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> list[LeaveApplicationRead]:
+    return [_leave_application_read(row) for row in list_leave_applications(db, theater_id, status)]
+
+
+@router.post("/leave-application-days/{day_id}/review", response_model=LeaveApplicationDayRead)
+def post_leave_day_review(
+    day_id: int,
+    payload: LeaveDayReviewInput,
+    user: dict[str, object] = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> LeaveApplicationDayRead:
+    try:
+        status = LeaveStatus(payload.status)
+        day = review_leave_day(db, day_id, status, payload.reason, int(user.get("user_id") or 1))
+        db.commit()
+        return LeaveApplicationDayRead(
+            id=day.id, leave_date=day.leave_date, status=day.status.value,
+            has_schedule_conflict=day.has_schedule_conflict, review_reason=day.review_reason,
+            reviewed_at=day.reviewed_at, withdrawn_at=day.withdrawn_at,
+        )
+    except (LookupError, ValueError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.post("/leave-applications/{application_id}/review-pending", response_model=LeaveApplicationRead)
+def post_leave_pending_review(
+    application_id: int,
+    payload: LeavePendingReviewInput,
+    user: dict[str, object] = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> LeaveApplicationRead:
+    try:
+        row = review_pending_days(db, application_id, LeaveStatus(payload.status), payload.reason, int(user.get("user_id") or 1))
+        db.commit(); db.refresh(row)
+        return _leave_application_read(row)
+    except (LookupError, ValueError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
 @router.post("/monthly-plan/generate", response_model=list[PerformanceRead])
 def post_monthly_plan_generate(
     payload: MonthlyPlanRequest,
@@ -483,6 +568,7 @@ def post_monthly_plan_generate(
     db: Session = Depends(get_db),
 ) -> list[Performance]:
     try:
+        scope.require_theater(payload.theater_id)
         return generate_monthly_plan(
             db, payload.theater_id, payload.year, payload.month, set(payload.closed_dates)
         )
@@ -495,10 +581,11 @@ def post_monthly_plan_generate(
 @router.put("/monthly-plan", response_model=list[PerformanceRead])
 def put_monthly_plan(
     payload: MonthlyCalendarReplace,
-    _: dict[str, str] = Depends(require_admin),
+    scope: AdminScope = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> list[Performance]:
     try:
+        scope.require_theater(payload.theater_id)
         days = {item.performance_date: item.theater_slot_ids for item in payload.days}
         return replace_monthly_plan(db, payload.theater_id, payload.year, payload.month, days)
     except MonthlyPlanConflict as exc:
@@ -514,18 +601,20 @@ def get_performances(
     theater_id: int,
     year: int,
     month: int,
-    _: dict[str, str] = Depends(require_admin),
+    scope: AdminScope = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> list[Performance]:
+    scope.require_theater(theater_id)
     return list_month_performances(db, theater_id, year, month)
 
 
 @router.post("/performances", response_model=PerformanceRead)
 def create_performance(
     payload: PerformanceCreate,
-    _: dict[str, str] = Depends(require_admin),
+    scope: AdminScope = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> Performance:
+    scope.require_theater(payload.theater_id)
     slot = db.get(TheaterSlot, payload.theater_slot_id)
     if slot is None:
         raise HTTPException(status_code=404, detail="theater_slot_not_found")

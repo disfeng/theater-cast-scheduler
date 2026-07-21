@@ -46,6 +46,22 @@ class ScheduleMutationRequest(BaseModel):
         return value
 
 
+class DailySchedulePublishRequest(BaseModel):
+    theater_id: int
+    week_start: date
+    performance_date: date
+    expected_version: int
+    idempotency_key: str
+    confirm_republish: bool = False
+
+    @field_validator("week_start")
+    @classmethod
+    def monday_only(cls, value: date) -> date:
+        if value.weekday() != 0:
+            raise ValueError("week_start_must_be_monday")
+        return value
+
+
 class ScheduleConflictRead(BaseModel):
     code: str
     message: str
@@ -60,6 +76,9 @@ class PerformanceWorkspaceRead(BaseModel):
     slot_name: str
     start_time: time
     sort_order: int
+    publication_status: Literal["draft", "published"] = "draft"
+    publication_version: int | None = None
+    has_unpublished_changes: bool = False
 
 
 class RoleWorkspaceRead(BaseModel):

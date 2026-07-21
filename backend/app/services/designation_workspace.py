@@ -9,6 +9,8 @@ from app.models.entities import (
     ActorRoleCapability,
     Designation,
     LeaveRequest,
+    LeaveApplication,
+    LeaveApplicationDay,
     Performance,
     PerformancePlayer,
     Theater,
@@ -81,6 +83,26 @@ def project_designation_conflicts(
         )
     )
     if approved_leave is not None:
+        conflicts.append(
+            DesignationConflictProjection(
+                code="ACTOR_ON_LEAVE",
+                severity="hard",
+                message="演员当天已批准请假",
+                designation_id=designation.id,
+            )
+        )
+    grouped_approved_leave = db.scalar(
+        select(LeaveApplicationDay.id)
+        .join(LeaveApplication, LeaveApplication.id == LeaveApplicationDay.application_id)
+        .where(
+            LeaveApplication.actor_id == actor.id,
+            LeaveApplication.theater_id == performance.theater_id,
+            LeaveApplicationDay.leave_date == performance.performance_date,
+            LeaveApplicationDay.status == LeaveStatus.APPROVED,
+            LeaveApplicationDay.withdrawn_at.is_(None),
+        )
+    )
+    if grouped_approved_leave is not None and approved_leave is None:
         conflicts.append(
             DesignationConflictProjection(
                 code="ACTOR_ON_LEAVE",
@@ -223,7 +245,7 @@ def get_month_workspace(
                     case(
                         (
                             Designation.lifecycle_status.in_(
-                                ["predesignated", "cancelled", "replaced", "fulfilled"]
+                                ["predesignated", "effective", "cancelled", "replaced", "fulfilled"]
                             ),
                             0,
                         ),
@@ -245,7 +267,7 @@ def get_month_workspace(
             select(
                 Wish.performance_id,
                 func.count(Wish.id),
-                func.sum(case((Wish.status == "active", 1), else_=0)),
+                func.sum(case((Wish.status.in_(["active", "accepted"]), 1), else_=0)),
                 func.sum(case((Wish.failure_reason.is_not(None), 1), else_=0)),
             )
             .where(Wish.performance_id.in_(performance_ids))

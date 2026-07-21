@@ -8,6 +8,7 @@ from app.api.routes import (
     admin_designation_workspace,
     admin_imports,
     admin_performance_boards,
+    admin_security,
     admin_weekly_scheduling,
     auth,
     scheduling,
@@ -33,6 +34,7 @@ app.include_router(admin_designation_workspace.router)
 app.include_router(admin_imports.router)
 app.include_router(admin_performance_boards.router)
 app.include_router(admin_weekly_scheduling.router)
+app.include_router(admin_security.router)
 app.include_router(actor.router)
 app.include_router(scheduling.router)
 

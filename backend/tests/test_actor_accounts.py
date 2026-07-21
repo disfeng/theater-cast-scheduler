@@ -134,6 +134,9 @@ def test_actor_changes_initial_password_and_can_access_business_routes(db_sessio
             json={"current_password": delivery["initial_password"], "new_password": "Secure123456"},
         )
         assert changed.status_code == 200
+        assert changed.json()["role"] == "actor"
+        assert changed.json()["must_change_password"] is False
+        assert changed.json()["access_token"]
         relogin = client.post(
             "/auth/login",
             json={"identifier": delivery["username"], "password": "Secure123456"},

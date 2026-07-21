@@ -684,7 +684,9 @@ def _apply_wish_projection(
 
     def resolve_player(item: BoardDraftItem) -> PerformancePlayer | None:
         if item.matched_player_id is not None:
-            return players.get(item.matched_player_id)
+            matched = players.get(item.matched_player_id)
+            if matched is not None:
+                return matched
         matches = players_by_name.get(normalize_player_name(item.player_name or ""), [])
         if len(matches) > 1:
             raise BoardConflict("player_match_ambiguous")
@@ -885,6 +887,9 @@ def activate_revision(
         _apply_player_projection(db, revision)
         _apply_designation_projection(db, revision)
         _apply_wish_projection(db, revision, operator_user_id)
+        from app.services.actor_notifications import backfill_revealed_notification_players
+
+        backfill_revealed_notification_players(db, board.performance_id)
         revision.status = BoardRevisionStatus.CONFIRMED
         revision.confirmed_at = datetime.utcnow()
         board.current_revision_id = revision.id

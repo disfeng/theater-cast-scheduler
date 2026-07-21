@@ -1,6 +1,19 @@
 import { cleanup, fireEvent, screen, waitFor } from "@testing-library/vue";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { renderAdminRoute } from "./helpers/render-app";
+import { readFileSync } from "node:fs";
+
+test("offers per-day publish with publication state and republish confirmation", () => {
+  const source = readFileSync(`${process.cwd()}/src/pages/admin/WeeklySchedulingPage.vue`, "utf8");
+  const api = readFileSync(`${process.cwd()}/src/api/admin.ts`, "utf8");
+  expect(source).toContain('class="date-cell-content"');
+  expect(source).toContain("day-action--publish");
+  expect(source).toContain("day-action--changed");
+  expect(source).toContain("day-status--published");
+  expect(source).toContain("重新发布");
+  expect(source).toContain("confirm_republish");
+  expect(api).toContain("/admin/weekly-schedules/publish-day");
+});
 
 const workspace = {
   theater_id: 1, week_start: "2026-12-28", week_end: "2027-01-03", batch_id: null,
@@ -30,6 +43,16 @@ function requestedWorkspace(input: RequestInfo | URL) {
   return monthWorkspace(weekStart, weekStart === "2026-12-28" ? workspace.performances : []);
 }
 
+async function chooseActor(comboboxName: string, actorName = "小展") {
+  const combobox = await screen.findByRole("combobox", { name: comboboxName });
+  await fireEvent.click(combobox);
+  const option = await screen.findByText(new RegExp(`^${actorName} · 本周\\d+$`), {
+    selector: ".assignment-cell .el-select-dropdown__item span",
+  });
+  await fireEvent.click(option);
+  return combobox;
+}
+
 beforeEach(() => {
   localStorage.clear();
   vi.restoreAllMocks();
@@ -55,6 +78,22 @@ test("loads a theater week and exposes the role assignment matrix", async () => 
   expect(screen.getByRole("button", { name: "保存草稿" })).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "发布 12月28日–1月3日" })).toBeInTheDocument();
   expect(app.router.currentRoute.value.fullPath).toBe("/admin/weekly-scheduling");
+});
+
+test("uses compact Element Plus actor selectors in assignment cells", async () => {
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+    const path = String(input).replace(/https?:\/\/localhost:\d+/, "");
+    if (path === "/admin/theaters") return Response.json([{ id: 1, name: "西安幽州剧场", is_active: true }]);
+    if (path.startsWith("/admin/weekly-schedules/workspace")) return Response.json(requestedWorkspace(input));
+    return Response.json([]);
+  }));
+
+  const { container } = await renderAdminRoute("/admin/weekly-scheduling");
+  await screen.findByRole("combobox", { name: "1月1日 晚场 柳知雨" });
+
+  expect(container.querySelector(".assignment-cell .assignment-select.el-select")).toBeInTheDocument();
+  expect(container.querySelector(".assignment-cell > select")).not.toBeInTheDocument();
+  expect(container.querySelector(".schedule-matrix")).toHaveClass("schedule-matrix--compact");
 });
 
 test("renders a predesignation as a locked cell with a detail link", async () => {
@@ -167,7 +206,7 @@ test("preserves manual cells when applying recommendations", async () => {
   await renderAdminRoute("/admin/weekly-scheduling");
   await screen.findByText("柳知雨");
   await fireEvent.click(screen.getByRole("button", { name: "推荐当前周" }));
-  await waitFor(() => expect(screen.getByRole("combobox", { name: "1月1日 晚场 柳知雨" })).toHaveValue("30"));
+  await waitFor(() => expect(screen.getByRole("combobox", { name: "1月1日 晚场 柳知雨" }).closest(".assignment-cell")).toHaveTextContent("小展 · 本周1"));
 });
 
 test("automatically validates conflicts after an actor selection", async () => {
@@ -185,8 +224,7 @@ test("automatically validates conflicts after an actor selection", async () => {
   vi.stubGlobal("fetch", fetchMock);
   await renderAdminRoute("/admin/weekly-scheduling");
 
-  const select = await screen.findByRole("combobox", { name: "1月1日 晚场 柳知雨" });
-  await fireEvent.update(select, "30");
+  const select = await chooseActor("1月1日 晚场 柳知雨");
   await vi.advanceTimersByTimeAsync(300);
 
   await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
@@ -211,9 +249,8 @@ test("updates weekly counts immediately and renders reached limits as warnings",
   }));
   await renderAdminRoute("/admin/weekly-scheduling");
 
-  const select = await screen.findByRole("combobox", { name: "1月1日 晚场 柳知雨" });
-  await fireEvent.update(select, "30");
-  expect(screen.getByRole("option", { name: "小展 · 本周1" })).toBeInTheDocument();
+  const select = await chooseActor("1月1日 晚场 柳知雨");
+  expect(select.closest(".assignment-cell")).toHaveTextContent("小展 · 本周1");
 
   await vi.advanceTimersByTimeAsync(300);
   expect(await screen.findByText("1 个提醒")).toBeInTheDocument();
@@ -355,7 +392,7 @@ test("saves the dirty active natural week", async () => {
   vi.stubGlobal("fetch", fetchMock);
   await renderAdminRoute("/admin/weekly-scheduling");
 
-  await fireEvent.update(await screen.findByRole("combobox", { name: "8月3日 早场 柳知雨" }), "30");
+  await chooseActor("8月3日 早场 柳知雨");
   await fireEvent.click(screen.getByRole("button", { name: "保存草稿（1 周）" }));
 
   await waitFor(() => expect(fetchMock.mock.calls.filter(([input]) => String(input).includes("/admin/weekly-schedules/draft"))).toHaveLength(1));
@@ -378,7 +415,7 @@ test("guards month navigation when local weeks are dirty", async () => {
     return new Response(JSON.stringify({ conflicts: [], warnings: [], empty_slots: [] }), { status: 200 });
   }));
   await renderAdminRoute("/admin/weekly-scheduling");
-  await fireEvent.update(await screen.findByRole("combobox", { name: "8月3日 早场 柳知雨" }), "30");
+  await chooseActor("8月3日 早场 柳知雨");
 
   await fireEvent.click(screen.getByRole("button", { name: "下个月" }));
 
@@ -406,7 +443,7 @@ test("guards theater changes when local weeks are dirty", async () => {
   });
   vi.stubGlobal("fetch", fetchMock);
   await renderAdminRoute("/admin/weekly-scheduling");
-  await fireEvent.update(await screen.findByRole("combobox", { name: "8月3日 早场 柳知雨" }), "30");
+  await chooseActor("8月3日 早场 柳知雨");
 
   await fireEvent.click(screen.getByRole("combobox", { name: "剧场" }));
   await fireEvent.click(await screen.findByText("长安剧场"));
@@ -439,7 +476,7 @@ test("asks for confirmation and retries a conflicting dirty week", async () => {
   });
   vi.stubGlobal("fetch", fetchMock);
   await renderAdminRoute("/admin/weekly-scheduling");
-  await fireEvent.update(await screen.findByRole("combobox", { name: "8月3日 早场 柳知雨" }), "30");
+  await chooseActor("8月3日 早场 柳知雨");
 
   await fireEvent.click(screen.getByRole("button", { name: "保存草稿（1 周）" }));
   expect(await screen.findByRole("button", { name: "确认保存" })).toBeInTheDocument();

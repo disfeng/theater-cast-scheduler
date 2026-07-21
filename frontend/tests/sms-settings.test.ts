@@ -28,7 +28,9 @@ test("短信和剧场披露策略默认关闭且可测试", async () => {
     global: { plugins: [ElementPlus] },
   });
   expect(await screen.findByRole("switch", { name: "短信全局开关" })).not.toBeChecked();
+  expect(screen.getByText("短信服务已关闭")).toBeVisible();
+  expect(screen.getByText("剧场短信已关闭")).toBeVisible();
   expect(screen.getByRole("spinbutton", { name: "提前天数" })).toHaveValue(1);
-  expect(screen.getByRole("button", { name: "发送测试短信" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "发送测试短信" })).toBeDisabled();
   expect(screen.getByRole("table", { name: "短信发送日志" })).toBeInTheDocument();
 });

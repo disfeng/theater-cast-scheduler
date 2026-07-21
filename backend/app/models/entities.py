@@ -11,6 +11,7 @@ from sqlalchemy import (
     ForeignKey,
     ForeignKeyConstraint,
     Integer,
+    Index,
     String,
     Text,
     Time,
@@ -45,6 +46,9 @@ from app.models.enums import (
     BoardParserType,
     BoardRevisionStatus,
     BoardValidationStatus,
+    AuditEventCategory,
+    AuditResult,
+    AuditRiskLevel,
 )
 
 
@@ -294,6 +298,9 @@ class EntitlementLedgerEntry(Base):
     purpose: Mapped[str | None] = mapped_column(String(200), nullable=True)
     idempotency_key: Mapped[str | None] = mapped_column(String(120), nullable=True, unique=True)
     operator_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    reverses_entry_id: Mapped[int | None] = mapped_column(
+        ForeignKey("entitlement_ledger_entries.id"), nullable=True, unique=True
+    )
     item: Mapped[EntitlementItem] = relationship(back_populates="ledger_entries")
     theater: Mapped[Theater | None] = relationship()
 
@@ -318,12 +325,92 @@ class User(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    display_name: Mapped[str] = mapped_column(String(120), default="管理员", server_default="管理员")
     password_hash: Mapped[str] = mapped_column(String(255))
     role: Mapped[UserRole] = mapped_column(Enum(UserRole), index=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1", index=True)
+    last_login_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     actor_id: Mapped[int | None] = mapped_column(ForeignKey("actors.id"), nullable=True)
     must_change_password: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     password_changed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     actor: Mapped[Actor | None] = relationship(back_populates="user")
+    theater_scopes: Mapped[list[UserTheaterScope]] = relationship(
+        foreign_keys="UserTheaterScope.user_id",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+
+
+class UserTheaterScope(Base):
+    __tablename__ = "user_theater_scopes"
+    __table_args__ = (
+        UniqueConstraint("user_id", "theater_id", name="uq_user_theater_scope"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    theater_id: Mapped[int] = mapped_column(ForeignKey("theaters.id"), index=True)
+    granted_by_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    granted_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, server_default=func.now()
+    )
+    user: Mapped[User] = relationship(
+        foreign_keys=[user_id], back_populates="theater_scopes"
+    )
+    theater: Mapped[Theater] = relationship()
+    granted_by: Mapped[User] = relationship(foreign_keys=[granted_by_user_id])
+
+
+class AuditLog(Base):
+    __tablename__ = "audit_logs"
+    __table_args__ = (
+        Index("ix_audit_logs_theater_occurred", "theater_id", "occurred_at"),
+        Index("ix_audit_logs_operator_occurred", "operator_user_id", "occurred_at"),
+        Index("ix_audit_logs_module_action", "module", "action"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    occurred_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, server_default=func.now(), index=True
+    )
+    request_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    operator_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id"), nullable=True, index=True
+    )
+    operator_name_snapshot: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    operator_role_snapshot: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    theater_id: Mapped[int | None] = mapped_column(
+        ForeignKey("theaters.id"), nullable=True, index=True
+    )
+    event_category: Mapped[AuditEventCategory] = mapped_column(Enum(AuditEventCategory))
+    module: Mapped[str] = mapped_column(String(60), index=True)
+    action: Mapped[str] = mapped_column(String(60), index=True)
+    target_type: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    target_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    result: Mapped[AuditResult] = mapped_column(Enum(AuditResult), index=True)
+    risk_level: Mapped[AuditRiskLevel] = mapped_column(Enum(AuditRiskLevel), index=True)
+    summary: Mapped[str] = mapped_column(String(500))
+    before_data: Mapped[dict | list | None] = mapped_column(JSON, nullable=True)
+    after_data: Mapped[dict | list | None] = mapped_column(JSON, nullable=True)
+    affected_objects: Mapped[dict | list | None] = mapped_column(JSON, nullable=True)
+    ip_address: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    user_agent: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    failure_code: Mapped[str | None] = mapped_column(String(120), nullable=True)
+
+
+class AuditLogImmutableError(RuntimeError):
+    pass
+
+
+@event.listens_for(Session, "before_flush")
+def prevent_audit_log_mutation(session: Session, *_: object) -> None:
+    changed_entries = {
+        entry
+        for entry in session.dirty.union(session.deleted)
+        if isinstance(entry, AuditLog) and entry not in session.new
+    }
+    if changed_entries:
+        raise AuditLogImmutableError("audit logs are append-only")
 
 
 class Theater(Base):
@@ -767,6 +854,14 @@ class Designation(Base):
         ForeignKey("designations.id", name="fk_designations_replaced_designation"), nullable=True
     )
     version: Mapped[int] = mapped_column(Integer, default=1, server_default="1", nullable=False)
+    current_version_id: Mapped[int | None] = mapped_column(
+        ForeignKey(
+            "designation_versions.id",
+            name="fk_designations_current_version",
+            use_alter=True,
+        ),
+        nullable=True,
+    )
     role: Mapped[Role] = relationship()
     actor: Mapped[Actor] = relationship()
     target_performance: Mapped[Performance | None] = relationship(
@@ -826,6 +921,10 @@ class Wish(Base):
     failure_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     version: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
     active_scope_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    current_version_id: Mapped[int | None] = mapped_column(
+        ForeignKey("wish_versions.id", name="fk_wishes_current_version", use_alter=True),
+        nullable=True,
+    )
     role: Mapped[Role] = relationship()
     actor: Mapped[Actor] = relationship()
     weekly_batch: Mapped[WeeklyBatch | None] = relationship()
@@ -849,6 +948,76 @@ class WishLifecycleEvent(Base):
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow, server_default=func.now()
+    )
+
+
+class DesignationVersion(Base):
+    __tablename__ = "designation_versions"
+    __table_args__ = (
+        UniqueConstraint("designation_id", "version_number", name="uq_designation_version"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    designation_id: Mapped[int] = mapped_column(ForeignKey("designations.id"), index=True)
+    version_number: Mapped[int] = mapped_column(Integer)
+    player_name: Mapped[str] = mapped_column(String(120))
+    actor_id: Mapped[int] = mapped_column(ForeignKey("actors.id"))
+    role_id: Mapped[int] = mapped_column(ForeignKey("roles.id"))
+    usage_type: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    owner_player_id: Mapped[int | None] = mapped_column(
+        ForeignKey("player_profiles.id"), nullable=True
+    )
+    entitlement_item_id: Mapped[int | None] = mapped_column(
+        ForeignKey("entitlement_items.id"), nullable=True
+    )
+    source_revision_id: Mapped[int | None] = mapped_column(
+        ForeignKey("performance_board_revisions.id"), nullable=True
+    )
+    raw_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    correction_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_by: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class WishVersion(Base):
+    __tablename__ = "wish_versions"
+    __table_args__ = (UniqueConstraint("wish_id", "version_number", name="uq_wish_version"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    wish_id: Mapped[int] = mapped_column(ForeignKey("wishes.id"), index=True)
+    version_number: Mapped[int] = mapped_column(Integer)
+    player_name: Mapped[str] = mapped_column(String(120))
+    actor_id: Mapped[int] = mapped_column(ForeignKey("actors.id"))
+    role_id: Mapped[int] = mapped_column(ForeignKey("roles.id"))
+    source_revision_id: Mapped[int | None] = mapped_column(
+        ForeignKey("performance_board_revisions.id"), nullable=True
+    )
+    raw_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    correction_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_by: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class FulfillmentFailure(Base):
+    __tablename__ = "fulfillment_failures"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    operation: Mapped[str] = mapped_column(String(60), index=True)
+    business_kind: Mapped[str] = mapped_column(String(40), index=True)
+    business_id: Mapped[int] = mapped_column(Integer, index=True)
+    performance_id: Mapped[int | None] = mapped_column(
+        ForeignKey("performances.id"), nullable=True, index=True
+    )
+    idempotency_key: Mapped[str] = mapped_column(String(160), unique=True)
+    error_code: Mapped[str] = mapped_column(String(160))
+    status: Mapped[str] = mapped_column(String(40), default="pending", server_default="pending")
+    attempt_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    operator_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=datetime.utcnow
     )
 
 
@@ -924,6 +1093,60 @@ class WeeklyPublishOperation(Base):
         DateTime, default=datetime.utcnow, server_default=func.now()
     )
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class PerformanceCastPublication(Base):
+    __tablename__ = "performance_cast_publications"
+    __table_args__ = (
+        UniqueConstraint("performance_id", name="uq_performance_cast_publication"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    performance_id: Mapped[int] = mapped_column(ForeignKey("performances.id"), index=True)
+    theater_id: Mapped[int] = mapped_column(ForeignKey("theaters.id"), index=True)
+    weekly_batch_id: Mapped[int] = mapped_column(ForeignKey("weekly_batches.id"), index=True)
+    version: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    source_batch_version: Mapped[int] = mapped_column(Integer)
+    assignment_hash: Mapped[str] = mapped_column(String(64))
+    published_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    operator_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    assignments: Mapped[list[PublishedCastAssignment]] = relationship(
+        back_populates="publication", cascade="all, delete-orphan"
+    )
+
+
+class PublishedCastAssignment(Base):
+    __tablename__ = "published_cast_assignments"
+    __table_args__ = (
+        UniqueConstraint("publication_id", "role_id", name="uq_published_cast_role"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    publication_id: Mapped[int] = mapped_column(
+        ForeignKey("performance_cast_publications.id"), index=True
+    )
+    performance_id: Mapped[int] = mapped_column(ForeignKey("performances.id"), index=True)
+    role_id: Mapped[int] = mapped_column(ForeignKey("roles.id"), index=True)
+    actor_id: Mapped[int] = mapped_column(ForeignKey("actors.id"), index=True)
+    source: Mapped[str] = mapped_column(String(40), default="manual")
+    publication: Mapped[PerformanceCastPublication] = relationship(back_populates="assignments")
+
+
+class DailyPublishOperation(Base):
+    __tablename__ = "daily_publish_operations"
+    __table_args__ = (
+        UniqueConstraint("idempotency_key", name="uq_daily_publish_idempotency_key"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    idempotency_key: Mapped[str] = mapped_column(String(120))
+    theater_id: Mapped[int] = mapped_column(ForeignKey("theaters.id"), index=True)
+    performance_date: Mapped[date] = mapped_column(Date, index=True)
+    weekly_batch_id: Mapped[int] = mapped_column(ForeignKey("weekly_batches.id"), index=True)
+    operator_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    request_hash: Mapped[str] = mapped_column(String(64))
+    response_snapshot: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
 class PersistentImportDraft(Base):

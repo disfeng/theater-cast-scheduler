@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory, RouteRecordRaw } from "vue-router";
 import { useAuthStore } from "../auth/store";
 import AppShell from "../layouts/AppShell.vue";
+import ActorMobileShell from "../layouts/ActorMobileShell.vue";
 import LoginPage from "../pages/LoginPage.vue";
 
 const routes: RouteRecordRaw[] = [
@@ -11,7 +12,7 @@ const routes: RouteRecordRaw[] = [
       if (!authStore.isAuthenticated) {
         return "/login";
       }
-      return authStore.role === "admin" ? "/admin/dashboard" : "/actor/schedule";
+      return authStore.isAdmin ? "/admin/dashboard" : "/actor/schedule";
     },
   },
   {
@@ -33,16 +34,26 @@ const routes: RouteRecordRaw[] = [
       { path: "entitlements", name: "admin-entitlements", component: () => import("../pages/admin/EntitlementManagementPage.vue") },
       { path: "leave-requests", name: "admin-leave-requests", component: () => import("../pages/admin/RequestsPage.vue") },
       { path: "weekly-scheduling", name: "admin-weekly-scheduling", component: () => import("../pages/admin/WeeklySchedulingPage.vue") },
+      { path: "administrators", name: "admin-administrators", component: () => import("../pages/admin/AdministratorAccountsPage.vue") },
+      { path: "audit-logs", name: "admin-audit-logs", component: () => import("../pages/admin/AuditLogsPage.vue") },
     ],
   },
   {
+    path: "/actor/change-password",
+    name: "actor-change-password",
+    component: () => import("../pages/actor/ChangePasswordPage.vue"),
+    meta: { requiresAuth: true, role: "actor", passwordChangeRoute: true },
+  },
+  {
     path: "/actor",
-    component: AppShell,
+    component: ActorMobileShell,
     meta: { requiresAuth: true, role: "actor" },
     children: [
       { path: "", redirect: "/actor/schedule" },
       { path: "schedule", name: "actor-schedule", component: () => import("../pages/actor/MySchedulePage.vue") },
+      { path: "calendar", name: "actor-calendar", component: () => import("../pages/actor/MySchedulePage.vue") },
       { path: "leave", name: "actor-leave", component: () => import("../pages/actor/MyLeavePage.vue") },
+      { path: "profile", name: "actor-profile", component: () => import("../pages/actor/ProfilePage.vue") },
     ],
   },
   {
@@ -71,11 +82,20 @@ router.beforeEach((to, from, next) => {
         query: { redirect: to.fullPath },
       });
     } else {
+      if (authStore.role === "actor" && authStore.mustChangePassword && !to.meta.passwordChangeRoute) {
+        next("/actor/change-password");
+        return;
+      }
+      if (to.meta.passwordChangeRoute && !authStore.mustChangePassword) {
+        next("/actor/schedule");
+        return;
+      }
       // User is authenticated, check role requirements
       const requiredRole = to.matched.find((record) => record.meta.role)?.meta.role;
-      if (requiredRole && authStore.role !== requiredRole) {
+      const roleAllowed = requiredRole === "admin" ? authStore.isAdmin : authStore.role === requiredRole;
+      if (requiredRole && !roleAllowed) {
         // Cross-role access, redirect to their role home
-        next(authStore.role === "admin" ? "/admin/dashboard" : "/actor/schedule");
+        next(authStore.isAdmin ? "/admin/dashboard" : "/actor/schedule");
       } else {
         next();
       }
@@ -83,7 +103,7 @@ router.beforeEach((to, from, next) => {
   } else {
     // If user goes to login page but is already logged in
     if (to.path === "/login" && authStore.isAuthenticated) {
-      next(authStore.role === "admin" ? "/admin/dashboard" : "/actor/schedule");
+      next(authStore.isAdmin ? "/admin/dashboard" : authStore.mustChangePassword ? "/actor/change-password" : "/actor/schedule");
     } else {
       next();
     }

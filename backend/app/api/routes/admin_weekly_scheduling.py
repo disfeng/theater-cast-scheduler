@@ -4,10 +4,16 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db, require_admin
+from app.services.admin_scope import AdminScope
 from app.schemas.weekly_scheduling import (
+    DailySchedulePublishRequest,
     MultiWeekValidationRequest,
     ScheduleMutationRequest,
     WeeklyScheduleWorkspaceRead,
+)
+from app.services.schedule_publications import (
+    RepublishConfirmationRequired,
+    publish_schedule_day,
 )
 from app.services.weekly_scheduling import (
     ConflictsRequireConfirmation,
@@ -65,6 +71,16 @@ def _handle(operation, db: Session | None = None):
         ) from exc
     except PublishOperationConflict as exc:
         raise HTTPException(409, detail={"code": exc.code}) from exc
+    except RepublishConfirmationRequired as exc:
+        raise HTTPException(
+            409,
+            detail={
+                "code": "republish_confirmation_required",
+                "added": exc.added,
+                "changed": exc.changed,
+                "removed": exc.removed,
+            },
+        ) from exc
     except ScheduleVersionConflict as exc:
         raise HTTPException(
             409,
@@ -84,52 +100,68 @@ def _handle(operation, db: Session | None = None):
 def workspace(
     theater_id: int,
     week_start: date,
-    _: dict = Depends(require_admin),
+    scope: AdminScope = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
+    scope.require_theater(theater_id)
     return _handle(lambda: get_workspace(db, theater_id, week_start))
 
 
 @router.post("/validate")
 def validate(
     payload: ScheduleMutationRequest,
-    _: dict = Depends(require_admin),
+    scope: AdminScope = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
+    scope.require_theater(payload.theater_id)
     return _handle(lambda: validate_schedule(db, payload))
 
 
 @router.post("/validate-context")
 def validate_context(
     payload: MultiWeekValidationRequest,
-    _: dict = Depends(require_admin),
+    scope: AdminScope = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
+    scope.require_theater(payload.theater_id)
     return _handle(lambda: validate_schedule_context(db, payload))
 
 
 @router.post("/recommend", response_model=WeeklyScheduleWorkspaceRead)
 def recommend(
     payload: ScheduleMutationRequest,
-    _: dict = Depends(require_admin),
+    scope: AdminScope = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
+    scope.require_theater(payload.theater_id)
     return _handle(lambda: recommend_schedule(db, payload))
 
 
 @router.put("/draft", response_model=WeeklyScheduleWorkspaceRead)
 def save_draft(
     payload: ScheduleMutationRequest,
-    _: dict = Depends(require_admin),
+    scope: AdminScope = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
+    scope.require_theater(payload.theater_id)
     return _handle(lambda: persist_schedule(db, payload, False))
 
 
 @router.post("/publish", response_model=WeeklyScheduleWorkspaceRead)
 def publish(
     payload: ScheduleMutationRequest,
-    user: dict = Depends(require_admin),
+    user: AdminScope = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
+    user.require_theater(payload.theater_id)
     return _handle(lambda: persist_schedule(db, payload, True, user["sub"]), db)
+
+
+@router.post("/publish-day")
+def publish_day(
+    payload: DailySchedulePublishRequest,
+    user: AdminScope = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    user.require_theater(payload.theater_id)
+    return _handle(lambda: publish_schedule_day(db, payload, user["sub"]), db)

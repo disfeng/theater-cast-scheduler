@@ -49,12 +49,12 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
-import { ElMessageBox } from "element-plus";
 import { adminApi, type Actor, type ActorCredentialDelivery, type Role, type Theater } from "../../api/admin";
 import { useAuthStore } from "../../auth/store";
 import ActorFormDrawer from "../../components/admin/ActorFormDrawer.vue";
 import ActorCredentialDialog from "../../components/admin/ActorCredentialDialog.vue";
 import PageHeader from "../../components/PageHeader.vue";
+import { confirmAction } from "../../features/dialogs/confirm-action";
 
 const authStore = useAuthStore();
 const actors = ref<Actor[]>([]), roles = ref<Role[]>([]), theaters = ref<Theater[]>([]);
@@ -94,7 +94,7 @@ function openEdit(actor: Actor) { editingActor.value = actor; drawerOpen.value =
 async function resetPassword(actor: Actor) {
   if (!authStore.token || !actor.entry_theater_id) return;
   try {
-    await ElMessageBox.confirm("重置后旧密码立即失效，演员下次登录必须修改密码。", `重置${actor.display_name}的密码`, { confirmButtonText: "确认重置", cancelButtonText: "取消", type: "warning", customClass: "app-message-box" });
+    await confirmAction({ title: `重置${actor.display_name}的密码`, message: "重置后旧密码立即失效，演员下次登录必须修改密码。", tone: "warning", confirmButtonText: "确认重置" });
     credentialDelivery.value = await adminApi.resetActorPassword(authStore.token, actor.id, actor.entry_theater_id);
     credentialOpen.value = true;
   } catch (err: any) { if (err !== "cancel" && err !== "close") error.value = err?.message || "重置密码失败"; }

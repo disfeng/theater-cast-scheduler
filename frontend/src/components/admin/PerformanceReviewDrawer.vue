@@ -27,7 +27,7 @@
             <PerformanceBoardReview :performance-id="workspace.performance.id" @changed="$emit('changed')" />
           </el-tab-pane>
           <el-tab-pane :label="`指定 (${workspace.designations.length})`" name="designations">
-            <PerformanceDesignationReview :rows="workspace.designations" @changed="$emit('changed')" @reject="id => startReject('designation', id)" />
+            <PerformanceDesignationReview :rows="workspace.designations" @changed="$emit('changed')" @reject="id => startReject('designation', id)" @correct="row => startCorrection('designation', row)" />
           </el-tab-pane>
           <el-tab-pane :label="`许愿 (${workspace.wishes.length})`" name="wishes">
             <el-empty v-if="!workspace.wishes.length" description="暂无许愿" :image-size="72" />
@@ -35,6 +35,7 @@
               <div class="wish-identity"><span class="wish-badge">许愿</span><div><strong>{{ row.player_name }}</strong><p>{{ row.actor_name }} / {{ row.role_name }}</p></div></div>
               <div class="row-actions">
                 <span class="wish-status" :class="`status-${row.status}`">{{ wishStatusLabel(row.status) }}</span>
+                <el-button plain size="small" @click="startCorrection('wish', row)">修订登记</el-button>
                 <div v-if="row.status === 'active'" class="action-group"><el-button type="success" plain size="small" @click="$emit('accept-wish', row.id)">接受</el-button><el-button text type="danger" size="small" :aria-label="`拒绝许愿 ${row.player_name}`" @click="startReject('wish', row.id)">拒绝</el-button></div>
               </div>
             </article>
@@ -46,14 +47,17 @@
       <el-input v-model="rejectReason" type="textarea" :rows="4" aria-label="拒绝原因" placeholder="请说明拒绝原因，便于客服回复和事后核对" />
       <template #footer><el-button @click="rejectVisible = false">取消</el-button><el-button type="danger" :disabled="!rejectReason.trim()" @click="confirmReject">确认拒绝</el-button></template>
     </el-dialog>
+    <BusinessCorrectionDialog v-if="workspace" v-model="correctionVisible" :kind="correctionKind" :target="correctionTarget" :theater-id="workspace.performance.theater_id" @changed="correctionChanged" />
   </el-drawer>
 </template>
 
 <script setup lang="ts">
 import { ref, watch } from "vue";
+import type { PerformanceWish, Predesignation } from "../../api/admin";
 import type { PerformanceWorkspace } from "../../features/designation-workspace/types";
 import PerformanceBoardReview from "./PerformanceBoardReview.vue";
 import PerformanceDesignationReview from "./PerformanceDesignationReview.vue";
+import BusinessCorrectionDialog from "./BusinessCorrectionDialog.vue";
 const props = withDefaults(defineProps<{ modelValue: boolean; workspace: PerformanceWorkspace | null; loading: boolean; error: string | null; initialTab?: string }>(), { initialTab: "players" });
 const emit = defineEmits<{ "update:modelValue": [value: boolean]; "reject-designation": [id: number, reason: string]; "reject-wish": [id: number, reason: string]; "accept-wish": [id: number]; changed: []; "tab-change": [value: string] }>();
 const activeTab = ref("players");
@@ -62,6 +66,9 @@ watch(activeTab, value => emit("tab-change", value));
 const rejectVisible = ref(false);
 const rejectReason = ref("");
 const rejectTarget = ref<{ kind: "designation" | "wish"; id: number } | null>(null);
+const correctionVisible=ref(false),correctionKind=ref<"designation"|"wish">("designation"),correctionTarget=ref<Predesignation|PerformanceWish|null>(null);
+const startCorrection=(kind:"designation"|"wish",row:Predesignation|PerformanceWish)=>{correctionKind.value=kind;correctionTarget.value=row;correctionVisible.value=true};
+const correctionChanged=()=>emit("changed");
 const startReject = (kind: "designation" | "wish", id: number) => { rejectTarget.value = { kind, id }; rejectReason.value = ""; rejectVisible.value = true; };
 const confirmReject = () => {
   if (!rejectTarget.value || !rejectReason.value.trim()) return;
@@ -76,7 +83,7 @@ const confirmReject = () => {
 const monthDay = (value: string) => { const [, month, day] = value.split("-"); return `${Number(month)}月${Number(day)}日`; };
 const shortTime = (value: string) => value.slice(0, 5);
 const visitLabel = (player: PerformanceWorkspace["players"][number]) => [player.theater_visit_count != null ? `${player.theater_visit_count} 刷剧场` : null, player.role_visit_count != null ? `${player.role_visit_count} 刷角色` : null].filter(Boolean).join(" · ") || "未登记刷数";
-const wishStatusLabel = (value: string | null) => ({ active: "待处理", accepted: "已接受", cancelled: "已拒绝", fulfilled: "已完成" }[value || ""] || value || "待处理");
+const wishStatusLabel = (value: string | null) => ({ active: "待处理", accepted: "已接受", effective: "已生效", fulfilled: "已履约", unsatisfied: "未满足", cancelled: "已拒绝" }[value || ""] || value || "待处理");
 </script>
 
 <style scoped>

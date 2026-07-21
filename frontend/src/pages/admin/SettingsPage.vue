@@ -18,7 +18,7 @@
           <div><strong>{{ activeSlots.length }}</strong><span>场次</span></div>
           <div><strong>{{ activeRoles.length }}</strong><span>角色</span></div>
         </div>
-        <div class="overview-actions">
+        <div v-if="auth.isSuperAdmin" class="overview-actions">
           <el-dropdown v-if="selectedTheater" trigger="click" @command="handleTheaterCommand">
             <el-button>剧场操作<el-icon class="el-icon--right"><ArrowDown /></el-icon></el-button>
             <template #dropdown>
@@ -35,8 +35,11 @@
 
     <el-card shadow="never" class="configuration-card">
       <el-tabs v-model="activeSettingsTab" class="configuration-tabs">
-        <el-tab-pane label="系统设置" name="system">
-          <div class="system-settings-stack"><AiParserSettings /><SmsSettingsPanel :token="token()" :theater-id="selectedTheaterId" /></div>
+        <el-tab-pane v-if="auth.isSuperAdmin" label="登记信息解析设置" name="parser">
+          <AiParserSettings />
+        </el-tab-pane>
+        <el-tab-pane label="演员通知与披露" name="notifications">
+          <SmsSettingsPanel :token="token()" :theater-id="selectedTheaterId" :is-super-admin="auth.isSuperAdmin" />
         </el-tab-pane>
         <el-tab-pane label="场次配置" name="slots">
           <el-empty v-if="!selectedTheater" description="请先新增或选择剧场" />
@@ -182,7 +185,6 @@ onMounted(() => refreshTheaters().catch(report));
 
 <style scoped>
 .settings-page { width: 100%; display: grid; gap: 16px; }
-.system-settings-stack { display: grid; gap: 18px; }
 .overview-card :deep(.el-card__body) { padding: 16px 20px; }
 .overview { display: flex; align-items: center; gap: 24px; min-height: 40px; }
 .theater-picker { display: flex; align-items: center; gap: 10px; }

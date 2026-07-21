@@ -82,10 +82,10 @@ def performance_workspace(
         designations=len(designation_rows),
         wishes=len(wish_rows),
         pending=sum(
-            row.lifecycle_status not in {"predesignated", "cancelled", "replaced", "fulfilled"}
+            row.lifecycle_status not in {"predesignated", "effective", "cancelled", "replaced", "fulfilled"}
             for row in designation_rows
         )
-        + sum(row.status == "active" for row in wish_rows),
+        + sum(row.status in {"active", "accepted"} for row in wish_rows),
         conflicts=len(conflicts),
     )
     return PerformanceWorkspaceRead(

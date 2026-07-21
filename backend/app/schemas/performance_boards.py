@@ -170,6 +170,43 @@ class DesignationCancelRequest(BaseModel):
         return value.strip()
 
 
+class DesignationCorrectionPatch(BaseModel):
+    player_name: str | None = Field(default=None, min_length=1, max_length=120)
+    actor_id: int | None = Field(default=None, gt=0)
+    role_id: int | None = Field(default=None, gt=0)
+    usage_type: str | None = None
+    owner_player_id: int | None = Field(default=None, gt=0)
+    entitlement_item_id: int | None = Field(default=None, gt=0)
+    note: str | None = Field(default=None, max_length=2000)
+    reason: str = Field(min_length=1, max_length=2000)
+    confirmed: bool = False
+    expected_version: int = Field(ge=1)
+    idempotency_key: str = Field(min_length=1, max_length=120)
+
+
+class WishCorrectionPatch(BaseModel):
+    player_name: str | None = Field(default=None, min_length=1, max_length=120)
+    actor_id: int | None = None
+    role_id: int | None = None
+    note: str | None = Field(default=None, max_length=2000)
+    reason: str = Field(min_length=1, max_length=2000)
+    confirmed: bool = False
+    expected_version: int
+    idempotency_key: str = Field(min_length=1, max_length=120)
+
+    @field_validator("reason")
+    @classmethod
+    def reject_blank_correction_reason(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("correction_reason_required")
+        return value.strip()
+
+    @field_validator("reason")
+    @classmethod
+    def normalize_reason(cls, value: str) -> str:
+        return value.strip()
+
+
 class DesignationEqualChoiceRequest(BaseModel):
     occupied_id: int
     decision: str

@@ -15,7 +15,7 @@ export class ApiClient {
     this.authErrorHandler = handler;
   }
 
-  async login(email: string, password: string): Promise<{ access_token: string; role: "admin" | "actor" }> {
+  async login(email: string, password: string): Promise<{ access_token: string; role: "admin" | "super_admin" | "theater_admin" | "actor"; must_change_password: boolean }> {
     return this.request("/auth/login", {
       method: "POST",
       body: { email, password },

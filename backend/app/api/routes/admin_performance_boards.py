@@ -3,13 +3,14 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_db, require_admin
+from app.api.deps import get_db, require_admin, require_super_admin
 from app.models.entities import (
     AiParserSettingsAudit,
     Actor,
     BoardDraftItem,
     Designation,
     DesignationLifecycleEvent,
+    DesignationVersion,
     EntitlementItem,
     EntitlementItemType,
     Performance,
@@ -20,6 +21,7 @@ from app.models.entities import (
     Role,
     User,
     Wish,
+    WishVersion,
 )
 from app.models.enums import EntitlementItemStatus, UserRole
 from urllib.parse import urlsplit
@@ -38,12 +40,21 @@ from app.schemas.performance_boards import (
     DesignationReplaceRequest,
     DesignationEqualChoiceRequest,
     DesignationReviewRead,
+    DesignationCorrectionPatch,
     ProxyDesignationVerifyRequest,
     WishCreateRequest,
     WishCancelRequest,
     WishAcceptRequest,
     WishReviewRead,
     WishUpdateRequest,
+    WishCorrectionPatch,
+)
+from app.services.business_corrections import (
+    CorrectionConflict,
+    correct_designation,
+    correct_wish,
+    preview_designation_correction,
+    preview_wish_correction,
 )
 from app.services.ai_parser import AiParserError, BoardParseContext, OpenAICompatibleBoardParser
 from app.services.ai_settings import (
@@ -73,6 +84,16 @@ from app.services.designations import (
 from app.services.wishes import WishConflict, accept_wish, cancel_wish, create_wish, update_wish
 
 router = APIRouter(prefix="/admin", tags=["admin_performance_boards"])
+
+
+def _correction_preview_payload(preview) -> dict[str, object]:
+    return {
+        "release_item_id": preview.release_item_id,
+        "reserve_item_id": preview.reserve_item_id,
+        "reverse_ledger_entry_id": preview.reverse_ledger_entry_id,
+        "requires_reversal": preview.requires_reversal,
+        "immutable_fields": list(preview.immutable_fields),
+    }
 
 
 def wish_review_read(db: Session, row: Wish) -> WishReviewRead:
@@ -533,7 +554,7 @@ def post_resolve_equal(
 
 @router.get("/system-settings/ai-parser", response_model=AiParserSettingsRead)
 def get_ai_parser_settings(
-    _: dict[str, str] = Depends(require_admin), db: Session = Depends(get_db)
+    _: dict[str, str] = Depends(require_super_admin), db: Session = Depends(get_db)
 ):
     return read_ai_settings(get_ai_settings(db))
 
@@ -541,7 +562,7 @@ def get_ai_parser_settings(
 @router.put("/system-settings/ai-parser", response_model=AiParserSettingsRead)
 def put_ai_parser_settings(
     payload: AiParserSettingsUpdate,
-    user: dict[str, str] = Depends(require_admin),
+    user: dict[str, str] = Depends(require_super_admin),
     db: Session = Depends(get_db),
 ):
     try:
@@ -584,7 +605,7 @@ def put_ai_parser_settings(
 
 @router.post("/system-settings/ai-parser/test", response_model=AiParserTestRead)
 async def test_ai_parser_connection(
-    user: dict[str, str] = Depends(require_admin), db: Session = Depends(get_db)
+    user: dict[str, str] = Depends(require_super_admin), db: Session = Depends(get_db)
 ):
     row = get_ai_settings(db)
     try:
@@ -789,3 +810,123 @@ def post_rollback(
         return clone_revision_for_rollback(db, revision_id, _operator_id(db, user))
     except BoardConflict as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.post("/designations/{designation_id}/correction-preview")
+def post_designation_correction_preview(
+    designation_id: int,
+    payload: DesignationCorrectionPatch,
+    _: dict[str, str] = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    try:
+        return _correction_preview_payload(
+            preview_designation_correction(db, designation_id, payload)
+        )
+    except CorrectionConflict as exc:
+        raise HTTPException(404 if str(exc) == "designation_not_found" else 409, detail=str(exc))
+
+
+@router.post("/designations/{designation_id}/corrections", response_model=DesignationReviewRead)
+def post_designation_correction(
+    designation_id: int,
+    payload: DesignationCorrectionPatch,
+    user: dict[str, str] = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    try:
+        row = correct_designation(db, designation_id, payload, _operator_id(db, user))
+        result = designation_review_read(db, row)
+        db.commit()
+        return result
+    except CorrectionConflict as exc:
+        db.rollback()
+        raise HTTPException(404 if str(exc) == "designation_not_found" else 409, detail=str(exc))
+
+
+@router.get("/designations/{designation_id}/versions")
+def get_designation_versions(
+    designation_id: int,
+    _: dict[str, str] = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    if db.get(Designation, designation_id) is None:
+        raise HTTPException(404, detail="designation_not_found")
+    return [
+        {
+            "id": row.id,
+            "version_number": row.version_number,
+            "player_name": row.player_name,
+            "actor_id": row.actor_id,
+            "role_id": row.role_id,
+            "usage_type": row.usage_type,
+            "entitlement_item_id": row.entitlement_item_id,
+            "note": row.note,
+            "correction_reason": row.correction_reason,
+            "created_by": row.created_by,
+            "created_at": row.created_at,
+        }
+        for row in db.scalars(
+            select(DesignationVersion)
+            .where(DesignationVersion.designation_id == designation_id)
+            .order_by(DesignationVersion.version_number.desc())
+        )
+    ]
+
+
+@router.post("/wishes/{wish_id}/correction-preview")
+def post_wish_correction_preview(
+    wish_id: int,
+    payload: WishCorrectionPatch,
+    _: dict[str, str] = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    try:
+        return _correction_preview_payload(preview_wish_correction(db, wish_id, payload))
+    except CorrectionConflict as exc:
+        raise HTTPException(404 if str(exc) == "wish_not_found" else 409, detail=str(exc))
+
+
+@router.post("/wishes/{wish_id}/corrections", response_model=WishReviewRead)
+def post_wish_correction(
+    wish_id: int,
+    payload: WishCorrectionPatch,
+    user: dict[str, str] = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    try:
+        row = correct_wish(db, wish_id, payload, _operator_id(db, user))
+        result = wish_review_read(db, row)
+        db.commit()
+        return result
+    except CorrectionConflict as exc:
+        db.rollback()
+        raise HTTPException(404 if str(exc) == "wish_not_found" else 409, detail=str(exc))
+
+
+@router.get("/wishes/{wish_id}/versions")
+def get_wish_versions(
+    wish_id: int,
+    _: dict[str, str] = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    if db.get(Wish, wish_id) is None:
+        raise HTTPException(404, detail="wish_not_found")
+    return [
+        {
+            "id": row.id,
+            "version_number": row.version_number,
+            "player_name": row.player_name,
+            "actor_id": row.actor_id,
+            "role_id": row.role_id,
+            "note": row.note,
+            "correction_reason": row.correction_reason,
+            "created_by": row.created_by,
+            "created_at": row.created_at,
+        }
+        for row in db.scalars(
+            select(WishVersion)
+            .where(WishVersion.wish_id == wish_id)
+            .order_by(WishVersion.version_number.desc())
+        )
+    ]

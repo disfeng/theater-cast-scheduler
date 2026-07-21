@@ -83,7 +83,7 @@ def test_theater_entitlement_management_is_migration_head():
     script = ScriptDirectory.from_config(Config("alembic.ini"))
     revision = script.get_revision("0012_theater_entitlements")
 
-    assert script.get_current_head() == "0015_actor_notification_settings"
+    assert script.get_current_head() == "0019_daily_publications"
     assert revision.down_revision == "0011_weekly_publish_operations"
     migration = Path(revision.path).read_text()
     for required in (
@@ -101,7 +101,7 @@ def test_top_three_actor_binding_advances_migration_head():
     script = ScriptDirectory.from_config(Config("alembic.ini"))
     revision = script.get_revision("0013_top_three_actor_binding")
 
-    assert script.get_current_head() == "0015_actor_notification_settings"
+    assert script.get_current_head() == "0019_daily_publications"
     assert revision.down_revision == "0012_theater_entitlements"
     migration = Path(revision.path).read_text()
     assert "bound_actor_id" in migration
@@ -112,7 +112,7 @@ def test_actor_workspace_migration_advances_head_and_declares_tables():
     script = ScriptDirectory.from_config(Config("alembic.ini"))
     revision = script.get_revision("0014_actor_mobile_workspace")
 
-    assert script.get_current_head() == "0015_actor_notification_settings"
+    assert script.get_current_head() == "0019_daily_publications"
     assert revision.down_revision == "0013_top_three_actor_binding"
     migration = Path(revision.path).read_text()
     for table in (
@@ -131,7 +131,7 @@ def test_performance_board_migration_advances_head_and_declares_contract():
     head = script.get_current_head()
     revision = script.get_revision("0007_performance_boards")
 
-    assert head == "0015_actor_notification_settings"
+    assert head == "0019_daily_publications"
     assert revision.down_revision == "0006_entitlement_inventory"
     migration = Path(revision.path).read_text()
     for table in (

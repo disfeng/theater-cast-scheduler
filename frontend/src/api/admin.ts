@@ -108,6 +108,8 @@ export type LeaveRequest = {
   status: string;
   note: string | null;
 };
+export type LeaveApplicationDay = { id: number; leave_date: string; status: "pending" | "approved" | "rejected" | "withdrawn"; has_schedule_conflict: boolean; review_reason: string | null; reviewed_at: string | null; withdrawn_at: string | null };
+export type LeaveApplication = { id: number; actor_id: number; actor_name: string; theater_id: number; theater_name: string; note: string | null; created_at: string; days: LeaveApplicationDay[] };
 
 export type ScheduleAssignment = {
   performance_id: number;
@@ -124,9 +126,10 @@ export type ScheduleConflict = {
 };
 export type WeeklyScheduleWorkspace = {
   theater_id: number; week_start: string; week_end: string; batch_id: number | null;
-  status: "uncreated" | "draft" | "ready" | "scheduled"; version: number;
+  status: "uncreated" | "draft" | "ready" | "partial" | "scheduled"; version: number;
   updated_at: string | null; published_at: string | null;
-  performances: { id: number; performance_date: string; slot_name: string; start_time: string; sort_order: number }[];
+  performances: { id: number; performance_date: string; slot_name: string; start_time: string; sort_order: number;
+    publication_status?: "draft" | "published"; publication_version?: number | null; has_unpublished_changes?: boolean }[];
   roles: { id: number; name: string; group_name: string | null }[];
   actors: { id: number; display_name: string; rating_level: string; max_consecutive_performances: number; low_rating_monthly_cap: number | null; role_ids: number[]; weekly_count: number; monthly_count: number }[];
   assignments: ScheduleAssignment[]; conflicts: ScheduleConflict[]; conflict_summary: Record<string, number>;
@@ -162,9 +165,11 @@ export type Predesignation = {
 export type PerformanceWish = {
   id: number; performance_id: number; performance_player_id: number; player_name: string;
   actor_id: number; actor_name: string; role_id: number; role_name: string;
-  note: string | null; status: "active" | "accepted" | "cancelled"; failure_reason: string | null;
+  note: string | null; status: "active" | "accepted" | "effective" | "fulfilled" | "unsatisfied" | "cancelled"; failure_reason: string | null;
   version: number;
 };
+export type BusinessCorrectionPayload = { player_name?: string; actor_id?: number; role_id?: number; note?: string | null; reason: string; confirmed: boolean; expected_version: number; idempotency_key: string };
+export type BusinessCorrectionPreview = { release_item_id: number | null; reserve_item_id: number | null; reverse_ledger_entry_id: number | null; requires_reversal: boolean; immutable_fields: string[] };
 export type EntitlementReconciliation = {
   generated_at: string; expiry_filter: string | null; filtered_totals: Record<string, number>;
   global_totals: Record<string, number>; anomaly_count: number;
@@ -198,10 +203,14 @@ export const adminApi = {
   async createWish(token: string, payload: { performance_id: number; performance_player_id: number; actor_id: number; role_id: number; note?: string | null }): Promise<PerformanceWish> { return apiClient.request("/admin/wishes", { method: "POST", token, body: { ...payload, expected_version: 0, idempotency_key: mutationKey() } }); },
   async cancelWish(token: string, row: PerformanceWish, reason: string): Promise<PerformanceWish> { return apiClient.request(`/admin/wishes/${row.id}/cancel`, { method: "POST", token, body: { reason, expected_version: row.version, idempotency_key: mutationKey() } }); },
   async acceptWish(token: string, row: PerformanceWish, note?: string): Promise<PerformanceWish> { return apiClient.request(`/admin/wishes/${row.id}/accept`, { method: "POST", token, body: { note: note || null, expected_version: row.version, idempotency_key: mutationKey() } }); },
+  async previewWishCorrection(token:string,row:PerformanceWish,payload:Omit<BusinessCorrectionPayload,"confirmed"|"expected_version"|"idempotency_key">):Promise<BusinessCorrectionPreview>{return apiClient.request(`/admin/wishes/${row.id}/correction-preview`,{method:"POST",token,body:{...payload,confirmed:false,expected_version:row.version,idempotency_key:mutationKey()}})},
+  async correctWish(token:string,row:PerformanceWish,payload:Omit<BusinessCorrectionPayload,"confirmed"|"expected_version"|"idempotency_key">):Promise<PerformanceWish>{return apiClient.request(`/admin/wishes/${row.id}/corrections`,{method:"POST",token,body:{...payload,confirmed:true,expected_version:row.version,idempotency_key:mutationKey()}})},
   async verifyProxyDesignation(token: string, row: Predesignation, payload: { owner_player_id: number; item_id: number; note: string }): Promise<Predesignation> { return apiClient.request(`/admin/designations/${row.id}/verify-proxy`, { method: "POST", token, body: { ...payload, expected_version: row.version, idempotency_key: mutationKey() } }); },
   async activateDesignation(token: string, row: Predesignation, itemId: number): Promise<Predesignation> { return apiClient.request(`/admin/designations/${row.id}/activate`, { method: "POST", token, body: { item_id: itemId, expected_version: row.version, idempotency_key: mutationKey() } }); },
   async replaceDesignation(token: string, incoming: Predesignation): Promise<Predesignation> { return apiClient.request(`/admin/designations/${incoming.id}/replace`, { method: "POST", token, body: { replaced_id: incoming.conflict!.id, expected_versions: { incoming: incoming.version, replaced: incoming.conflict!.version }, confirmed: true, idempotency_key: mutationKey() } }); },
   async cancelDesignation(token: string, row: Predesignation, reason: string): Promise<Predesignation> { return apiClient.request(`/admin/designations/${row.id}/cancel`, { method: "POST", token, body: { reason, expected_version: row.version, idempotency_key: mutationKey() } }); },
+  async previewDesignationCorrection(token:string,row:Predesignation,payload:Omit<BusinessCorrectionPayload,"confirmed"|"expected_version"|"idempotency_key">):Promise<BusinessCorrectionPreview>{return apiClient.request(`/admin/designations/${row.id}/correction-preview`,{method:"POST",token,body:{...payload,confirmed:false,expected_version:row.version,idempotency_key:mutationKey()}})},
+  async correctDesignation(token:string,row:Predesignation,payload:Omit<BusinessCorrectionPayload,"confirmed"|"expected_version"|"idempotency_key">):Promise<Predesignation>{return apiClient.request(`/admin/designations/${row.id}/corrections`,{method:"POST",token,body:{...payload,confirmed:true,expected_version:row.version,idempotency_key:mutationKey()}})},
   async resolveEqualDesignation(token:string,row:Predesignation,decision:"choose_incoming"|"keep_occupied"):Promise<Predesignation>{return apiClient.request(`/admin/designations/${row.id}/resolve-equal`,{method:"POST",token,body:{occupied_id:row.conflict!.id,decision,expected_versions:{incoming:row.version,occupied:row.conflict!.version},confirmed:true,idempotency_key:mutationKey()}})},
   async getAiParserSettings(token: string): Promise<AiParserSettings> { return apiClient.request("/admin/system-settings/ai-parser", { token }); },
   async updateAiParserSettings(token: string, payload: { enabled: boolean; endpoint: string; api_key?: string; model_name: string; timeout_seconds: number }): Promise<AiParserSettings> { return apiClient.request("/admin/system-settings/ai-parser", { method: "PUT", token, body: payload }); },
@@ -453,6 +462,15 @@ export const adminApi = {
   async reviewLeaveRequest(token: string, leaveId: number, status: "approved" | "rejected" | "locked"): Promise<LeaveRequest> {
     return apiClient.request(`/admin/leave-requests/${leaveId}/review`, { method: "POST", token, body: { status } });
   },
+  async getLeaveApplications(token: string, theaterId?: number): Promise<LeaveApplication[]> {
+    return apiClient.request(`/admin/leave-applications${theaterId ? `?theater_id=${theaterId}` : ""}`, { token });
+  },
+  async reviewLeaveApplicationDay(token: string, dayId: number, status: "approved" | "rejected", reason?: string | null): Promise<LeaveApplicationDay> {
+    return apiClient.request(`/admin/leave-application-days/${dayId}/review`, { method: "POST", token, body: { status, reason: reason || null } });
+  },
+  async reviewPendingLeaveDays(token: string, applicationId: number, status: "approved" | "rejected", reason?: string | null): Promise<LeaveApplication> {
+    return apiClient.request(`/admin/leave-applications/${applicationId}/review-pending`, { method: "POST", token, body: { status, reason: reason || null } });
+  },
 
   async getWeeklyBatches(token: string): Promise<WeeklyBatch[]> {
     return apiClient.request("/admin/weekly-batches", { token });
@@ -533,13 +551,55 @@ export const adminApi = {
   async publishWeeklySchedule(token: string, payload: ScheduleMutation): Promise<WeeklyScheduleWorkspace> {
     return apiClient.request("/admin/weekly-schedules/publish", { method: "POST", token, body: { ...payload, idempotency_key: payload.idempotency_key || mutationKey() } });
   },
+
+  async publishScheduleDay(token: string, payload: { theater_id: number; week_start: string; performance_date: string;
+    expected_version: number; confirm_republish: boolean; idempotency_key?: string }): Promise<{
+      published_performance_ids: number[]; publication_version: number; workspace: WeeklyScheduleWorkspace;
+    }> {
+    return apiClient.request("/admin/weekly-schedules/publish-day", {
+      method: "POST", token, body: { ...payload, idempotency_key: payload.idempotency_key || mutationKey() },
+    });
+  },
 };
 
 export const actorApi = {
+  async changePassword(token: string, payload: { current_password: string; new_password: string }): Promise<{ access_token: string; role: "actor"; must_change_password: boolean }> {
+    return apiClient.request("/actor/me/password", { method: "POST", token, body: payload });
+  },
   async getSchedule(token: string): Promise<any[]> {
     return apiClient.request("/actor/me/schedule", { token });
+  },
+  async getProfile(token: string): Promise<{ id: number; display_name: string; phone_number: string; must_change_password: boolean; theaters: { id: number; name: string; is_entry_theater: boolean }[] }> {
+    return apiClient.request("/actor/me/profile", { token });
+  },
+  async getCalendar(token: string, month: string, theaterId?: number): Promise<{ month: string; performances: ActorPerformance[] }> {
+    const query = new URLSearchParams({ month });
+    if (theaterId) query.set("theater_id", String(theaterId));
+    return apiClient.request(`/actor/me/calendar?${query}`, { token });
+  },
+  async getNotifications(token: string, unreadOnly = false): Promise<ActorPerformance[]> {
+    return apiClient.request(`/actor/me/notifications?unread_only=${unreadOnly}`, { token });
+  },
+  async markNotificationRead(token: string, notificationId: number): Promise<{ status: string }> {
+    return apiClient.request(`/actor/me/notifications/${notificationId}/read`, { method: "POST", token });
   },
   async submitLeave(token: string, payload: { dates: string[]; note?: string | null }): Promise<any> {
     return apiClient.request("/actor/me/leave-requests", { method: "POST", token, body: payload });
   },
+  async getLeaveApplications(token: string): Promise<LeaveApplication[]> {
+    return apiClient.request("/actor/me/leave-applications", { token });
+  },
+  async submitLeaveApplication(token: string, payload: { theater_id: number; dates: string[]; note?: string | null }): Promise<LeaveApplication> {
+    return apiClient.request("/actor/me/leave-applications", { method: "POST", token, body: payload });
+  },
+  async withdrawLeaveDay(token: string, dayId: number): Promise<LeaveApplicationDay> {
+    return apiClient.request(`/actor/me/leave-application-days/${dayId}/withdraw`, { method: "POST", token });
+  },
+};
+
+export type ActorPerformance = {
+  notification_id: number; theater_id: number; theater_name: string; performance_id: number;
+  performance_date: string; slot_name: string; start_time: string; role_name: string;
+  player_name: string | null; designation_type: string | null; designation_label: string | null;
+  read_at: string | null;
 };

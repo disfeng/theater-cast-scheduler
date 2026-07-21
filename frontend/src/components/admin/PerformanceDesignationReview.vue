@@ -30,6 +30,7 @@
       </div>
 
       <div class="actions">
+        <el-button plain :disabled="busyId === row.id" @click="$emit('correct', row)">修订登记</el-button>
         <el-button v-if="row.usage_type === 'proxy' && row.verification_status !== 'verified' && !row.conflict" type="primary" :disabled="!form(row).ownerId || !form(row).itemId || busyId === row.id" @click="verify(row)">确认代指定并预占</el-button>
         <el-button v-else-if="row.action === 'activate' || (!row.conflict && !terminal(row))" type="primary" :disabled="!form(row).itemId || busyId === row.id" @click="activate(row)">核验并预占</el-button>
         <el-button v-if="row.action === 'confirm_replace'" type="warning" :disabled="busyId === row.id" @click="replace(row)">替换低优先级指定</el-button>
@@ -53,7 +54,7 @@ import type { PlayerProfile } from "../../features/entitlements/types";
 import { confirmAction } from "../../features/dialogs/confirm-action";
 
 const props = defineProps<{ rows: Predesignation[] }>();
-const emit = defineEmits<{ changed: []; reject: [id: number] }>();
+const emit = defineEmits<{ changed: []; reject: [id: number]; correct: [row: Predesignation] }>();
 const auth = useAuthStore();
 const forms = reactive<Record<number, { itemId: number; note: string; ownerQuery: string; ownerId: number | null }>>({});
 const ownerCandidates = reactive<Record<number, PlayerProfile[]>>({});
@@ -71,8 +72,8 @@ async function resolveEqual(row: Predesignation, decision: "choose_incoming" | "
 async function searchOwner(row: Predesignation) { ownerCandidates[row.id] = await adminApi.getPlayerProfiles(auth.token!, form(row).ownerQuery); }
 async function selectOwner(row: Predesignation, player: PlayerProfile) { const [inventory, types] = await Promise.all([adminApi.getPlayerInventory(auth.token!, player.id), adminApi.getEntitlementItemTypes(auth.token!)]); const type = types.find(item => item.code === row.designation_type); row.owner_player_id = player.id; row.owner_name = player.display_name; row.available_items = inventory.items.filter(item => item.item_type_id === type?.id && item.status === "available").map(item => ({ id: item.id, serial_number: item.serial_number, source_label: item.source_label, expires_at: item.expires_at, status: item.status })); Object.assign(form(row), { ownerId: player.id, itemId: row.available_items[0]?.id || 0 }); }
 const typeLabel = (value: string) => ({ universal: "万能指定", top_three: "榜单前三指定", paired: "对位指定" }[value] || value);
-const statusLabel = (value: string | null) => ({ draft: "待核对", pending_verification: "待客服核验", predesignated: "已预指定", cancelled: "已拒绝/退款", replaced: "已替换", fulfilled: "已核销", unsatisfied: "未满足" }[value || ""] || value || "待处理");
-const statusType = (value: string | null): "success" | "warning" | "danger" | "info" => value === "predesignated" || value === "fulfilled" ? "success" : value === "cancelled" || value === "unsatisfied" ? "danger" : "warning";
+const statusLabel = (value: string | null) => ({ draft: "待核对", pending_verification: "待客服核验", predesignated: "已预指定", effective: "已生效", cancelled: "已拒绝/退款", replaced: "已替换", fulfilled: "已履约", unsatisfied: "未满足" }[value || ""] || value || "待处理");
+const statusType = (value: string | null): "success" | "warning" | "danger" | "info" => value === "predesignated" || value === "effective" || value === "fulfilled" ? "success" : value === "cancelled" || value === "unsatisfied" ? "danger" : "warning";
 const formatDate = (value: string | null) => value ? new Date(value).toLocaleDateString("zh-CN") : "—";
 const conflictText = (row: Predesignation) => row.comparison === "higher" ? "新指定优先级更高，需二次确认替换" : row.comparison === "equal" ? "同优先级冲突，需人工决策" : "当前指定优先级较低，不会自动预占";
 </script>

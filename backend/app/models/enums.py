@@ -2,8 +2,26 @@ from enum import StrEnum
 
 
 class UserRole(StrEnum):
-    ADMIN = "admin"
+    SUPER_ADMIN = "super_admin"
+    ADMIN = "super_admin"
+    THEATER_ADMIN = "theater_admin"
     ACTOR = "actor"
+
+
+class AuditEventCategory(StrEnum):
+    BUSINESS = "business"
+    SECURITY = "security"
+
+
+class AuditResult(StrEnum):
+    SUCCESS = "success"
+    FAILURE = "failure"
+
+
+class AuditRiskLevel(StrEnum):
+    NORMAL = "normal"
+    WARNING = "warning"
+    CRITICAL = "critical"
 
 
 class PerformanceStatus(StrEnum):
@@ -122,6 +140,7 @@ class EntitlementEventType(StrEnum):
     EXTENDED = "extended"
     RESTORED = "restored"
     ADJUSTED = "adjusted"
+    REVERSED = "reversed"
 
 
 class BoardRevisionStatus(StrEnum):

@@ -256,7 +256,7 @@ def test_recommend_reinjects_locked_predesignation_over_manual_payload(db_sessio
         app.dependency_overrides.clear()
 
 
-def test_publish_consumes_fulfilled_reserved_item_once_with_lifecycle_audit(db_session):
+def test_publish_consumes_effective_reserved_item_once_with_lifecycle_audit(db_session):
     theater, actors, roles, performances = _seed_workspace(db_session)
     player = PlayerProfile(display_name="P", normalized_name="p", status=PlayerStatus.ACTIVE)
     item_type = EntitlementItemType(
@@ -336,11 +336,11 @@ def test_publish_consumes_fulfilled_reserved_item_once_with_lifecycle_audit(db_s
         db_session.refresh(item)
         db_session.refresh(designation)
         assert item.status == EntitlementItemStatus.CONSUMED
-        assert designation.lifecycle_status == "fulfilled"
+        assert designation.lifecycle_status == "effective"
         assert db_session.query(EntitlementLedgerEntry).filter_by(item_id=item.id).count() == 1
         assert (
             db_session.query(DesignationLifecycleEvent)
-            .filter_by(designation_id=designation.id, action="publish_fulfill")
+            .filter_by(designation_id=designation.id, action="publish_effective")
             .count()
             == 1
         )
@@ -611,15 +611,9 @@ def test_legacy_batch_without_publish_operation_still_loads_saves_and_publishes(
         assert batch.assignments[0].conflict_codes == ["role_not_allowed"]
         actor_schedule = client.get("/actor/me/schedule", headers=actor_headers)
         assert actor_schedule.status_code == 200
-        assert actor_schedule.json() == [
-            {
-                "date": "2026-12-31",
-                "slot": "早场",
-                "role": "柳知雨",
-                "status": "draft",
-            },
-            {"date": "2027-01-01", "slot": "晚场", "role": "谢允昭", "status": "draft"},
-        ]
+        # The actor compatibility endpoint is disclosure-snapshot based and must not
+        # expose a future cast merely because the admin published the weekly batch.
+        assert actor_schedule.json() == []
 
         stale = client.put(
             "/admin/weekly-schedules/draft",

@@ -13,15 +13,15 @@ test("admin navigation gives every menu item an icon", async () => {
   const { container } = await renderAdminRoute("/admin/weekly-scheduling");
   const items = container.querySelectorAll(".sidebar-menu .el-menu-item");
   const icons = container.querySelectorAll(".sidebar-menu .el-menu-item .el-icon");
-  expect(items.length).toBe(8);
+  expect(items.length).toBe(10);
   expect(icons.length).toBe(items.length);
 });
 
 test("actor navigation gives every menu item an icon", async () => {
   const { container } = await renderActorRoute("/actor/leave");
-  const items = container.querySelectorAll(".sidebar-menu .el-menu-item");
-  const icons = container.querySelectorAll(".sidebar-menu .el-menu-item .el-icon");
-  expect(items.length).toBe(2);
+  const items = container.querySelectorAll(".actor-tabs a");
+  const icons = container.querySelectorAll(".actor-tabs a .el-icon");
+  expect(items.length).toBe(4);
   expect(icons.length).toBe(items.length);
 });
 
@@ -76,8 +76,12 @@ test("admin pages use one full-width content alignment inside the shell padding"
 test("weekly scheduling uses the original single-week role matrix", () => {
   const source = vueSources["../src/pages/admin/WeeklySchedulingPage.vue"];
   expect(source).not.toContain(".toolbar-primary::after");
-  expect(source).toContain('class="schedule-matrix"');
+  expect(source).toContain('class="schedule-matrix schedule-matrix--compact"');
   expect(source).toContain('class="matrix-scroll"');
+  expect(source).toContain(".schedule-matrix { width: max-content; min-width: max-content;");
+  expect(source).toContain(".date-col { left: 0; width: 108px; min-width: 108px; }");
+  expect(source).toContain(".slot-col { left: 108px; width: 72px; min-width: 72px;");
+  expect(source).toContain(".role-col { width: 136px; min-width: 136px; max-width: 136px; }");
   expect(source).not.toContain('class="month-weeks"');
 });
 

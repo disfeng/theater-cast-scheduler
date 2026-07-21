@@ -16,7 +16,7 @@
         class="sidebar-menu"
         @select="mobileOpen = false"
       >
-        <template v-if="authStore.role === 'admin'">
+        <template v-if="authStore.isAdmin">
           <el-menu-item index="/admin/dashboard"><el-icon><DataBoard /></el-icon><template #title>工作台</template></el-menu-item>
           <el-menu-item index="/admin/settings"><el-icon><Setting /></el-icon><template #title>基础配置</template></el-menu-item>
           <el-menu-item index="/admin/actors"><el-icon><User /></el-icon><template #title>演员管理</template></el-menu-item>
@@ -25,6 +25,8 @@
           <el-menu-item index="/admin/entitlements"><el-icon><Ticket /></el-icon><template #title>权益管理</template></el-menu-item>
           <el-menu-item index="/admin/leave-requests"><el-icon><DocumentChecked /></el-icon><template #title>请假审批</template></el-menu-item>
           <el-menu-item index="/admin/weekly-scheduling"><el-icon><Grid /></el-icon><template #title>周排班</template></el-menu-item>
+          <el-menu-item v-if="authStore.isSuperAdmin" index="/admin/administrators"><el-icon><UserFilled /></el-icon><template #title>管理员管理</template></el-menu-item>
+          <el-menu-item index="/admin/audit-logs"><el-icon><Document /></el-icon><template #title>日志审查</template></el-menu-item>
         </template>
         <template v-else>
           <el-menu-item index="/actor/schedule"><el-icon><Clock /></el-icon><template #title>我的排期</template></el-menu-item>
@@ -39,7 +41,7 @@
       <el-header class="topbar">
         <el-button text class="menu-toggle" aria-label="切换导航" @click="toggleSidebar">☰</el-button>
         <div class="topbar-actions">
-          <span class="role-label">{{ authStore.role === 'admin' ? '管理员' : '演员' }}</span>
+          <span class="role-label">{{ authStore.isSuperAdmin ? '超级管理员' : authStore.isAdmin ? '剧场管理员' : '演员' }}</span>
           <el-button size="small" @click="handleLogout">退出登录</el-button>
         </div>
       </el-header>
@@ -51,7 +53,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { Calendar, Clock, DataBoard, DocumentChecked, Grid, MagicStick, Memo, Setting, Ticket, User } from "@element-plus/icons-vue";
+import { Calendar, Clock, DataBoard, Document, DocumentChecked, Grid, MagicStick, Memo, Setting, Ticket, User, UserFilled } from "@element-plus/icons-vue";
 import { useAuthStore } from "../auth/store";
 
 const route = useRoute();

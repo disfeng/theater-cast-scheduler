@@ -17,6 +17,8 @@ from app.models.entities import (
     EntitlementItem,
     EntitlementLedgerEntry,
     LeaveRequest,
+    LeaveApplication,
+    LeaveApplicationDay,
     Performance,
     PerformancePlayer,
     PlayerProfile,
@@ -27,6 +29,7 @@ from app.models.entities import (
     WeeklyBatch,
     WeeklyPublishOperation,
     Wish,
+    WishLifecycleEvent,
 )
 from app.models.enums import (
     BatchStatus,
@@ -346,6 +349,14 @@ def _validate_assignments(
             LeaveRequest.status == LeaveStatus.APPROVED
         )
     ).all()
+    leave_rows += db.execute(
+        select(LeaveApplication.actor_id, LeaveApplicationDay.leave_date)
+        .join(LeaveApplicationDay, LeaveApplicationDay.application_id == LeaveApplication.id)
+        .where(
+            LeaveApplicationDay.status == LeaveStatus.APPROVED,
+            LeaveApplicationDay.withdrawn_at.is_(None),
+        )
+    ).all()
     approved_leave: dict[int, set[date]] = defaultdict(set)
     for actor_id, leave_date in leave_rows:
         approved_leave[actor_id].add(leave_date)
@@ -498,6 +509,8 @@ def validate_schedule_context(
 
 
 def get_workspace(db: Session, theater_id: int, week_start: date) -> dict[str, object]:
+    from app.services.schedule_publications import assignment_hash
+
     end = _week_end(week_start)
     theater = db.get(Theater, theater_id)
     if theater is None:
@@ -538,6 +551,16 @@ def get_workspace(db: Session, theater_id: int, week_start: date) -> dict[str, o
     week_counts = Counter(row.actor_id for row in assignments)
     role_ids = {role.id for role in roles}
     performance_ids = [row.id for row in performances]
+    from app.models.entities import PerformanceCastPublication
+
+    publications = {
+        row.performance_id: row
+        for row in db.scalars(
+            select(PerformanceCastPublication)
+            .where(PerformanceCastPublication.performance_id.in_(performance_ids))
+            .options(selectinload(PerformanceCastPublication.assignments))
+        )
+    } if performance_ids else {}
     unmet_rows = (
         list(
             db.scalars(
@@ -569,10 +592,18 @@ def get_workspace(db: Session, theater_id: int, week_start: date) -> dict[str, o
         "week_start": week_start,
         "week_end": end,
         "batch_id": batch.id if batch else None,
-        "status": batch.status.value if batch else "uncreated",
+        "status": (
+            "scheduled" if performance_ids and len(publications) == len(performance_ids)
+            else "partial" if publications
+            else batch.status.value if batch
+            else "uncreated"
+        ),
         "version": batch.version if batch else 0,
         "updated_at": batch.updated_at if batch else None,
-        "published_at": batch.published_at if batch else None,
+        "published_at": (
+            max((row.published_at for row in publications.values()), default=None)
+            or (batch.published_at if batch else None)
+        ),
         "performances": [
             {
                 "id": row.id,
@@ -580,6 +611,14 @@ def get_workspace(db: Session, theater_id: int, week_start: date) -> dict[str, o
                 "slot_name": row.slot_name_snapshot,
                 "start_time": row.start_time_snapshot,
                 "sort_order": row.theater_slot.sort_order if row.theater_slot else 0,
+                "publication_status": "published" if row.id in publications else "draft",
+                "publication_version": publications[row.id].version if row.id in publications else None,
+                "has_unpublished_changes": (
+                    assignment_hash([item for item in assignments if item.performance_id == row.id])
+                    != publications[row.id].assignment_hash
+                    if row.id in publications
+                    else False
+                ),
             }
             for row in performances
         ],
@@ -863,6 +902,18 @@ def _specific_unmet_reason(
         )
     ):
         return "actor_on_leave"
+    if performance and db.scalar(
+        select(LeaveApplicationDay.id)
+        .join(LeaveApplication, LeaveApplication.id == LeaveApplicationDay.application_id)
+        .where(
+            LeaveApplication.actor_id == row.actor_id,
+            LeaveApplication.theater_id == performance.theater_id,
+            LeaveApplicationDay.leave_date == performance.performance_date,
+            LeaveApplicationDay.status == LeaveStatus.APPROVED,
+            LeaveApplicationDay.withdrawn_at.is_(None),
+        )
+    ):
+        return "actor_on_leave"
     if not db.scalar(
         select(ActorRoleCapability.actor_id).where(
             ActorRoleCapability.actor_id == row.actor_id, ActorRoleCapability.role_id == row.role_id
@@ -924,9 +975,10 @@ def _scope_hash(scope: list[dict[str, object]]) -> str:
 
 
 def _reconcile_designations(
-    db: Session, payload: ScheduleMutationRequest, validation: dict[str, object], operator_id: int
+    db: Session, payload: ScheduleMutationRequest, validation: dict[str, object], operator_id: int,
+    performance_ids: list[int] | None = None,
 ) -> None:
-    performance_ids = _week_performance_ids_including_cancelled(
+    performance_ids = performance_ids or _week_performance_ids_including_cancelled(
         db, payload.theater_id, payload.week_start
     )
     rows = list(
@@ -947,7 +999,7 @@ def _reconcile_designations(
     now = datetime.utcnow()
     for row in rows:
         reason = _specific_unmet_reason(db, row, invalid, assigned)
-        fulfilled = reason is None
+        effective = reason is None
         item = (
             db.scalar(
                 select(EntitlementItem)
@@ -958,7 +1010,7 @@ def _reconcile_designations(
             else None
         )
         old_status = row.lifecycle_status
-        action = "publish_fulfill" if fulfilled else "publish_unsatisfied"
+        action = "publish_effective" if effective else "publish_unsatisfied"
         event_key = f"{payload.idempotency_key or payload.week_start}:{row.id}:{action}"
         if db.scalar(
             select(DesignationLifecycleEvent.id).where(
@@ -968,7 +1020,7 @@ def _reconcile_designations(
             )
         ):
             continue
-        if fulfilled:
+        if effective:
             if (
                 item
                 and item.status == EntitlementItemStatus.RESERVED
@@ -1016,8 +1068,8 @@ def _reconcile_designations(
                 )
         db.flush()
         _publish_checkpoint("item_and_entitlement_ledger")
-        row.lifecycle_status = "fulfilled" if fulfilled else "unsatisfied"
-        row.failure_reason = None if fulfilled else reason
+        row.lifecycle_status = "effective" if effective else "unsatisfied"
+        row.failure_reason = None if effective else reason
         row.version += 1
         snapshot = {
             "designation": {
@@ -1048,6 +1100,63 @@ def _reconcile_designations(
         )
         db.flush()
         _publish_checkpoint("designation_event")
+
+
+def _reconcile_wishes(
+    db: Session, payload: ScheduleMutationRequest, operator_id: int,
+    performance_ids: list[int] | None = None,
+) -> None:
+    performance_ids = performance_ids or _week_performance_ids_including_cancelled(
+        db, payload.theater_id, payload.week_start
+    )
+    rows = list(
+        db.scalars(
+            select(Wish)
+            .where(Wish.performance_id.in_(performance_ids), Wish.status == "accepted")
+            .order_by(Wish.id)
+            .with_for_update()
+        )
+    )
+    assigned = {(row.performance_id, row.role_id, row.actor_id) for row in payload.assignments}
+    for row in rows:
+        effective = (row.performance_id, row.role_id, row.actor_id) in assigned
+        action = "publish_effective" if effective else "publish_unsatisfied"
+        event_key = f"{payload.idempotency_key or payload.week_start}:{row.id}:{action}"
+        if db.scalar(
+            select(WishLifecycleEvent.id).where(
+                WishLifecycleEvent.action == action,
+                WishLifecycleEvent.idempotency_key == event_key,
+            )
+        ):
+            continue
+        old_status = row.status
+        row.status = "effective" if effective else "unsatisfied"
+        row.failure_reason = None if effective else "actor_not_assigned"
+        row.version += 1
+        request_hash = hashlib.sha256(
+            json.dumps(
+                {"week_start": str(payload.week_start), "action": action}, sort_keys=True
+            ).encode()
+        ).hexdigest()
+        db.add(
+            WishLifecycleEvent(
+                wish_id=row.id,
+                operator_user_id=operator_id,
+                action=action,
+                idempotency_key=event_key,
+                request_hash=request_hash,
+                result_snapshot={
+                    "id": row.id,
+                    "version": row.version,
+                    "status": row.status,
+                    "failure_reason": row.failure_reason,
+                },
+                from_status=old_status,
+                to_status=row.status,
+                note=row.failure_reason,
+            )
+        )
+    db.flush()
 
 
 def persist_schedule(
@@ -1205,7 +1314,23 @@ def persist_schedule(
     batch.status = BatchStatus.SCHEDULED if publish else BatchStatus.READY
     batch.published_at = datetime.utcnow() if publish else None
     if publish:
+        from app.services.schedule_publications import snapshot_published_week
+
+        snapshot_published_week(db, batch, operator.id)
+        from app.services.performance_fulfillment import reconcile_effective_business
+
+        performance_ids = _week_performance_ids_including_cancelled(
+            db, payload.theater_id, payload.week_start
+        )
+        reconcile_effective_business(
+            db,
+            performance_ids,
+            {(row.performance_id, row.role_id, row.actor_id) for row in payload.assignments},
+            operator.id,
+            idempotency_key=payload.idempotency_key or f"publish:{payload.week_start}",
+        )
         _reconcile_designations(db, payload, validation, operator.id)
+        _reconcile_wishes(db, payload, operator.id)
         from app.services.actor_notifications import reconcile_notification_tasks, shanghai_now
 
         reconcile_notification_tasks(

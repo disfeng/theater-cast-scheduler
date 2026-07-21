@@ -39,11 +39,12 @@ const handleLogin = async () => {
   error.value = null;
   try {
     const res = await apiClient.login(identifier.value, password.value);
-    authStore.setSession(res.access_token, res.role);
-    const home = res.role === "admin" ? "/admin/dashboard" : "/actor/schedule";
+    authStore.setSession(res.access_token, res.role, res.must_change_password);
+    const isAdmin = res.role === "admin" || res.role === "super_admin" || res.role === "theater_admin";
+    const home = isAdmin ? "/admin/dashboard" : res.must_change_password ? "/actor/change-password" : "/actor/schedule";
     const redirect = typeof route.query.redirect === "string" ? route.query.redirect : "";
-    const allowedPrefix = res.role === "admin" ? "/admin/" : "/actor/";
-    await router.replace(redirect.startsWith(allowedPrefix) ? redirect : home);
+    const allowedPrefix = isAdmin ? "/admin/" : "/actor/";
+    await router.replace(res.must_change_password ? home : redirect.startsWith(allowedPrefix) ? redirect : home);
   } catch (err: any) {
     error.value = err.message || "登录失败";
   }
