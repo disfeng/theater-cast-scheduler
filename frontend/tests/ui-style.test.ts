@@ -25,6 +25,12 @@ test("admin navigation follows the operational information architecture", async 
   expect(labels).toEqual(["工作台", "基础配置", "演员管理", "月度计划", "周排班", "请假审批", "指定与许愿", "权益管理", "管理员管理", "日志审查"]);
 });
 
+test("audit log export uses the configured API download helper", () => {
+  const source = vueSources["../src/pages/admin/AuditLogsPage.vue"];
+  expect(source).toContain("downloadAuthenticated");
+  expect(source).not.toContain("http://localhost:7004");
+});
+
 test("actor navigation gives every menu item an icon", async () => {
   const { container } = await renderActorRoute("/actor/leave");
   const items = container.querySelectorAll(".actor-tabs a");

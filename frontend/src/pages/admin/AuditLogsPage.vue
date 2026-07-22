@@ -6,12 +6,12 @@
   </section>
 </template>
 <script setup lang="ts">
-import { onMounted, reactive, ref } from "vue";import { apiClient } from "../../api/client";import { adminApi } from "../../api/admin";import { useAuthStore } from "../../auth/store";
+import { onMounted, reactive, ref } from "vue";import { apiClient } from "../../api/client";import { adminApi } from "../../api/admin";import { downloadAuthenticated } from "../../api/download";import { useAuthStore } from "../../auth/store";
 const auth=useAuthStore(), theaters=ref<{id:number;name:string}[]>([]), rows=ref<any[]>([]), loading=ref(false);const filters=reactive<{theater_id?:number;category?:string;risk_level?:string;keyword:string}>({keyword:""});
 function query(){const q=new URLSearchParams();Object.entries(filters).forEach(([k,v])=>{if(v!==undefined&&v!=="")q.set(k,String(v))});return q.toString()}
 async function load(){loading.value=true;try{rows.value=await apiClient.request(`/admin/audit-logs?${query()}`,{token:auth.token})}finally{loading.value=false}}
 function reset(){Object.assign(filters,{theater_id:undefined,category:undefined,risk_level:undefined,keyword:""});void load()}
-async function exportCsv(){const response=await fetch(`http://localhost:7004/admin/audit-logs/export?${query()}`,{headers:{Authorization:`Bearer ${auth.token}`}});const blob=await response.blob();const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download="审计日志.csv";a.click();URL.revokeObjectURL(url)}
+async function exportCsv(){await downloadAuthenticated(`/admin/audit-logs/export?${query()}`,auth.token!,"审计日志.csv")}
 onMounted(async()=>{theaters.value=await adminApi.getTheaters(auth.token!);await load()});
 </script>
 <style scoped>.page-shell{display:grid;gap:20px}.page-header{display:flex;justify-content:space-between;align-items:flex-end}.page-header h1{margin:0;font-size:30px}.page-header p{margin:8px 0 0;color:var(--text-secondary)}.filters :deep(.el-form-item){margin-bottom:0}.risk{margin-left:6px}pre{white-space:pre-wrap;color:var(--text-secondary);font-size:13px}</style>
