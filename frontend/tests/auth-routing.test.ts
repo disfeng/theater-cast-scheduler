@@ -3,6 +3,7 @@ import { expect, test, beforeEach, vi } from "vitest";
 import { screen, fireEvent, waitFor } from "@testing-library/vue";
 import { renderApp } from "./helpers/render-app";
 import { readFileSync } from "node:fs";
+import { ElMessage } from "element-plus";
 
 beforeEach(() => { localStorage.clear(); vi.restoreAllMocks(); });
 
@@ -33,6 +34,29 @@ test("login identifier accepts actor phone numbers", async () => {
   expect(identifier).toHaveAttribute("type", "text");
   await fireEvent.update(identifier, "18627912251");
   expect(identifier).toHaveValue("18627912251");
+  app.unmount();
+});
+
+test("login 401 shows a clear popup error", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => Response.json(
+    { detail: "Invalid credentials" },
+    { status: 401 },
+  )));
+  const message = vi.spyOn(ElMessage, "error").mockImplementation(() => ({ close: vi.fn() }) as any);
+  const app = await renderApp("/login");
+
+  await fireEvent.update(screen.getByLabelText("邮箱或手机号"), "18627912251");
+  await fireEvent.update(screen.getByLabelText("密码"), "wrong-password");
+  await fireEvent.click(screen.getByRole("button", { name: "登录" }));
+
+  await waitFor(() => expect(message).toHaveBeenCalledWith(expect.objectContaining({
+    message: "账号或密码错误，请检查后重试",
+    duration: 4000,
+    showClose: true,
+  })));
+  expect(screen.getAllByRole("alert").some((alert) => (
+    alert.textContent?.includes("账号或密码错误，请检查后重试")
+  ))).toBe(true);
   app.unmount();
 });
 

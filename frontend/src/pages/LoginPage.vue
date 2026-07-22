@@ -71,8 +71,9 @@
 import { ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ArrowRight, Calendar, CircleCheck, Lock, User } from "@element-plus/icons-vue";
+import { ElMessage } from "element-plus";
 import { useAuthStore } from "../auth/store";
-import { apiClient } from "../api/client";
+import { ApiError, apiClient } from "../api/client";
 
 const identifier = ref("");
 const password = ref("");
@@ -93,9 +94,17 @@ const handleLogin = async () => {
     const allowedPrefix = isAdmin ? "/admin/" : "/actor/";
     await router.replace(res.must_change_password ? home : redirect.startsWith(allowedPrefix) ? redirect : home);
   } catch (err: any) {
-    error.value = err.message || "登录失败";
+    const message = loginErrorMessage(err);
+    error.value = message;
+    ElMessage.error({ message, duration: 4000, showClose: true });
   }
 };
+
+function loginErrorMessage(error: unknown): string {
+  if (error instanceof ApiError && error.status === 401) return "账号或密码错误，请检查后重试";
+  if (error instanceof TypeError) return "无法连接服务器，请确认服务已启动";
+  return error instanceof Error && error.message ? error.message : "登录失败，请稍后重试";
+}
 </script>
 
 <style scoped>
