@@ -2,7 +2,6 @@ from datetime import date, time
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import select
 
 from app.api.deps import get_db
 from app.main import app
@@ -40,7 +39,9 @@ def _client_and_performance(db_session):
     db_session.commit()
     app.dependency_overrides[get_db] = lambda: (yield db_session)
     client = TestClient(app)
-    client.headers["Authorization"] = f"Bearer {create_access_token(user.email, 'admin')}"
+    client.headers["Authorization"] = (
+        f"Bearer {create_access_token(user.email, 'admin', user_id=user.id, token_version=user.token_version)}"
+    )
     return client, performance
 
 
@@ -107,8 +108,13 @@ def test_ai_settings_authorization_audit_and_connection_do_not_create_board_data
     )
     anonymous = TestClient(app).put("/admin/system-settings/ai-parser", json={})
     assert anonymous.status_code == 401
+    actor_user = User(email="actor@example.com", password_hash="test", role=UserRole.ACTOR)
+    db_session.add(actor_user)
+    db_session.commit()
     actor = TestClient(app)
-    actor.headers["Authorization"] = f"Bearer {create_access_token('actor@example.com', 'actor')}"
+    actor.headers["Authorization"] = (
+        f"Bearer {create_access_token(actor_user.email, 'actor', user_id=actor_user.id, token_version=actor_user.token_version)}"
+    )
     assert actor.get("/admin/system-settings/ai-parser").status_code == 403
     payload = {
         "enabled": True,
@@ -230,7 +236,7 @@ def test_board_api_requires_concrete_performance_and_admin_auth(db_session):
         app.dependency_overrides.clear()
 
 
-def test_board_raw_draft_can_be_saved_when_token_operator_is_not_in_database(db_session):
+def test_board_raw_draft_rejects_token_operator_not_in_database(db_session):
     theater = Theater(name="草稿剧场")
     slot = TheaterSlot(theater=theater, name="晚场", start_time=time(19, 30))
     performance = Performance(
@@ -244,24 +250,18 @@ def test_board_raw_draft_can_be_saved_when_token_operator_is_not_in_database(db_
     db_session.commit()
     app.dependency_overrides[get_db] = lambda: (yield db_session)
     client = TestClient(app)
-    client.headers["Authorization"] = (
-        f"Bearer {create_access_token('admin@example.com', 'admin')}"
-    )
+    client.headers["Authorization"] = f"Bearer {create_access_token('admin@example.com', 'admin')}"
     try:
         response = client.post(
             f"/admin/performances/{performance.id}/board/revisions",
             json={"raw_text": "无法解析也要保留的原文", "parse_with_ai": False},
         )
-        assert response.status_code == 200
-        assert response.json()["raw_text"] == "无法解析也要保留的原文"
-        assert response.json()["parser_type"] == "deterministic"
-        stored = db_session.get(PerformanceBoardRevision, response.json()["id"])
-        assert stored.created_by is not None
+        assert response.status_code == 401
     finally:
         app.dependency_overrides.clear()
 
 
-def test_board_item_can_be_confirmed_when_admin_token_user_is_not_in_database(db_session):
+def test_board_item_rejects_admin_token_user_not_in_database(db_session):
     theater = Theater(name="确认剧场")
     slot = TheaterSlot(theater=theater, name="晚场", start_time=time(19, 30))
     performance = Performance(
@@ -276,26 +276,13 @@ def test_board_item_can_be_confirmed_when_admin_token_user_is_not_in_database(db
     db_session.commit()
     app.dependency_overrides[get_db] = lambda: (yield db_session)
     client = TestClient(app)
-    client.headers["Authorization"] = (
-        f"Bearer {create_access_token('admin@example.com', 'admin')}"
-    )
+    client.headers["Authorization"] = f"Bearer {create_access_token('admin@example.com', 'admin')}"
     try:
-        revision = client.post(
-            f"/admin/performances/{performance.id}/board/revisions",
-            json={
-                "raw_text": "#玩家信息\n【昭昭】长离（恋）：Jennifer-14-3",
-                "parse_with_ai": False,
-            },
-        ).json()
         response = client.post(
-            f"/admin/board-draft-items/{revision['draft_items'][0]['id']}/confirm",
-            json={},
+            f"/admin/performances/{performance.id}/board/revisions",
+            json={"raw_text": "#玩家信息", "parse_with_ai": False},
         )
-        assert response.status_code == 200
-        operator = db_session.scalar(select(User).where(User.email == "admin@example.com"))
-        assert operator is not None
-        stored_item = db_session.get(BoardDraftItem, revision["draft_items"][0]["id"])
-        assert stored_item.confirmed_by == operator.id
+        assert response.status_code == 401
     finally:
         app.dependency_overrides.clear()
 

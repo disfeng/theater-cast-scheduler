@@ -264,12 +264,15 @@ def update_wish(
         raise WishConflict("wish_role_outside_performance_theater")
     if db.get(Actor, actor_id) is None:
         raise WishConflict("actor_not_found")
-    if db.scalar(
-        select(ActorRoleCapability.id).where(
-            ActorRoleCapability.actor_id == actor_id,
-            ActorRoleCapability.role_id == role_id,
+    if (
+        db.scalar(
+            select(ActorRoleCapability.id).where(
+                ActorRoleCapability.actor_id == actor_id,
+                ActorRoleCapability.role_id == role_id,
+            )
         )
-    ) is None:
+        is None
+    ):
         raise WishConflict("actor_role_capability_missing")
     old = row.status
     row.actor_id = actor_id

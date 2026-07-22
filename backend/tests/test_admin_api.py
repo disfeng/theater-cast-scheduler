@@ -25,7 +25,7 @@ from app.services.admin_data import (
     review_leave_request,
     update_actor,
 )
-from app.services.auth import create_access_token
+from auth_helpers import persisted_admin_headers
 
 
 def test_admin_data_services_create_theaters_roles_and_actor_capabilities(db_session):
@@ -90,8 +90,7 @@ def test_admin_crud_routes_create_and_list_core_data(db_session):
     app.dependency_overrides[get_db] = override_get_db
     try:
         client = TestClient(app)
-        token = create_access_token("admin@example.com", "admin")
-        headers = {"Authorization": f"Bearer {token}"}
+        headers = persisted_admin_headers(db_session)
 
         theater_response = client.post(
             "/admin/theaters",
@@ -163,7 +162,7 @@ def test_theater_slot_template_and_role_lifecycle_routes(db_session):
     app.dependency_overrides[get_db] = override_get_db
     try:
         client = TestClient(app)
-        headers = {"Authorization": f"Bearer {create_access_token('admin@example.com', 'admin')}"}
+        headers = persisted_admin_headers(db_session)
         theater = client.post("/admin/theaters", headers=headers, json={"name": "四场剧场"}).json()
         slots = [
             client.post(

@@ -22,6 +22,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, Session, mapped_column, relationship
 
 from app.db.base import Base
+from app.core.time import utc_now
 from app.models.enums import (
     ActorNotificationTaskStatus,
     ActorNotificationType,
@@ -33,6 +34,7 @@ from app.models.enums import (
     EntitlementItemCategory,
     EntitlementItemStatus,
     EntitlementSourceType,
+    EntitlementGrantMode,
     GrantBatchStatus,
     ImportDraftStatus,
     LeaveStatus,
@@ -66,10 +68,10 @@ class PlayerProfile(Base):
     )
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, server_default=func.now()
+        DateTime, default=utc_now, server_default=func.now()
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, server_default=func.now()
+        DateTime, default=utc_now, onupdate=utc_now, server_default=func.now()
     )
     aliases: Mapped[list[PlayerAlias]] = relationship(
         back_populates="player", cascade="all, delete-orphan"
@@ -102,7 +104,7 @@ class AiParserSettingsAudit(Base):
     model_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
     outcome: Mapped[str] = mapped_column(String(40))
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, server_default=func.now()
+        DateTime, default=utc_now, server_default=func.now()
     )
 
 
@@ -148,7 +150,9 @@ class EntitlementItemType(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    theater_id: Mapped[int | None] = mapped_column(ForeignKey("theaters.id"), nullable=True, index=True)
+    theater_id: Mapped[int | None] = mapped_column(
+        ForeignKey("theaters.id"), nullable=True, index=True
+    )
     code: Mapped[str] = mapped_column(String(40), index=True)
     display_name: Mapped[str] = mapped_column(String(120))
     category: Mapped[EntitlementItemCategory] = mapped_column(
@@ -164,6 +168,9 @@ class EntitlementItemType(Base):
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1", index=True)
     sort_order: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    binds_beneficiary: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    binds_actor: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    binding_locked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     theater: Mapped[Theater | None] = relationship()
     items: Mapped[list[EntitlementItem]] = relationship(back_populates="item_type")
 
@@ -180,7 +187,15 @@ class EntitlementGrantBatch(Base):
     __tablename__ = "entitlement_grant_batches"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    theater_id: Mapped[int | None] = mapped_column(ForeignKey("theaters.id"), nullable=True, index=True)
+    grant_mode: Mapped[EntitlementGrantMode] = mapped_column(
+        Enum(EntitlementGrantMode),
+        default=EntitlementGrantMode.BY_PLAYER,
+        server_default=EntitlementGrantMode.BY_PLAYER.name,
+        index=True,
+    )
+    theater_id: Mapped[int | None] = mapped_column(
+        ForeignKey("theaters.id"), nullable=True, index=True
+    )
     source_type: Mapped[EntitlementSourceType] = mapped_column(
         Enum(EntitlementSourceType), default=EntitlementSourceType.OTHER, index=True
     )
@@ -198,7 +213,7 @@ class EntitlementGrantBatch(Base):
         server_default=GrantBatchStatus.DRAFT.name,
     )
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, server_default=func.now()
+        DateTime, default=utc_now, server_default=func.now()
     )
     granted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     confirmed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
@@ -236,9 +251,21 @@ class EntitlementGrantDraftItem(Base):
 
 class EntitlementItem(Base):
     __tablename__ = "entitlement_items"
+    __table_args__ = (
+        Index("ix_entitlement_items_theater_owner_status", "theater_id", "owner_id", "status"),
+        Index(
+            "ix_entitlement_items_theater_type_status_expiry",
+            "theater_id",
+            "item_type_id",
+            "status",
+            "expires_at",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    theater_id: Mapped[int | None] = mapped_column(ForeignKey("theaters.id"), nullable=True, index=True)
+    theater_id: Mapped[int | None] = mapped_column(
+        ForeignKey("theaters.id"), nullable=True, index=True
+    )
     serial_number: Mapped[str] = mapped_column(String(80), unique=True, index=True)
     owner_id: Mapped[int] = mapped_column(ForeignKey("player_profiles.id"), index=True)
     item_type_id: Mapped[int] = mapped_column(ForeignKey("entitlement_item_types.id"), index=True)
@@ -263,6 +290,10 @@ class EntitlementItem(Base):
     bound_actor_id: Mapped[int | None] = mapped_column(
         ForeignKey("actors.id"), nullable=True, index=True
     )
+    binds_beneficiary_snapshot: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="0"
+    )
+    binds_actor_snapshot: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     theater: Mapped[Theater | None] = relationship()
     owner: Mapped[PlayerProfile] = relationship(back_populates="entitlement_items")
     item_type: Mapped[EntitlementItemType] = relationship(back_populates="items")
@@ -277,13 +308,16 @@ class EntitlementItem(Base):
 
 class EntitlementLedgerEntry(Base):
     __tablename__ = "entitlement_ledger_entries"
+    __table_args__ = (Index("ix_entitlement_ledger_theater_id", "theater_id", "id"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    theater_id: Mapped[int | None] = mapped_column(ForeignKey("theaters.id"), nullable=True, index=True)
+    theater_id: Mapped[int | None] = mapped_column(
+        ForeignKey("theaters.id"), nullable=True, index=True
+    )
     item_id: Mapped[int] = mapped_column(ForeignKey("entitlement_items.id"), index=True)
     event_type: Mapped[EntitlementEventType] = mapped_column(Enum(EntitlementEventType), index=True)
     occurred_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, server_default=func.now(), index=True
+        DateTime, default=utc_now, server_default=func.now(), index=True
     )
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
     from_status: Mapped[EntitlementItemStatus | None] = mapped_column(
@@ -325,7 +359,9 @@ class User(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
-    display_name: Mapped[str] = mapped_column(String(120), default="管理员", server_default="管理员")
+    display_name: Mapped[str] = mapped_column(
+        String(120), default="管理员", server_default="管理员"
+    )
     password_hash: Mapped[str] = mapped_column(String(255))
     role: Mapped[UserRole] = mapped_column(Enum(UserRole), index=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1", index=True)
@@ -333,6 +369,10 @@ class User(Base):
     actor_id: Mapped[int | None] = mapped_column(ForeignKey("actors.id"), nullable=True)
     must_change_password: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     password_changed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    token_version: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    failed_login_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    last_failed_login_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    locked_until: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     actor: Mapped[Actor | None] = relationship(back_populates="user")
     theater_scopes: Mapped[list[UserTheaterScope]] = relationship(
         foreign_keys="UserTheaterScope.user_id",
@@ -343,22 +383,32 @@ class User(Base):
 
 class UserTheaterScope(Base):
     __tablename__ = "user_theater_scopes"
-    __table_args__ = (
-        UniqueConstraint("user_id", "theater_id", name="uq_user_theater_scope"),
-    )
+    __table_args__ = (UniqueConstraint("user_id", "theater_id", name="uq_user_theater_scope"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     theater_id: Mapped[int] = mapped_column(ForeignKey("theaters.id"), index=True)
     granted_by_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     granted_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, server_default=func.now()
+        DateTime, default=utc_now, server_default=func.now()
     )
-    user: Mapped[User] = relationship(
-        foreign_keys=[user_id], back_populates="theater_scopes"
-    )
+    user: Mapped[User] = relationship(foreign_keys=[user_id], back_populates="theater_scopes")
     theater: Mapped[Theater] = relationship()
     granted_by: Mapped[User] = relationship(foreign_keys=[granted_by_user_id])
+
+
+class LoginThrottle(Base):
+    __tablename__ = "login_throttles"
+    __table_args__ = (
+        UniqueConstraint("identifier_hash", "ip_address", name="uq_login_throttle_identity_ip"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    identifier_hash: Mapped[str] = mapped_column(String(64), index=True)
+    ip_address: Mapped[str] = mapped_column(String(64), index=True)
+    failed_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    last_failed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    locked_until: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
 class AuditLog(Base):
@@ -371,7 +421,7 @@ class AuditLog(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     occurred_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, server_default=func.now(), index=True
+        DateTime, default=utc_now, server_default=func.now(), index=True
     )
     request_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     operator_user_id: Mapped[int | None] = mapped_column(
@@ -476,7 +526,9 @@ class Actor(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     display_name: Mapped[str] = mapped_column(String(120), unique=True, index=True)
-    phone_number: Mapped[str | None] = mapped_column(String(20), nullable=True, unique=True, index=True)
+    phone_number: Mapped[str | None] = mapped_column(
+        String(20), nullable=True, unique=True, index=True
+    )
     max_consecutive_performances: Mapped[int] = mapped_column(Integer, default=3)
     rating_level: Mapped[RatingLevel] = mapped_column(Enum(RatingLevel), default=RatingLevel.NORMAL)
     low_rating_monthly_cap: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -524,6 +576,12 @@ class Performance(Base):
             "theater_slot_id",
             name="uq_performance_theater_date_theater_slot",
         ),
+        Index(
+            "ix_performances_theater_date_status",
+            "theater_id",
+            "performance_date",
+            "status",
+        ),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -558,10 +616,10 @@ class PerformanceBoard(Base):
     current_revision_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     next_revision_number: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, server_default=func.now()
+        DateTime, default=utc_now, server_default=func.now()
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, server_default=func.now()
+        DateTime, default=utc_now, onupdate=utc_now, server_default=func.now()
     )
     performance: Mapped[Performance] = relationship()
     revisions: Mapped[list["PerformanceBoardRevision"]] = relationship(
@@ -599,7 +657,7 @@ class PerformanceBoardRevision(Base):
     parsed_payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, server_default=func.now()
+        DateTime, default=utc_now, server_default=func.now()
     )
     confirmed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     rollback_source_revision_id: Mapped[int | None] = mapped_column(
@@ -714,12 +772,14 @@ class LeaveApplication(Base):
     theater_id: Mapped[int] = mapped_column(ForeignKey("theaters.id"), index=True)
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, server_default=func.now(), index=True
+        DateTime, default=utc_now, server_default=func.now(), index=True
     )
     actor: Mapped[Actor] = relationship()
     theater: Mapped[Theater] = relationship()
     days: Mapped[list[LeaveApplicationDay]] = relationship(
-        back_populates="application", cascade="all, delete-orphan", order_by="LeaveApplicationDay.leave_date"
+        back_populates="application",
+        cascade="all, delete-orphan",
+        order_by="LeaveApplicationDay.leave_date",
     )
 
 
@@ -727,6 +787,7 @@ class LeaveApplicationDay(Base):
     __tablename__ = "leave_application_days"
     __table_args__ = (
         UniqueConstraint("application_id", "leave_date", name="uq_leave_application_day"),
+        Index("ix_leave_days_status_date", "status", "leave_date", "withdrawn_at"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -766,7 +827,9 @@ class ActorNotificationTask(Base):
     supersedes_id: Mapped[int | None] = mapped_column(
         ForeignKey("actor_notification_tasks.id"), nullable=True
     )
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=utc_now, server_default=func.now()
+    )
     revealed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
@@ -774,12 +837,16 @@ class ActorNotification(Base):
     __tablename__ = "actor_notifications"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    task_id: Mapped[int | None] = mapped_column(ForeignKey("actor_notification_tasks.id"), nullable=True)
+    task_id: Mapped[int | None] = mapped_column(
+        ForeignKey("actor_notification_tasks.id"), nullable=True
+    )
     theater_id: Mapped[int] = mapped_column(ForeignKey("theaters.id"), index=True)
     performance_id: Mapped[int] = mapped_column(ForeignKey("performances.id"), index=True)
     role_id: Mapped[int] = mapped_column(ForeignKey("roles.id"), index=True)
     actor_id: Mapped[int] = mapped_column(ForeignKey("actors.id"), index=True)
-    notification_type: Mapped[ActorNotificationType] = mapped_column(Enum(ActorNotificationType), index=True)
+    notification_type: Mapped[ActorNotificationType] = mapped_column(
+        Enum(ActorNotificationType), index=True
+    )
     schedule_version: Mapped[int] = mapped_column(Integer)
     theater_name_snapshot: Mapped[str] = mapped_column(String(120))
     performance_date_snapshot: Mapped[date] = mapped_column(Date, index=True)
@@ -789,7 +856,9 @@ class ActorNotification(Base):
     player_name_snapshot: Mapped[str | None] = mapped_column(String(120), nullable=True)
     designation_type_snapshot: Mapped[str | None] = mapped_column(String(40), nullable=True)
     idempotency_key: Mapped[str] = mapped_column(String(180), unique=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, server_default=func.now(), index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=utc_now, server_default=func.now(), index=True
+    )
     read_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
@@ -802,14 +871,19 @@ class SmsDelivery(Base):
     actor_id: Mapped[int] = mapped_column(ForeignKey("actors.id"), index=True)
     masked_phone: Mapped[str] = mapped_column(String(30))
     status: Mapped[SmsDeliveryStatus] = mapped_column(
-        Enum(SmsDeliveryStatus), default=SmsDeliveryStatus.PENDING, server_default=SmsDeliveryStatus.PENDING.name, index=True
+        Enum(SmsDeliveryStatus),
+        default=SmsDeliveryStatus.PENDING,
+        server_default=SmsDeliveryStatus.PENDING.name,
+        index=True,
     )
     attempt_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     next_attempt_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
     provider_request_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
     failure_reason: Mapped[str | None] = mapped_column(String(300), nullable=True)
     idempotency_key: Mapped[str] = mapped_column(String(180), unique=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=utc_now, server_default=func.now()
+    )
     sent_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
@@ -895,7 +969,7 @@ class DesignationLifecycleEvent(Base):
     )
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, server_default=func.now()
+        DateTime, default=utc_now, server_default=func.now()
     )
 
 
@@ -947,7 +1021,7 @@ class WishLifecycleEvent(Base):
     to_status: Mapped[str | None] = mapped_column(String(40), nullable=True)
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, server_default=func.now()
+        DateTime, default=utc_now, server_default=func.now()
     )
 
 
@@ -1017,7 +1091,7 @@ class FulfillmentFailure(Base):
     operator_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, server_default=func.now(), onupdate=datetime.utcnow
+        DateTime, server_default=func.now(), onupdate=utc_now
     )
 
 
@@ -1029,6 +1103,11 @@ class ScheduleAssignment(Base):
             "performance_id",
             "role_id",
             name="uq_schedule_assignment_batch_slot",
+        ),
+        Index(
+            "ix_schedule_assignments_actor_performance",
+            "actor_id",
+            "performance_id",
         ),
     )
 
@@ -1056,10 +1135,8 @@ class WeeklyBatch(Base):
     theater_id: Mapped[int] = mapped_column(ForeignKey("theaters.id"), index=True)
     week_start: Mapped[date] = mapped_column(Date, index=True)
     status: Mapped[BatchStatus] = mapped_column(Enum(BatchStatus), default=BatchStatus.DRAFT)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, onupdate=utc_now)
     published_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     version: Mapped[int] = mapped_column(Integer, default=1)
 
@@ -1090,16 +1167,14 @@ class WeeklyPublishOperation(Base):
     unmet_scope: Mapped[list | None] = mapped_column(JSON, nullable=True)
     response_snapshot: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, server_default=func.now()
+        DateTime, default=utc_now, server_default=func.now()
     )
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
 class PerformanceCastPublication(Base):
     __tablename__ = "performance_cast_publications"
-    __table_args__ = (
-        UniqueConstraint("performance_id", name="uq_performance_cast_publication"),
-    )
+    __table_args__ = (UniqueConstraint("performance_id", name="uq_performance_cast_publication"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     performance_id: Mapped[int] = mapped_column(ForeignKey("performances.id"), index=True)
@@ -1108,7 +1183,7 @@ class PerformanceCastPublication(Base):
     version: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
     source_batch_version: Mapped[int] = mapped_column(Integer)
     assignment_hash: Mapped[str] = mapped_column(String(64))
-    published_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    published_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
     operator_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     assignments: Mapped[list[PublishedCastAssignment]] = relationship(
         back_populates="publication", cascade="all, delete-orphan"
@@ -1117,9 +1192,7 @@ class PerformanceCastPublication(Base):
 
 class PublishedCastAssignment(Base):
     __tablename__ = "published_cast_assignments"
-    __table_args__ = (
-        UniqueConstraint("publication_id", "role_id", name="uq_published_cast_role"),
-    )
+    __table_args__ = (UniqueConstraint("publication_id", "role_id", name="uq_published_cast_role"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     publication_id: Mapped[int] = mapped_column(
@@ -1134,9 +1207,7 @@ class PublishedCastAssignment(Base):
 
 class DailyPublishOperation(Base):
     __tablename__ = "daily_publish_operations"
-    __table_args__ = (
-        UniqueConstraint("idempotency_key", name="uq_daily_publish_idempotency_key"),
-    )
+    __table_args__ = (UniqueConstraint("idempotency_key", name="uq_daily_publish_idempotency_key"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     idempotency_key: Mapped[str] = mapped_column(String(120))
@@ -1146,7 +1217,7 @@ class DailyPublishOperation(Base):
     operator_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     request_hash: Mapped[str] = mapped_column(String(64))
     response_snapshot: Mapped[dict | None] = mapped_column(JSON, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
 
 
 class PersistentImportDraft(Base):
@@ -1158,10 +1229,8 @@ class PersistentImportDraft(Base):
     status: Mapped[ImportDraftStatus] = mapped_column(
         Enum(ImportDraftStatus), default=ImportDraftStatus.DRAFT
     )
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, onupdate=utc_now)
 
     weekly_batch: Mapped[WeeklyBatch] = relationship()
     items: Mapped[list[ImportDraftItem]] = relationship(

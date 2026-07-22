@@ -60,8 +60,14 @@ def submit_leave_application(
         performance_ids = list(
             db.scalars(
                 select(Performance.id)
-                .join(PublishedCastAssignment, PublishedCastAssignment.performance_id == Performance.id)
-                .join(PerformanceCastPublication, PerformanceCastPublication.id == PublishedCastAssignment.publication_id)
+                .join(
+                    PublishedCastAssignment,
+                    PublishedCastAssignment.performance_id == Performance.id,
+                )
+                .join(
+                    PerformanceCastPublication,
+                    PerformanceCastPublication.id == PublishedCastAssignment.publication_id,
+                )
                 .where(
                     PublishedCastAssignment.actor_id == actor_id,
                     Performance.theater_id == theater_id,
@@ -120,10 +126,14 @@ def list_leave_applications(
     if theater_id is not None:
         statement = statement.where(LeaveApplication.theater_id == theater_id)
     if status is not None:
-        statement = statement.join(LeaveApplicationDay).where(
-            LeaveApplicationDay.status == status,
-            LeaveApplicationDay.withdrawn_at.is_(None),
-        ).distinct()
+        statement = (
+            statement.join(LeaveApplicationDay)
+            .where(
+                LeaveApplicationDay.status == status,
+                LeaveApplicationDay.withdrawn_at.is_(None),
+            )
+            .distinct()
+        )
     return list(db.scalars(statement.order_by(LeaveApplication.created_at.desc())))
 
 

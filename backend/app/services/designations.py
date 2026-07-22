@@ -1,10 +1,10 @@
 from __future__ import annotations
-from datetime import datetime
 from copy import copy
 import hashlib
 import json
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
+from app.core.time import utc_now
 from app.models.entities import (
     ActorRoleCapability,
     Designation,
@@ -18,11 +18,14 @@ from app.models.entities import (
     User,
 )
 from app.models.enums import (
-    DesignationType,
     EntitlementEventType,
     EntitlementItemCategory,
     EntitlementItemStatus,
     PlayerStatus,
+)
+from app.services.entitlement_binding import (
+    EntitlementBindingError,
+    validate_designation_binding,
 )
 from app.services.designation_workspace import project_designation_conflicts
 
@@ -147,25 +150,27 @@ def _validate(db, row, item, allow_own_reserved=False):
         raise DesignationConflict("actor_role_capability_missing")
     if item.owner_id != row.owner_player_id:
         raise DesignationConflict("entitlement_owner_mismatch")
-    if item.theater_id != performance.theater_id or item.item_type.theater_id != performance.theater_id:
+    if (
+        item.theater_id != performance.theater_id
+        or item.item_type.theater_id != performance.theater_id
+    ):
         raise DesignationConflict("entitlement_theater_mismatch")
     if (
         item.item_type.category != EntitlementItemCategory.DESIGNATION
         or item.item_type.designation_type != row.designation_type
     ):
         raise DesignationConflict("entitlement_type_mismatch")
-    if (
-        row.designation_type == DesignationType.TOP_THREE
-        and item.bound_actor_id != row.actor_id
-    ):
-        raise DesignationConflict("entitlement_bound_actor_mismatch")
+    try:
+        validate_designation_binding(item, beneficiary.player_profile_id, row.actor_id)
+    except EntitlementBindingError as exc:
+        raise DesignationConflict(str(exc)) from exc
     if item.status == EntitlementItemStatus.RESERVED:
         if allow_own_reserved and item.current_designation_id == row.id:
             return beneficiary
         raise DesignationConflict("entitlement_already_reserved")
     if item.status != EntitlementItemStatus.AVAILABLE:
         raise DesignationConflict("entitlement_not_available")
-    if item.expires_at <= datetime.utcnow():
+    if item.expires_at <= utc_now():
         raise DesignationConflict("entitlement_expired")
     return beneficiary
 
@@ -262,7 +267,7 @@ def verify_self_designation(
     row.usage_type = "self"
     row.verification_status = "not_required"
     row.verified_by = operator_user_id
-    row.verified_at = datetime.utcnow()
+    row.verified_at = utc_now()
     return _reserve_or_pending(
         db, row, item, operator_user_id, "verify_self", idempotency_key, payload
     )
@@ -299,7 +304,7 @@ def verify_proxy_designation(
     row.usage_type = "proxy"
     row.verification_status = "verified"
     row.verified_by = operator_user_id
-    row.verified_at = datetime.utcnow()
+    row.verified_at = utc_now()
     row.verification_note = note.strip()
     return _reserve_or_pending(
         db, row, item, operator_user_id, "verify_proxy", idempotency_key, payload
@@ -396,7 +401,7 @@ def replace_predesignation(
     old_status = old.status
     old.status = (
         EntitlementItemStatus.EXPIRED
-        if old.expires_at <= datetime.utcnow()
+        if old.expires_at <= utc_now()
         else EntitlementItemStatus.AVAILABLE
     )
     old.current_designation_id = None
@@ -520,7 +525,7 @@ def resolve_equal_priority(
     old_state = old.status
     old.status = (
         EntitlementItemStatus.EXPIRED
-        if old.expires_at <= datetime.utcnow()
+        if old.expires_at <= utc_now()
         else EntitlementItemStatus.AVAILABLE
     )
     old.current_designation_id = None
@@ -582,7 +587,7 @@ def cancel_designation(
         before = item.status
         item.status = (
             EntitlementItemStatus.EXPIRED
-            if item.expires_at <= datetime.utcnow()
+            if item.expires_at <= utc_now()
             else EntitlementItemStatus.AVAILABLE
         )
         item.current_designation_id = None

@@ -1,9 +1,9 @@
-from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db, require_admin, require_super_admin
+from app.core.time import utc_now
 from app.models.entities import (
     AiParserSettingsAudit,
     Actor,
@@ -243,7 +243,11 @@ def designation_review_read(db: Session, row: Designation) -> DesignationReviewR
             )
         )
     )
-    typ = item.item_type if item else max(eligible_types, key=lambda value: value.priority, default=None)
+    typ = (
+        item.item_type
+        if item
+        else max(eligible_types, key=lambda value: value.priority, default=None)
+    )
     verifier = db.get(User, row.verified_by) if row.verified_by else None
     available = []
     if row.owner_player_id and eligible_types:
@@ -624,7 +628,7 @@ async def test_ai_parser_connection(
         row.last_test_ok, row.last_test_message = True, "connection_ok"
     except (AiParserError, ValueError):
         row.last_test_ok, row.last_test_message = False, "connection_failed"
-    row.last_tested_at = datetime.utcnow()
+    row.last_tested_at = utc_now()
     db.add(
         AiParserSettingsAudit(
             actor_user_id=_operator_id(db, user),
@@ -684,7 +688,9 @@ async def post_revision(
         operator_id = _optional_operator_id(db, user)
         if not payload.parse_with_ai:
             return create_board_revision(db, performance_id, payload.raw_text, operator_id)
-        return await create_board_revision_with_ai(db, performance_id, payload.raw_text, operator_id)
+        return await create_board_revision_with_ai(
+            db, performance_id, payload.raw_text, operator_id
+        )
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except BoardConflict as exc:

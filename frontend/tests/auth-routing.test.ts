@@ -2,8 +2,30 @@
 import { expect, test, beforeEach, vi } from "vitest";
 import { screen, fireEvent, waitFor } from "@testing-library/vue";
 import { renderApp } from "./helpers/render-app";
+import { readFileSync } from "node:fs";
 
 beforeEach(() => { localStorage.clear(); vi.restoreAllMocks(); });
+
+test("login page uses the theater operations split layout", () => {
+  const source = readFileSync(`${process.cwd()}/src/pages/LoginPage.vue`, "utf8");
+  expect(source).toContain("login-shell");
+  expect(source).toContain("brand-panel");
+  expect(source).toContain("form-panel");
+  expect(source).toContain("每一场演出");
+  expect(source).toContain("安全访问");
+  expect(source).toContain("color: #f8fbff !important");
+  expect(source).not.toContain("#7c3aed");
+});
+
+test("mobile login keeps the brand and form compact in the first viewport", () => {
+  const source = readFileSync(`${process.cwd()}/src/pages/LoginPage.vue`, "utf8");
+  expect(source).toContain("justify-content: flex-start");
+  expect(source).toContain("padding: 22px 20px 20px");
+  expect(source).toContain("border-bottom: 1px solid #e5eaf1");
+  expect(source).toContain("grid-template-columns: repeat(2, minmax(0, 1fr))");
+  expect(source).toContain("margin-top: auto");
+  expect(source).toContain("align-self: stretch");
+});
 
 test("login identifier accepts actor phone numbers", async () => {
   const app = await renderApp("/login");

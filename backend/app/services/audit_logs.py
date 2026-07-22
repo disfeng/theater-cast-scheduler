@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -8,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.models.entities import AuditLog
 from app.models.enums import AuditEventCategory, AuditResult, AuditRiskLevel
 from app.services.admin_scope import AdminScope
+from app.core.time import utc_now
 
 
 SENSITIVE_KEYS = {
@@ -52,13 +52,16 @@ def append_audit_log(
     ip_address: str | None = None,
     user_agent: str | None = None,
     failure_code: str | None = None,
+    operator_user_id: int | None = None,
+    operator_name: str | None = None,
+    operator_role: str | None = None,
 ) -> AuditLog:
     row = AuditLog(
-        occurred_at=datetime.utcnow(),
+        occurred_at=utc_now(),
         request_id=request_id,
-        operator_user_id=scope.user_id if scope else None,
-        operator_name_snapshot=scope.display_name if scope else None,
-        operator_role_snapshot=scope.role.value if scope else None,
+        operator_user_id=scope.user_id if scope else operator_user_id,
+        operator_name_snapshot=scope.display_name if scope else operator_name,
+        operator_role_snapshot=scope.role.value if scope else operator_role,
         theater_id=theater_id,
         event_category=category,
         module=module,

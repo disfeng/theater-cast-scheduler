@@ -107,7 +107,11 @@ def create_administrator_account(
             summary=f"创建管理员 {account.display_name}",
             target_type="user",
             target_id=account.id,
-            after_data={"email": account.email, "role": account.role.value, "theater_ids": payload.theater_ids},
+            after_data={
+                "email": account.email,
+                "role": account.role.value,
+                "theater_ids": payload.theater_ids,
+            },
         )
         db.commit()
         db.refresh(account)
@@ -137,6 +141,8 @@ def update_administrator_account(
     if payload.display_name is not None:
         account.display_name = payload.display_name.strip()
     if payload.is_active is not None:
+        if account.is_active != payload.is_active:
+            account.token_version += 1
         account.is_active = payload.is_active
     if payload.theater_ids is not None:
         if account.role == UserRole.SUPER_ADMIN and payload.theater_ids:
@@ -150,12 +156,20 @@ def update_administrator_account(
         "theater_ids": sorted(item.theater_id for item in account.theater_scopes),
     }
     append_audit_log(
-        db, scope=scope, category=AuditEventCategory.SECURITY,
-        module="administrator_accounts", action="update",
-        risk_level=AuditRiskLevel.WARNING, summary=f"修改管理员 {account.display_name}",
-        target_type="user", target_id=account.id, before_data=before, after_data=after,
+        db,
+        scope=scope,
+        category=AuditEventCategory.SECURITY,
+        module="administrator_accounts",
+        action="update",
+        risk_level=AuditRiskLevel.WARNING,
+        summary=f"修改管理员 {account.display_name}",
+        target_type="user",
+        target_id=account.id,
+        before_data=before,
+        after_data=after,
     )
-    db.commit(); db.refresh(account)
+    db.commit()
+    db.refresh(account)
     return _account_read(account)
 
 
@@ -171,11 +185,17 @@ def reset_administrator_password(
         raise HTTPException(status_code=404, detail="administrator_not_found")
     account.password_hash = password_context.hash(payload.password)
     account.must_change_password = True
+    account.token_version += 1
     append_audit_log(
-        db, scope=scope, category=AuditEventCategory.SECURITY,
-        module="administrator_accounts", action="reset_password",
-        risk_level=AuditRiskLevel.CRITICAL, summary=f"重置管理员 {account.display_name} 的密码",
-        target_type="user", target_id=account.id,
+        db,
+        scope=scope,
+        category=AuditEventCategory.SECURITY,
+        module="administrator_accounts",
+        action="reset_password",
+        risk_level=AuditRiskLevel.CRITICAL,
+        summary=f"重置管理员 {account.display_name} 的密码",
+        target_type="user",
+        target_id=account.id,
     )
     db.commit()
     return {"ok": True}
@@ -205,54 +225,131 @@ def _audit_statement(
     if theater_id is not None:
         scope.require_theater(theater_id)
         statement = statement.where(AuditLog.theater_id == theater_id)
-    if operator_user_id is not None: statement = statement.where(AuditLog.operator_user_id == operator_user_id)
-    if category is not None: statement = statement.where(AuditLog.event_category == category)
-    if result is not None: statement = statement.where(AuditLog.result == result)
-    if risk_level is not None: statement = statement.where(AuditLog.risk_level == risk_level)
-    if module: statement = statement.where(AuditLog.module == module)
-    if keyword: statement = statement.where(AuditLog.summary.like(f"%{keyword}%"))
-    if start_at: statement = statement.where(AuditLog.occurred_at >= start_at)
-    if end_at: statement = statement.where(AuditLog.occurred_at <= end_at)
+    if operator_user_id is not None:
+        statement = statement.where(AuditLog.operator_user_id == operator_user_id)
+    if category is not None:
+        statement = statement.where(AuditLog.event_category == category)
+    if result is not None:
+        statement = statement.where(AuditLog.result == result)
+    if risk_level is not None:
+        statement = statement.where(AuditLog.risk_level == risk_level)
+    if module:
+        statement = statement.where(AuditLog.module == module)
+    if keyword:
+        statement = statement.where(AuditLog.summary.like(f"%{keyword}%"))
+    if start_at:
+        statement = statement.where(AuditLog.occurred_at >= start_at)
+    if end_at:
+        statement = statement.where(AuditLog.occurred_at <= end_at)
     return statement.order_by(AuditLog.id.desc())
 
 
 def _audit_read(row: AuditLog) -> AuditLogRead:
     return AuditLogRead(
-        id=row.id, occurred_at=row.occurred_at, operator_user_id=row.operator_user_id,
-        operator_name=row.operator_name_snapshot, operator_role=row.operator_role_snapshot,
-        theater_id=row.theater_id, event_category=row.event_category, module=row.module,
-        action=row.action, target_type=row.target_type, target_id=row.target_id,
-        result=row.result, risk_level=row.risk_level, summary=row.summary,
-        before_data=row.before_data, after_data=row.after_data,
-        affected_objects=row.affected_objects, failure_code=row.failure_code,
+        id=row.id,
+        occurred_at=row.occurred_at,
+        operator_user_id=row.operator_user_id,
+        operator_name=row.operator_name_snapshot,
+        operator_role=row.operator_role_snapshot,
+        theater_id=row.theater_id,
+        event_category=row.event_category,
+        module=row.module,
+        action=row.action,
+        target_type=row.target_type,
+        target_id=row.target_id,
+        result=row.result,
+        risk_level=row.risk_level,
+        summary=row.summary,
+        before_data=row.before_data,
+        after_data=row.after_data,
+        affected_objects=row.affected_objects,
+        failure_code=row.failure_code,
     )
 
 
 @router.get("/audit-logs", response_model=list[AuditLogRead])
 def list_audit_logs(
-    theater_id: int | None = None, operator_user_id: int | None = None,
-    category: AuditEventCategory | None = None, result: AuditResult | None = None,
-    risk_level: AuditRiskLevel | None = None, module: str | None = None,
-    keyword: str | None = None, start_at: datetime | None = None, end_at: datetime | None = None,
+    theater_id: int | None = None,
+    operator_user_id: int | None = None,
+    category: AuditEventCategory | None = None,
+    result: AuditResult | None = None,
+    risk_level: AuditRiskLevel | None = None,
+    module: str | None = None,
+    keyword: str | None = None,
+    start_at: datetime | None = None,
+    end_at: datetime | None = None,
     limit: int = Query(default=100, ge=1, le=500),
-    scope: AdminScope = Depends(require_admin), db: Session = Depends(get_db),
+    scope: AdminScope = Depends(require_admin),
+    db: Session = Depends(get_db),
 ):
-    rows = db.scalars(_audit_statement(scope, theater_id, operator_user_id, category, result, risk_level, module, keyword, start_at, end_at).limit(limit)).all()
+    rows = db.scalars(
+        _audit_statement(
+            scope,
+            theater_id,
+            operator_user_id,
+            category,
+            result,
+            risk_level,
+            module,
+            keyword,
+            start_at,
+            end_at,
+        ).limit(limit)
+    ).all()
     return [_audit_read(row) for row in rows]
 
 
 @router.get("/audit-logs/export")
 def export_audit_logs(
-    theater_id: int | None = None, operator_user_id: int | None = None,
-    category: AuditEventCategory | None = None, result: AuditResult | None = None,
-    risk_level: AuditRiskLevel | None = None, module: str | None = None,
-    keyword: str | None = None, start_at: datetime | None = None, end_at: datetime | None = None,
-    scope: AdminScope = Depends(require_admin), db: Session = Depends(get_db),
+    theater_id: int | None = None,
+    operator_user_id: int | None = None,
+    category: AuditEventCategory | None = None,
+    result: AuditResult | None = None,
+    risk_level: AuditRiskLevel | None = None,
+    module: str | None = None,
+    keyword: str | None = None,
+    start_at: datetime | None = None,
+    end_at: datetime | None = None,
+    scope: AdminScope = Depends(require_admin),
+    db: Session = Depends(get_db),
 ):
-    rows = db.scalars(_audit_statement(scope, theater_id, operator_user_id, category, result, risk_level, module, keyword, start_at, end_at).limit(10000)).all()
-    output = io.StringIO(); output.write("\ufeff")
+    rows = db.scalars(
+        _audit_statement(
+            scope,
+            theater_id,
+            operator_user_id,
+            category,
+            result,
+            risk_level,
+            module,
+            keyword,
+            start_at,
+            end_at,
+        ).limit(10000)
+    ).all()
+    output = io.StringIO()
+    output.write("\ufeff")
     writer = csv.writer(output)
-    writer.writerow(["时间", "操作者", "角色", "剧场ID", "分类", "模块", "动作", "结果", "风险", "摘要"])
+    writer.writerow(
+        ["时间", "操作者", "角色", "剧场ID", "分类", "模块", "动作", "结果", "风险", "摘要"]
+    )
     for row in rows:
-        writer.writerow([row.occurred_at, row.operator_name_snapshot, row.operator_role_snapshot, row.theater_id, row.event_category.value, row.module, row.action, row.result.value, row.risk_level.value, row.summary])
-    return Response(content=output.getvalue(), media_type="text/csv; charset=utf-8", headers={"Content-Disposition": "attachment; filename=audit-logs.csv"})
+        writer.writerow(
+            [
+                row.occurred_at,
+                row.operator_name_snapshot,
+                row.operator_role_snapshot,
+                row.theater_id,
+                row.event_category.value,
+                row.module,
+                row.action,
+                row.result.value,
+                row.risk_level.value,
+                row.summary,
+            ]
+        )
+    return Response(
+        content=output.getvalue(),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": "attachment; filename=audit-logs.csv"},
+    )

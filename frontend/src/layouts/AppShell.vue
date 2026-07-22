@@ -17,14 +17,18 @@
         @select="mobileOpen = false"
       >
         <template v-if="authStore.isAdmin">
+          <li class="menu-group-title">概览</li>
           <el-menu-item index="/admin/dashboard"><el-icon><DataBoard /></el-icon><template #title>工作台</template></el-menu-item>
+          <li class="menu-group-title">剧场运营</li>
           <el-menu-item index="/admin/settings"><el-icon><Setting /></el-icon><template #title>基础配置</template></el-menu-item>
           <el-menu-item index="/admin/actors"><el-icon><User /></el-icon><template #title>演员管理</template></el-menu-item>
           <el-menu-item index="/admin/monthly-plan"><el-icon><Calendar /></el-icon><template #title>月度计划</template></el-menu-item>
+          <el-menu-item index="/admin/weekly-scheduling"><el-icon><Grid /></el-icon><template #title>周排班</template></el-menu-item>
+          <el-menu-item index="/admin/leave-requests"><el-icon><DocumentChecked /></el-icon><template #title>请假审批</template></el-menu-item>
+          <li class="menu-group-title">玩家与权益</li>
           <el-menu-item index="/admin/designations-wishes"><el-icon><MagicStick /></el-icon><template #title>指定与许愿</template></el-menu-item>
           <el-menu-item index="/admin/entitlements"><el-icon><Ticket /></el-icon><template #title>权益管理</template></el-menu-item>
-          <el-menu-item index="/admin/leave-requests"><el-icon><DocumentChecked /></el-icon><template #title>请假审批</template></el-menu-item>
-          <el-menu-item index="/admin/weekly-scheduling"><el-icon><Grid /></el-icon><template #title>周排班</template></el-menu-item>
+          <li class="menu-group-title">系统治理</li>
           <el-menu-item v-if="authStore.isSuperAdmin" index="/admin/administrators"><el-icon><UserFilled /></el-icon><template #title>管理员管理</template></el-menu-item>
           <el-menu-item index="/admin/audit-logs"><el-icon><Document /></el-icon><template #title>日志审查</template></el-menu-item>
         </template>
@@ -90,12 +94,15 @@ onBeforeUnmount(() => window.removeEventListener("resize", syncViewport));
 .brand { height: 64px; display: flex; align-items: center; gap: 11px; padding: 0 18px; color: #fff; white-space: nowrap; border-bottom: 1px solid rgba(255,255,255,.08); }
 .brand-mark { flex: 0 0 36px; height: 36px; display: grid; place-items: center; border-radius: 9px; background: var(--sidebar-active); font-weight: 700; }
 .sidebar-menu { border: 0; padding: 14px 10px; }
+.menu-group-title { height: 28px; display: flex; align-items: end; padding: 0 12px 5px; margin-top: 9px; color: #6f809c; font-size: 11px; font-weight: 700; letter-spacing: .12em; list-style: none; white-space: nowrap; }
+.menu-group-title:first-child { margin-top: 0; }
 .sidebar-menu :deep(.el-menu-item) { margin: 4px 0; border-radius: 7px; }
 .sidebar-menu :deep(.el-menu-item.is-active) { background: var(--sidebar-active); }
 .sidebar.is-collapsed .brand { justify-content: center; padding: 0; }
 .sidebar-menu.el-menu--collapse { width: 100%; box-sizing: border-box; }
 .sidebar-menu.el-menu--collapse :deep(.el-menu-item) { width: 100%; justify-content: center; padding: 0 !important; }
 .sidebar-menu.el-menu--collapse :deep(.el-menu-item .el-icon) { margin: 0; }
+.sidebar.is-collapsed .menu-group-title { height: 13px; padding: 0; margin: 6px 12px 2px; border-top: 1px solid rgba(255,255,255,.08); font-size: 0; }
 .workspace { min-width: 0; }
 .topbar { height: 64px; display: flex; align-items: center; justify-content: space-between; padding: 0 24px; background: #fff; border-bottom: 1px solid var(--panel-border); }
 .menu-toggle { font-size: 20px; color: var(--text-primary); }

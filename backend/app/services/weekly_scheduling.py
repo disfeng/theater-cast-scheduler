@@ -1,13 +1,13 @@
 from collections import Counter, defaultdict
 import hashlib
 import json
-import secrets
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 
-from sqlalchemy import delete, false, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy.exc import IntegrityError
-from fastapi.encoders import jsonable_encoder
+
+from app.core.time import utc_now
 
 from app.models.entities import (
     Actor,
@@ -25,14 +25,11 @@ from app.models.entities import (
     Role,
     ScheduleAssignment,
     Theater,
-    User,
     WeeklyBatch,
-    WeeklyPublishOperation,
     Wish,
     WishLifecycleEvent,
 )
 from app.models.enums import (
-    BatchStatus,
     DesignationType,
     EntitlementEventType,
     EntitlementItemStatus,
@@ -464,398 +461,29 @@ def _validate_assignments(
 
 
 def validate_schedule(db: Session, payload: ScheduleMutationRequest) -> dict[str, object]:
-    end = _week_end(payload.week_start)
-    week_performances = _performances(db, payload.theater_id, payload.week_start, end)
-    context_week_starts = {week.week_start for week in payload.context_weeks}
-    if payload.week_start in context_week_starts or len(context_week_starts) != len(
-        payload.context_weeks
-    ):
-        raise ValueError("duplicate_week_context")
-    return _validate_assignments(
-        db,
-        payload.theater_id,
-        payload.assignments,
-        week_performances,
-        {payload.week_start, *context_week_starts},
-        [assignment for week in payload.context_weeks for assignment in week.assignments],
-    )
+    from app.services.weekly_conflicts import validate_schedule as validator
+
+    return validator(db, payload)
 
 
 def validate_schedule_context(
     db: Session, payload: MultiWeekValidationRequest
 ) -> dict[str, object]:
-    week_starts = [week.week_start for week in payload.weeks]
-    if len(week_starts) != len(set(week_starts)):
-        raise ValueError("duplicate_week_context")
-    scope_performances: list[Performance] = []
-    assignments: list[AssignmentInput] = []
-    for week in payload.weeks:
-        scope_performances.extend(
-            _performances(
-                db,
-                payload.theater_id,
-                week.week_start,
-                _week_end(week.week_start),
-            )
-        )
-        assignments.extend(week.assignments)
-    return _validate_assignments(
-        db,
-        payload.theater_id,
-        assignments,
-        scope_performances,
-        set(week_starts),
-    )
+    from app.services.weekly_conflicts import validate_schedule_context as validator
+
+    return validator(db, payload)
 
 
 def get_workspace(db: Session, theater_id: int, week_start: date) -> dict[str, object]:
-    from app.services.schedule_publications import assignment_hash
+    from app.services.weekly_workspace import get_workspace as workspace_reader
 
-    end = _week_end(week_start)
-    theater = db.get(Theater, theater_id)
-    if theater is None:
-        raise LookupError("theater_not_found")
-    performances = _performances(db, theater_id, week_start, end)
-    roles = list(
-        db.scalars(
-            select(Role)
-            .where(Role.theater_id == theater_id, Role.is_active.is_(True))
-            .order_by(Role.id)
-        )
-    )
-    actors = _actors(db)
-    batch = db.scalar(
-        select(WeeklyBatch)
-        .where(WeeklyBatch.theater_id == theater_id, WeeklyBatch.week_start == week_start)
-        .options(selectinload(WeeklyBatch.assignments))
-    )
-    assignments = list(batch.assignments) if batch else []
-    request = ScheduleMutationRequest(
-        theater_id=theater_id,
-        week_start=week_start,
-        expected_version=batch.version if batch else 0,
-        assignments=[
-            AssignmentInput(
-                performance_id=row.performance_id,
-                role_id=row.role_id,
-                actor_id=row.actor_id,
-                source=row.source,
-            )
-            for row in assignments
-        ],
-        confirm_conflicts=True,
-    )
-    validation = validate_schedule(db, request)
-    summary = dict(Counter(item["code"] for item in validation["conflicts"]))
-    warning_summary = dict(Counter(item["code"] for item in validation["warnings"]))
-    week_counts = Counter(row.actor_id for row in assignments)
-    role_ids = {role.id for role in roles}
-    performance_ids = [row.id for row in performances]
-    from app.models.entities import PerformanceCastPublication
-
-    publications = {
-        row.performance_id: row
-        for row in db.scalars(
-            select(PerformanceCastPublication)
-            .where(PerformanceCastPublication.performance_id.in_(performance_ids))
-            .options(selectinload(PerformanceCastPublication.assignments))
-        )
-    } if performance_ids else {}
-    unmet_rows = (
-        list(
-            db.scalars(
-                select(Designation).where(
-                    Designation.performance_id.in_(performance_ids),
-                    Designation.lifecycle_status == "unsatisfied",
-                )
-            )
-        )
-        if performance_ids
-        else []
-    )
-    serialized_assignments = _inject_locked(
-        db,
-        [row.id for row in performances],
-        [
-            {
-                "performance_id": row.performance_id,
-                "role_id": row.role_id,
-                "actor_id": row.actor_id,
-                "source": row.source,
-                "conflict_codes": row.conflict_codes,
-            }
-            for row in assignments
-        ],
-    )
-    return {
-        "theater_id": theater_id,
-        "week_start": week_start,
-        "week_end": end,
-        "batch_id": batch.id if batch else None,
-        "status": (
-            "scheduled" if performance_ids and len(publications) == len(performance_ids)
-            else "partial" if publications
-            else batch.status.value if batch
-            else "uncreated"
-        ),
-        "version": batch.version if batch else 0,
-        "updated_at": batch.updated_at if batch else None,
-        "published_at": (
-            max((row.published_at for row in publications.values()), default=None)
-            or (batch.published_at if batch else None)
-        ),
-        "performances": [
-            {
-                "id": row.id,
-                "performance_date": row.performance_date,
-                "slot_name": row.slot_name_snapshot,
-                "start_time": row.start_time_snapshot,
-                "sort_order": row.theater_slot.sort_order if row.theater_slot else 0,
-                "publication_status": "published" if row.id in publications else "draft",
-                "publication_version": publications[row.id].version if row.id in publications else None,
-                "has_unpublished_changes": (
-                    assignment_hash([item for item in assignments if item.performance_id == row.id])
-                    != publications[row.id].assignment_hash
-                    if row.id in publications
-                    else False
-                ),
-            }
-            for row in performances
-        ],
-        "roles": [{"id": row.id, "name": row.name, "group_name": row.group_name} for row in roles],
-        "actors": [
-            {
-                "id": row.id,
-                "display_name": row.display_name,
-                "rating_level": row.rating_level.value,
-                "max_consecutive_performances": row.max_consecutive_performances,
-                "low_rating_monthly_cap": row.low_rating_monthly_cap,
-                "role_ids": [
-                    cap.role_id for cap in row.role_capabilities if cap.role_id in role_ids
-                ],
-                "weekly_count": week_counts[row.id],
-                "monthly_count": 0,
-            }
-            for row in actors
-        ],
-        "assignments": serialized_assignments,
-        "conflicts": validation["conflicts"],
-        "conflict_summary": summary,
-        "warnings": validation["warnings"],
-        "warning_summary": warning_summary,
-        "empty_slots": validation["empty_slots"],
-        "unsatisfied_designations": [
-            {
-                "id": row.id,
-                "player_name": row.player_name,
-                "role_id": row.role_id,
-                "actor_id": row.actor_id,
-                "performance_id": row.performance_id,
-                "failure_reason": row.failure_reason,
-                "refund_status": "released",
-                "refund_target": _designation_parties(db, row)[0],
-                "legacy_identity_fallback": _designation_parties(db, row)[2],
-            }
-            for row in unmet_rows
-        ],
-        "unsatisfied_wishes": [],
-    }
+    return workspace_reader(db, theater_id, week_start)
 
 
 def recommend_schedule(db: Session, payload: ScheduleMutationRequest) -> dict[str, object]:
-    workspace = get_workspace(db, payload.theater_id, payload.week_start)
-    performance_ids = [row["id"] for row in workspace["performances"]]
-    injected = _inject_locked(
-        db, performance_ids, [row.model_dump() for row in payload.assignments]
-    )
-    assignments = [AssignmentInput.model_validate(row) for row in injected]
-    validation = validate_schedule(db, payload.model_copy(update={"assignments": assignments}))
-    batch_id = workspace["batch_id"]
-    designations = list(
-        db.scalars(
-            select(Designation)
-            .where(
-                ((Designation.weekly_batch_id == batch_id) if batch_id else false())
-                | (
-                    (Designation.performance_id.in_(performance_ids))
-                    & (Designation.lifecycle_status == "predesignated")
-                )
-            )
-            .order_by(Designation.submitted_at, Designation.id)
-        )
-    )
-    wishes = list(
-        db.scalars(
-            select(Wish)
-            .where(
-                (
-                    ((Wish.weekly_batch_id == batch_id) if batch_id else false())
-                    | Wish.performance_id.in_(performance_ids)
-                ),
-                ((Wish.status.is_(None)) | (Wish.status.in_(["active", "accepted"]))),
-            )
-            .order_by(Wish.id)
-        )
-    )
-    sorted_designations = sorted(
-        designations,
-        key=lambda row: (-_designation_priority(db, row), row.submitted_at, row.id),
-    )
-    fulfilled_designation_ids = {
-        designation.id
-        for designation in sorted_designations
-        if any(
-            row.role_id == designation.role_id
-            and row.actor_id == designation.actor_id
-            and (
-                designation.target_performance_id is None
-                or row.performance_id == designation.target_performance_id
-            )
-            for row in assignments
-        )
-    }
+    from app.services.weekly_commands import recommend_schedule as recommender
 
-    def matching_designation(
-        actor_id: int, role_id: int, performance_id: int
-    ) -> Designation | None:
-        return next(
-            (
-                row
-                for row in sorted_designations
-                if row.id not in fulfilled_designation_ids
-                and row.actor_id == actor_id
-                and row.role_id == role_id
-                and (
-                    row.target_performance_id is None or row.target_performance_id == performance_id
-                )
-            ),
-            None,
-        )
-
-    def slot_priority(slot: dict[str, int]) -> tuple[int, int, int]:
-        matches = [
-            -_designation_priority(db, row)
-            for row in sorted_designations
-            if row.id not in fulfilled_designation_ids
-            and row.role_id == slot["role_id"]
-            and (
-                row.target_performance_id is None
-                or row.target_performance_id == slot["performance_id"]
-            )
-        ]
-        return (min(matches, default=99), slot["performance_id"], slot["role_id"])
-
-    for slot in sorted(validation["empty_slots"], key=slot_priority):
-        candidates = [
-            row
-            for row in workspace["actors"]
-            if slot["role_id"] in row["role_ids"] and row["rating_level"] != "suspended"
-        ]
-        candidates.sort(
-            key=lambda actor: (
-                -_designation_priority(db, designation_match)
-                if (
-                    designation_match := matching_designation(
-                        actor["id"], slot["role_id"], slot["performance_id"]
-                    )
-                )
-                else 99,
-                0
-                if any(
-                    wish.actor_id == actor["id"]
-                    and wish.role_id == slot["role_id"]
-                    and (
-                        wish.performance_id is None or wish.performance_id == slot["performance_id"]
-                    )
-                    for wish in wishes
-                )
-                else 1,
-                actor["weekly_count"],
-                actor["id"],
-            )
-        )
-        for actor in candidates:
-            proposal = AssignmentInput(**slot, actor_id=actor["id"], source="recommended")
-            candidate_payload = payload.model_copy(update={"assignments": [*assignments, proposal]})
-            candidate_validation = validate_schedule(db, candidate_payload)
-            cell_conflicts = [
-                item
-                for item in candidate_validation["conflicts"]
-                if item["performance_id"] == proposal.performance_id
-                and item["role_id"] == proposal.role_id
-            ]
-            if not cell_conflicts:
-                assignments.append(proposal)
-                actor["weekly_count"] += 1
-                designation = matching_designation(
-                    actor["id"], slot["role_id"], slot["performance_id"]
-                )
-                if designation:
-                    fulfilled_designation_ids.add(designation.id)
-                break
-    result_payload = payload.model_copy(update={"assignments": assignments})
-    result_validation = validate_schedule(db, result_payload)
-    unsatisfied_designations = [
-        {
-            "id": row.id,
-            "player_name": row.player_name,
-            "role_id": row.role_id,
-            "actor_id": row.actor_id,
-            "target_performance_id": row.target_performance_id,
-            "failure_reason": "没有符合硬规则的可用槽位",
-        }
-        for row in sorted_designations
-        if row.id not in fulfilled_designation_ids
-    ]
-    unsatisfied_wishes = [
-        {
-            "id": row.id,
-            "player_name": row.player_name,
-            "role_id": row.role_id,
-            "actor_id": row.actor_id,
-            "performance_id": row.performance_id,
-            "performance_player_id": row.performance_player_id,
-            "failure_reason": "hard_rules_or_higher_priority_assignment",
-        }
-        for row in wishes
-        if not any(
-            assignment.role_id == row.role_id
-            and assignment.actor_id == row.actor_id
-            and (row.performance_id is None or assignment.performance_id == row.performance_id)
-            for assignment in assignments
-        )
-    ]
-    return {
-        **workspace,
-        "assignments": _inject_locked(
-            db,
-            performance_ids,
-            [
-                row.model_dump()
-                | {
-                    "conflict_codes": [],
-                    "recommendation_reasons": (
-                        ["performance_scoped_wish"]
-                        if any(
-                            w.actor_id == row.actor_id
-                            and w.role_id == row.role_id
-                            and (w.performance_id is None or w.performance_id == row.performance_id)
-                            for w in wishes
-                        )
-                        else ["workload_balance"]
-                    ),
-                }
-                for row in assignments
-            ],
-        ),
-        "conflicts": result_validation["conflicts"],
-        "conflict_summary": dict(Counter(item["code"] for item in result_validation["conflicts"])),
-        "warnings": result_validation["warnings"],
-        "warning_summary": dict(Counter(item["code"] for item in result_validation["warnings"])),
-        "empty_slots": result_validation["empty_slots"],
-        "unsatisfied_designations": unsatisfied_designations,
-        "unsatisfied_wishes": unsatisfied_wishes,
-    }
+    return recommender(db, payload)
 
 
 def _canonical_publish_hash(payload: ScheduleMutationRequest) -> str:
@@ -945,7 +573,7 @@ def _unmet_scope(
             continue
         item = db.get(EntitlementItem, row.entitlement_item_id) if row.entitlement_item_id else None
         owner_name, beneficiary_name, legacy_fallback = _designation_parties(db, row)
-        destination = "expired" if item and item.expires_at <= datetime.utcnow() else "available"
+        destination = "expired" if item and item.expires_at <= utc_now() else "available"
         result.append(
             {
                 "id": row.id,
@@ -975,7 +603,10 @@ def _scope_hash(scope: list[dict[str, object]]) -> str:
 
 
 def _reconcile_designations(
-    db: Session, payload: ScheduleMutationRequest, validation: dict[str, object], operator_id: int,
+    db: Session,
+    payload: ScheduleMutationRequest,
+    validation: dict[str, object],
+    operator_id: int,
     performance_ids: list[int] | None = None,
 ) -> None:
     performance_ids = performance_ids or _week_performance_ids_including_cancelled(
@@ -996,7 +627,7 @@ def _reconcile_designations(
     invalid = {
         (row["performance_id"], row["role_id"], row["actor_id"]) for row in validation["conflicts"]
     }
-    now = datetime.utcnow()
+    now = utc_now()
     for row in rows:
         reason = _specific_unmet_reason(db, row, invalid, assigned)
         effective = reason is None
@@ -1103,7 +734,9 @@ def _reconcile_designations(
 
 
 def _reconcile_wishes(
-    db: Session, payload: ScheduleMutationRequest, operator_id: int,
+    db: Session,
+    payload: ScheduleMutationRequest,
+    operator_id: int,
     performance_ids: list[int] | None = None,
 ) -> None:
     performance_ids = performance_ids or _week_performance_ids_including_cancelled(
@@ -1162,194 +795,6 @@ def _reconcile_wishes(
 def persist_schedule(
     db: Session, payload: ScheduleMutationRequest, publish: bool, operator_email: str | None = None
 ) -> dict[str, object]:
-    week_performances = _performances(
-        db, payload.theater_id, payload.week_start, _week_end(payload.week_start)
-    )
-    _assert_locked_unchanged(db, [row.id for row in week_performances], payload.assignments)
-    validation = validate_schedule(db, payload)
-    if publish:
-        active_role_ids = set(
-            db.scalars(
-                select(Role.id).where(
-                    Role.theater_id == payload.theater_id,
-                    Role.is_active.is_(True),
-                )
-            )
-        )
-        assigned_roles: dict[int, set[int]] = defaultdict(set)
-        for assignment in payload.assignments:
-            assigned_roles[assignment.performance_id].add(assignment.role_id)
-        incomplete = [
-            {
-                "performance_id": performance.id,
-                "missing_role_ids": sorted(
-                    active_role_ids - assigned_roles.get(performance.id, set())
-                ),
-            }
-            for performance in week_performances
-            if assigned_roles.get(performance.id, set()) != active_role_ids
-        ]
-        if incomplete:
-            raise IncompletePerformancesError(incomplete)
-    if validation["conflicts"] and not payload.confirm_conflicts:
-        raise ConflictsRequireConfirmation(validation["conflicts"])
-    batch = db.scalar(
-        select(WeeklyBatch)
-        .where(
-            WeeklyBatch.theater_id == payload.theater_id,
-            WeeklyBatch.week_start == payload.week_start,
-        )
-        .with_for_update()
-    )
-    current_version = batch.version if batch else 0
-    operator = None
-    operation = None
-    request_hash = None
-    unmet: list[dict[str, object]] = []
-    if publish:
-        if not payload.idempotency_key:
-            payload = payload.model_copy(update={"idempotency_key": secrets.token_urlsafe(24)})
-        operator = (
-            db.scalar(select(User).where(User.email == operator_email))
-            if operator_email
-            else db.scalar(select(User).order_by(User.id))
-        )
-        if operator is None:
-            raise LookupError("operator_user_not_found")
-        request_hash = _canonical_publish_hash(payload)
-        operation = db.scalar(
-            select(WeeklyPublishOperation)
-            .where(WeeklyPublishOperation.idempotency_key == payload.idempotency_key)
-            .with_for_update()
-        )
-        if operation:
-            if (
-                operation.theater_id != payload.theater_id
-                or operation.week_start != payload.week_start
-            ):
-                raise PublishOperationConflict("publish_idempotency_scope_conflict")
-            if operation.operator_user_id != operator.id:
-                raise PublishOperationConflict("publish_idempotency_operator_conflict")
-            if operation.request_hash != request_hash:
-                raise PublishOperationConflict("publish_idempotency_hash_conflict")
-            if operation.status == "completed":
-                return operation.response_snapshot
-    if payload.expected_version is not None and payload.expected_version != current_version:
-        raise ScheduleVersionConflict(current_version)
-    if publish:
-        unmet = _unmet_scope(db, payload, validation)
-        if unmet:
-            current_scope_hash = _scope_hash(unmet)
-            if operation is None:
-                operation = WeeklyPublishOperation(
-                    idempotency_key=payload.idempotency_key,
-                    theater_id=payload.theater_id,
-                    week_start=payload.week_start,
-                    weekly_batch_id=batch.id if batch else None,
-                    operator_user_id=operator.id,
-                    request_hash=request_hash,
-                    status="pending_confirmation",
-                    confirmation_token=secrets.token_urlsafe(32),
-                    unmet_scope_hash=current_scope_hash,
-                    unmet_scope=unmet,
-                )
-                db.add(operation)
-                db.commit()
-                raise UnmetDesignationsRequireConfirmation(
-                    unmet, operation.confirmation_token, payload.idempotency_key
-                )
-            if (
-                operation.status != "pending_confirmation"
-                or payload.confirmation_token != operation.confirmation_token
-            ):
-                raise PublishOperationConflict("publish_confirmation_token_required")
-            if operation.unmet_scope_hash != current_scope_hash or operation.unmet_scope != unmet:
-                raise PublishOperationConflict("stale_confirmation")
-        elif operation and operation.status == "pending_confirmation":
-            raise PublishOperationConflict("stale_confirmation")
-    if batch is None:
-        batch = _get_or_create_locked_batch(db, payload.theater_id, payload.week_start)
-        current_version = batch.version
-        if payload.expected_version is not None and payload.expected_version != current_version:
-            raise ScheduleVersionConflict(current_version)
-    if publish and operation is None:
-        operation = WeeklyPublishOperation(
-            idempotency_key=payload.idempotency_key,
-            theater_id=payload.theater_id,
-            week_start=payload.week_start,
-            weekly_batch_id=batch.id,
-            operator_user_id=operator.id,
-            request_hash=request_hash,
-            status="processing",
-        )
-        db.add(operation)
-        db.flush()
-    elif publish:
-        operation.weekly_batch_id = batch.id
-        operation.status = "processing"
-    db.execute(delete(ScheduleAssignment).where(ScheduleAssignment.weekly_batch_id == batch.id))
-    conflict_codes: dict[tuple[int, int, int], list[str]] = defaultdict(list)
-    for conflict in validation["conflicts"]:
-        conflict_codes[
-            (conflict["performance_id"], conflict["role_id"], conflict["actor_id"])
-        ].append(conflict["code"])
-    for row in payload.assignments:
-        codes = conflict_codes[(row.performance_id, row.role_id, row.actor_id)]
-        db.add(
-            ScheduleAssignment(
-                weekly_batch_id=batch.id,
-                performance_id=row.performance_id,
-                role_id=row.role_id,
-                actor_id=row.actor_id,
-                source=row.source,
-                conflict_codes=codes,
-                requires_approval=bool(codes),
-                approved=bool(codes and payload.confirm_conflicts),
-            )
-        )
-    db.flush()
-    _publish_checkpoint("assignments")
-    batch.version = current_version + 1
-    batch.updated_at = datetime.utcnow()
-    batch.status = BatchStatus.SCHEDULED if publish else BatchStatus.READY
-    batch.published_at = datetime.utcnow() if publish else None
-    if publish:
-        from app.services.schedule_publications import snapshot_published_week
+    from app.services.weekly_publication import persist_schedule as persister
 
-        snapshot_published_week(db, batch, operator.id)
-        from app.services.performance_fulfillment import reconcile_effective_business
-
-        performance_ids = _week_performance_ids_including_cancelled(
-            db, payload.theater_id, payload.week_start
-        )
-        reconcile_effective_business(
-            db,
-            performance_ids,
-            {(row.performance_id, row.role_id, row.actor_id) for row in payload.assignments},
-            operator.id,
-            idempotency_key=payload.idempotency_key or f"publish:{payload.week_start}",
-        )
-        _reconcile_designations(db, payload, validation, operator.id)
-        _reconcile_wishes(db, payload, operator.id)
-        from app.services.actor_notifications import reconcile_notification_tasks, shanghai_now
-
-        reconcile_notification_tasks(
-            db,
-            payload.theater_id,
-            payload.week_start,
-            batch.version,
-            shanghai_now(),
-        )
-        db.flush()
-        result = get_workspace(db, payload.theater_id, payload.week_start)
-        operation.status = "completed"
-        operation.response_snapshot = jsonable_encoder(result)
-        operation.completed_at = datetime.utcnow()
-        db.flush()
-        _publish_checkpoint("operation_snapshot")
-    db.commit()
-    return (
-        operation.response_snapshot
-        if publish
-        else get_workspace(db, payload.theater_id, payload.week_start)
-    )
+    return persister(db, payload, publish, operator_email)

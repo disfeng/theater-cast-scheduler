@@ -16,13 +16,12 @@ from app.models.entities import (
 from app.models.enums import PerformanceStatus
 from app.schemas.admin import ActorCreate, TheaterCreate
 from app.services.admin_data import create_actor, create_theater
-from app.services.auth import create_access_token
+from auth_helpers import persisted_admin_headers_from_override
 from app.services.monthly_plan import MonthlyPlanConflict, replace_monthly_plan
 
 
 def _admin_headers():
-    token = create_access_token("admin@example.com", "admin")
-    return {"Authorization": f"Bearer {token}"}
+    return persisted_admin_headers_from_override()
 
 
 def _configured_theater(db_session, name="西幽剧场", slot_names=("午场", "晚场")):

@@ -1,7 +1,7 @@
-from datetime import datetime
-
 import pytest
 from sqlalchemy.exc import IntegrityError
+
+from app.core.time import utc_now
 
 from app.models.entities import (
     AuditLog,
@@ -62,7 +62,7 @@ def test_admin_roles_and_unique_theater_scope(db_session):
 
 def test_audit_log_is_append_only(db_session):
     row = AuditLog(
-        occurred_at=datetime.utcnow(),
+        occurred_at=utc_now(),
         event_category=AuditEventCategory.BUSINESS,
         module="theater",
         action="update",

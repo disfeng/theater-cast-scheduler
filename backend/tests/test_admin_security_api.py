@@ -18,11 +18,19 @@ def _headers(user):
 
 
 def test_theater_admin_only_lists_authorized_theaters(db_session):
-    root = User(email="root@test", display_name="Root", password_hash="x", role=UserRole.SUPER_ADMIN)
-    manager = User(email="manager@test", display_name="Manager", password_hash="x", role=UserRole.THEATER_ADMIN)
+    root = User(
+        email="root@test", display_name="Root", password_hash="x", role=UserRole.SUPER_ADMIN
+    )
+    manager = User(
+        email="manager@test", display_name="Manager", password_hash="x", role=UserRole.THEATER_ADMIN
+    )
     first, second = Theater(name="授权剧场"), Theater(name="隐藏剧场")
-    db_session.add_all([root, manager, first, second]); db_session.flush()
-    db_session.add(UserTheaterScope(user_id=manager.id, theater_id=first.id, granted_by_user_id=root.id)); db_session.commit()
+    db_session.add_all([root, manager, first, second])
+    db_session.flush()
+    db_session.add(
+        UserTheaterScope(user_id=manager.id, theater_id=first.id, granted_by_user_id=root.id)
+    )
+    db_session.commit()
     client = _client(db_session)
     try:
         response = client.get("/admin/theaters", headers=_headers(manager))
@@ -36,14 +44,24 @@ def test_theater_admin_only_lists_authorized_theaters(db_session):
 
 
 def test_super_admin_creates_scoped_manager_and_audit_log(db_session):
-    root = User(email="root@test", display_name="Root", password_hash="x", role=UserRole.SUPER_ADMIN)
+    root = User(
+        email="root@test", display_name="Root", password_hash="x", role=UserRole.SUPER_ADMIN
+    )
     theater = Theater(name="西安幽州剧场")
-    db_session.add_all([root, theater]); db_session.commit()
+    db_session.add_all([root, theater])
+    db_session.commit()
     client = _client(db_session)
     try:
         response = client.post(
-            "/admin/administrator-accounts", headers=_headers(root),
-            json={"email":"manager@test","display_name":"店长","password":"password-123","role":"theater_admin","theater_ids":[theater.id]},
+            "/admin/administrator-accounts",
+            headers=_headers(root),
+            json={
+                "email": "manager@test",
+                "display_name": "店长",
+                "password": "password-123",
+                "role": "theater_admin",
+                "theater_ids": [theater.id],
+            },
         )
         assert response.status_code == 200
         assert response.json()["theater_ids"] == [theater.id]
@@ -56,8 +74,11 @@ def test_super_admin_creates_scoped_manager_and_audit_log(db_session):
 
 
 def test_theater_admin_cannot_manage_administrator_accounts(db_session):
-    manager = User(email="manager@test", display_name="Manager", password_hash="x", role=UserRole.THEATER_ADMIN)
-    db_session.add(manager); db_session.commit()
+    manager = User(
+        email="manager@test", display_name="Manager", password_hash="x", role=UserRole.THEATER_ADMIN
+    )
+    db_session.add(manager)
+    db_session.commit()
     client = _client(db_session)
     try:
         response = client.get("/admin/administrator-accounts", headers=_headers(manager))

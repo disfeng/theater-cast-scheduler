@@ -1,9 +1,10 @@
 from datetime import date
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db, require_admin
+from app.core.csv_export import csv_response
 from app.services.admin_scope import AdminScope
 from app.schemas.weekly_scheduling import (
     DailySchedulePublishRequest,
@@ -22,12 +23,11 @@ from app.services.weekly_scheduling import (
     PublishOperationConflict,
     ScheduleVersionConflict,
     UnmetDesignationsRequireConfirmation,
-    get_workspace,
-    persist_schedule,
-    recommend_schedule,
-    validate_schedule,
-    validate_schedule_context,
 )
+from app.services.weekly_commands import recommend_schedule
+from app.services.weekly_conflicts import validate_schedule, validate_schedule_context
+from app.services.weekly_publication import persist_schedule
+from app.services.weekly_workspace import get_workspace
 
 router = APIRouter(prefix="/admin/weekly-schedules", tags=["admin-weekly-scheduling"])
 
@@ -105,6 +105,38 @@ def workspace(
 ):
     scope.require_theater(theater_id)
     return _handle(lambda: get_workspace(db, theater_id, week_start))
+
+
+@router.get("/export", response_class=Response)
+def export_workspace(
+    theater_id: int,
+    week_start: date,
+    scope: AdminScope = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    scope.require_theater(theater_id)
+    data = _handle(lambda: get_workspace(db, theater_id, week_start))
+    performances = {row.id: row for row in data.performances}
+    roles = {row.id: row for row in data.roles}
+    actors = {row.id: row for row in data.actors}
+    rows = []
+    for assignment in data.assignments:
+        performance = performances[assignment.performance_id]
+        rows.append(
+            (
+                performance.performance_date.isoformat(),
+                performance.slot_name,
+                performance.start_time.strftime("%H:%M"),
+                roles[assignment.role_id].name,
+                actors[assignment.actor_id].display_name,
+                "已发布" if performance.publication_status == "published" else "草稿",
+            )
+        )
+    return csv_response(
+        f"weekly-schedule-{week_start.isoformat()}.csv",
+        ("日期", "场次", "时间", "角色", "演员", "发布状态"),
+        rows,
+    )
 
 
 @router.post("/validate")

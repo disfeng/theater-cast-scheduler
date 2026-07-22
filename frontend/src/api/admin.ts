@@ -283,8 +283,9 @@ export const adminApi = {
     return apiClient.request(`/admin/theaters/${theaterId}/entitlement-item-types/default-designations`, { method: "POST", token, body: {} });
   },
 
-  async getTheaterGrantBatches(token: string, theaterId: number): Promise<GrantBatch[]> {
-    return apiClient.request(`/admin/theaters/${theaterId}/entitlement-grant-batches`, { token });
+  async getTheaterGrantBatches(token: string, theaterId: number, page?: { limit: number; offset: number }): Promise<GrantBatch[]> {
+    const query = page ? `?${new URLSearchParams({ limit: String(page.limit), offset: String(page.offset) })}` : "";
+    return apiClient.request(`/admin/theaters/${theaterId}/entitlement-grant-batches${query}`, { token });
   },
 
   async createTheaterGrantBatch(token: string, theaterId: number, payload: GrantBatchPayload): Promise<GrantBatch> {
@@ -299,12 +300,14 @@ export const adminApi = {
     return apiClient.request(`/admin/theaters/${theaterId}/entitlement-grant-batches/${batchId}/confirm`, { method: "POST", token, body: {}, headers: { "Idempotency-Key": key } });
   },
 
-  async getTheaterPlayerInventory(token: string, theaterId: number, playerId: number): Promise<PlayerInventory> {
-    return apiClient.request(`/admin/theaters/${theaterId}/players/${playerId}/inventory`, { token });
+  async getTheaterPlayerInventory(token: string, theaterId: number, playerId: number, page?: { limit: number; offset: number }): Promise<PlayerInventory> {
+    const query = page ? `?${new URLSearchParams({ limit: String(page.limit), offset: String(page.offset) })}` : "";
+    return apiClient.request(`/admin/theaters/${theaterId}/players/${playerId}/inventory${query}`, { token });
   },
 
-  async getTheaterPlayerInventorySummaries(token: string, theaterId: number): Promise<PlayerInventorySummary[]> {
-    return apiClient.request(`/admin/theaters/${theaterId}/player-inventory-summaries`, { token });
+  async getTheaterPlayerInventorySummaries(token: string, theaterId: number, page?: { limit: number; offset: number }): Promise<PlayerInventorySummary[]> {
+    const query = page ? `?${new URLSearchParams({ limit: String(page.limit), offset: String(page.offset) })}` : "";
+    return apiClient.request(`/admin/theaters/${theaterId}/player-inventory-summaries${query}`, { token });
   },
 
   async previewManualConsumption(token: string, theaterId: number, playerId: number, payload: { item_type_id: number; quantity: number; purpose: string; note: string | null; performance_id: number | null }): Promise<{ item_ids: number[]; serial_numbers: string[] }> {

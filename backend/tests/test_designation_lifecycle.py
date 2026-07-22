@@ -1,6 +1,8 @@
-from datetime import date, datetime, time, timedelta
+from datetime import date, time, timedelta
 
 import pytest
+
+from app.core.time import utc_now
 
 from app.models.entities import (
     Actor,
@@ -92,6 +94,8 @@ def _world(db):
             designation_type=binding,
             priority=priority,
             default_validity_months=3,
+            binds_beneficiary=binding == DesignationType.PAIRED,
+            binds_actor=binding == DesignationType.TOP_THREE,
         )
         db.add(typ)
         db.flush()
@@ -108,10 +112,12 @@ def _item(db, owner, typ, serial, days=30, bound_actor=None):
         item_type_id=typ.id,
         source_month=date.today().replace(day=1),
         source_label="test",
-        granted_at=datetime.utcnow(),
-        expires_at=datetime.utcnow() + timedelta(days=days),
+        granted_at=utc_now(),
+        expires_at=utc_now() + timedelta(days=days),
         status=EntitlementItemStatus.AVAILABLE,
         bound_actor_id=bound_actor.id if bound_actor is not None else None,
+        binds_beneficiary_snapshot=typ.binds_beneficiary,
+        binds_actor_snapshot=typ.binds_actor,
     )
     db.add(item)
     db.commit()
@@ -162,7 +168,7 @@ def _designation(db, perf, pp, owner, actor, role, kind, usage="self"):
         performance_id=perf.id,
         beneficiary_performance_player_id=pp.id,
         owner_player_id=owner.id,
-        submitted_at=datetime.utcnow(),
+        submitted_at=utc_now(),
         usage_type=usage,
         verification_status="not_required" if usage == "self" else "pending",
         lifecycle_status="draft" if usage == "self" else "pending_verification",
@@ -222,9 +228,7 @@ def test_top_three_item_only_designates_its_bound_actor(db_session):
     db_session.add(ActorRoleCapability(actor_id=other_actor.id, role_id=role.id))
     db_session.commit()
     item = _item(db_session, beneficiary, types[1], "TOP-BOUND", bound_actor=bound_actor)
-    designation = _designation(
-        db_session, perf, pp, beneficiary, other_actor, role, types[1]
-    )
+    designation = _designation(db_session, perf, pp, beneficiary, other_actor, role, types[1])
 
     with pytest.raises(DesignationConflict, match="entitlement_bound_actor_mismatch"):
         verify_self_designation(db_session, designation.id, item.id, op.id)
@@ -319,7 +323,7 @@ def test_refund_after_expiry_is_release_event_to_expired_state(db_session):
     item = _item(db_session, beneficiary, types[0], "EXPIRED-REFUND")
     row = _designation(db_session, perf, pp, beneficiary, actor, role, types[0])
     verify_self_designation(db_session, row.id, item.id, op.id)
-    item.expires_at = datetime.utcnow() - timedelta(seconds=1)
+    item.expires_at = utc_now() - timedelta(seconds=1)
     db_session.flush()
     cancel_designation(db_session, row.id, "未满足", op.id)
     assert item.status == EntitlementItemStatus.EXPIRED

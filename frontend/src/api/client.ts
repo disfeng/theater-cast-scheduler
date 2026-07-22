@@ -7,7 +7,7 @@ export class ApiError extends Error {
 
 export class ApiClient {
   constructor(
-    private readonly baseUrl = "http://localhost:7004",
+    private readonly baseUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:7004",
     private authErrorHandler?: (status: 401 | 403) => void,
   ) {}
 

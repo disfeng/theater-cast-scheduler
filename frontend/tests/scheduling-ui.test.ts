@@ -142,6 +142,38 @@ test("renders the compact two-row toolbar", async () => {
   expect(container.querySelectorAll(".toolbar-secondary")).toHaveLength(1);
   expect(container.querySelector(".toolbar-summary")).toHaveTextContent("当前操作周");
   expect(container.querySelectorAll(".status-pill").length).toBeGreaterThanOrEqual(2);
+  const switcher = container.querySelector(".week-switcher")!;
+  expect(switcher.firstElementChild).toHaveClass("week-switcher-label");
+});
+
+test("merges the date cell for multiple performances and exposes one day-level publish action", async () => {
+  const sameDayPerformances = [
+    { id: 10, performance_date: "2027-01-01", slot_name: "早场", start_time: "12:30:00", sort_order: 1 },
+    { id: 11, performance_date: "2027-01-01", slot_name: "晚场", start_time: "19:30:00", sort_order: 2 },
+    { id: 12, performance_date: "2027-01-02", slot_name: "下午场", start_time: "16:00:00", sort_order: 1 },
+  ];
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+    const url = new URL(String(input));
+    if (url.pathname === "/admin/theaters") return Response.json([{ id: 1, name: "西安幽州剧场", is_active: true }]);
+    if (url.pathname === "/admin/weekly-schedules/workspace") {
+      const weekStart = url.searchParams.get("week_start")!;
+      return Response.json(monthWorkspace(weekStart, weekStart === "2026-12-28" ? sameDayPerformances : []));
+    }
+    return Response.json([]);
+  }));
+
+  const { container } = await renderAdminRoute("/admin/weekly-scheduling");
+  await screen.findByRole("combobox", { name: "1月1日 早场 柳知雨" });
+
+  const dateCells = container.querySelectorAll("tbody .date-col");
+  expect(dateCells).toHaveLength(2);
+  expect(dateCells[0]).toHaveAttribute("rowspan", "2");
+  expect(dateCells[1]).toHaveAttribute("rowspan", "1");
+  const rows = container.querySelectorAll("tbody tr");
+  expect(rows[0]).not.toHaveClass("date-band--alternate");
+  expect(rows[1]).not.toHaveClass("date-band--alternate");
+  expect(rows[2]).toHaveClass("date-band--alternate");
+  expect(screen.getAllByRole("button", { name: "发布当日" })).toHaveLength(2);
 });
 
 test("moves to the next week across a month boundary", async () => {

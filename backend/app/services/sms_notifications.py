@@ -11,7 +11,12 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.models.entities import ActorNotificationTask, EncryptedActorNotificationSettings, Performance, Theater
+from app.models.entities import (
+    ActorNotificationTask,
+    EncryptedActorNotificationSettings,
+    Performance,
+    Theater,
+)
 from app.models.enums import ActorNotificationTaskStatus
 from app.schemas.admin import ActorNotificationSettingsRead, ActorNotificationSettingsUpdate
 
@@ -64,9 +69,7 @@ def _decrypt(value: str | None) -> str | None:
 def get_sms_settings(db: Session) -> EncryptedActorNotificationSettings:
     row = db.get(EncryptedActorNotificationSettings, 1)
     if row is None:
-        row = EncryptedActorNotificationSettings(
-            id=1, actor_portal_url=settings.actor_portal_url
-        )
+        row = EncryptedActorNotificationSettings(id=1, actor_portal_url=settings.actor_portal_url)
         db.add(row)
         db.flush()
     return row
@@ -142,9 +145,7 @@ class AlibabaSmsProvider:
         return ProviderReceipt(request_id=body.request_id or "", provider_code=body.code)
 
 
-def reschedule_pending_tasks_for_theater(
-    db: Session, theater_id: int, now: datetime
-) -> int:
+def reschedule_pending_tasks_for_theater(db: Session, theater_id: int, now: datetime) -> int:
     """Recalculate only pending tasks; reveal processing is handled by the disclosure worker."""
     del now
     theater = db.get(Theater, theater_id)

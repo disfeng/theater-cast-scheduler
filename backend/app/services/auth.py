@@ -12,9 +12,10 @@ def create_access_token(
     user_id: int | None = None,
     actor_id: int | None = None,
     must_change_password: bool | None = None,
+    token_version: int = 0,
 ) -> str:
     expires_at = datetime.now(timezone.utc) + timedelta(minutes=settings.access_token_minutes)
-    claims = {"sub": subject, "role": role, "exp": expires_at}
+    claims = {"sub": subject, "role": role, "exp": expires_at, "ver": token_version}
     if user_id is not None:
         claims["user_id"] = user_id
     if actor_id is not None:

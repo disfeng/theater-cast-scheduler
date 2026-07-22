@@ -6,13 +6,15 @@ export type EntitlementItemType = {
   category: ItemCategory; designation_type: DesignationBinding | null;
   priority: number; default_validity_days: number; color: string; icon: string | null;
   description: string | null; is_active: boolean; sort_order: number;
+  binds_beneficiary: boolean; binds_actor: boolean; binding_locked_at: string | null;
   default_validity_months?: number;
 };
 export type GrantDraftItem = { id?: number; player_id: number; item_type_id: number; quantity?: number; source_month: string | null; source_label: string | null; expires_at: string | null; notes: string | null; bound_actor_id: number | null };
-export type GrantBatchPayload = { source_type?: string; source_month: string | null; source_label: string; title: string | null; grant_date: string | null; default_expires_at: string | null; notes: string | null; bound_actor_id: number | null; items: GrantDraftItem[] };
+export type GrantMode = "by_player" | "by_actor";
+export type GrantBatchPayload = { grant_mode: GrantMode; source_type?: string; source_month: string | null; source_label: string; title: string | null; grant_date: string | null; default_expires_at: string | null; notes: string | null; bound_actor_id: number | null; items: GrantDraftItem[] };
 export type GrantBatch = Omit<GrantBatchPayload, "items"> & { id: number; theater_id: number; status: "draft" | "granted" | "cancelled"; created_at: string; confirmed_at: string | null; draft_items: GrantDraftItem[] };
 export type LedgerEntry = { id: number; event_type: string; occurred_at: string; from_status: string | null; to_status: string | null; performance_id: number | null; designation_id: number | null; reason: string | null; purpose?: string | null; operator_user_id: number | null };
-export type EntitlementItem = { id: number; theater_id: number; serial_number: string; owner_id: number; item_type_id: number; source_type: string; source_month: string | null; source_label: string; granted_at: string; expires_at: string; status: string; current_designation_id: number | null; notes: string | null; bound_actor_id: number | null; bound_actor_name?: string | null; ledger_entries: LedgerEntry[] };
+export type EntitlementItem = { id: number; theater_id: number; serial_number: string; owner_id: number; item_type_id: number; source_type: string; source_month: string | null; source_label: string; granted_at: string; expires_at: string; status: string; current_designation_id: number | null; notes: string | null; bound_actor_id: number | null; bound_actor_name?: string | null; binds_beneficiary_snapshot: boolean; binds_actor_snapshot: boolean; ledger_entries: LedgerEntry[] };
 export type PlayerInventory = { player: PlayerProfile; items: EntitlementItem[] };
 export type PlayerInventorySummary = { player_id: number; display_name: string; normalized_name: string; sort_key: string; status: PlayerProfile["status"]; item_count: number; expired_count: number };
 export type EntitlementLedgerRecord = { id: number; item_id: number; serial_number: string; player_id: number; player_name: string; item_type_id: number; item_type_name: string; bound_actor_id: number | null; bound_actor_name: string | null; event_type: string; occurred_at: string; from_status: string | null; to_status: string | null; purpose: string | null; reason: string | null; note: string | null; performance_id: number | null; designation_id: number | null };

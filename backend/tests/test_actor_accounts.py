@@ -6,12 +6,11 @@ from app.api.deps import get_db
 from app.main import app
 from app.models.entities import Actor, ActorTheaterMembership, Theater, User
 from app.models.enums import UserRole
-from app.services.auth import create_access_token
+from auth_helpers import persisted_admin_headers_from_override
 
 
 def _admin_headers() -> dict[str, str]:
-    token = create_access_token("admin@example.com", "admin")
-    return {"Authorization": f"Bearer {token}"}
+    return persisted_admin_headers_from_override()
 
 
 def _override_db(db_session):
@@ -21,7 +20,7 @@ def _override_db(db_session):
     return override
 
 
-def test_legacy_admin_placeholder_hash_does_not_crash_login(db_session):
+def test_legacy_admin_placeholder_hash_is_rejected_without_crashing(db_session):
     db_session.add(User(email="admin@example.com", password_hash="x", role=UserRole.ADMIN))
     db_session.commit()
     app.dependency_overrides[get_db] = _override_db(db_session)
@@ -31,8 +30,8 @@ def test_legacy_admin_placeholder_hash_does_not_crash_login(db_session):
                 "/auth/login",
                 json={"identifier": "admin@example.com", "password": "admin"},
             )
-        assert response.status_code == 200
-        assert response.json()["role"] == "admin"
+        assert response.status_code == 401
+        assert response.json()["detail"] == "Invalid credentials"
     finally:
         app.dependency_overrides.clear()
 
@@ -99,7 +98,7 @@ def test_actor_phone_login_requires_password_change_before_business_routes(db_se
 
         assert login.status_code == 200
         assert login.json()["must_change_password"] is True
-        headers = {"Authorization": f'Bearer {login.json()["access_token"]}'}
+        headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
         blocked = client.get("/actor/me/schedule", headers=headers)
         assert blocked.status_code == 428
         assert blocked.json()["detail"] == "password_change_required"
@@ -130,7 +129,7 @@ def test_actor_changes_initial_password_and_can_access_business_routes(db_sessio
         ).json()
         changed = client.post(
             "/actor/me/password",
-            headers={"Authorization": f'Bearer {login["access_token"]}'},
+            headers={"Authorization": f"Bearer {login['access_token']}"},
             json={"current_password": delivery["initial_password"], "new_password": "Secure123456"},
         )
         assert changed.status_code == 200
@@ -142,7 +141,7 @@ def test_actor_changes_initial_password_and_can_access_business_routes(db_sessio
             json={"identifier": delivery["username"], "password": "Secure123456"},
         ).json()
         assert relogin["must_change_password"] is False
-        headers = {"Authorization": f'Bearer {relogin["access_token"]}'}
+        headers = {"Authorization": f"Bearer {relogin['access_token']}"}
         assert client.get("/actor/me/schedule", headers=headers).status_code == 200
         profile = client.get("/actor/me/profile", headers=headers).json()
         assert profile["display_name"] == "小A"
@@ -170,12 +169,14 @@ def test_admin_reset_password_forces_change_and_returns_fresh_pdf(db_session):
             },
         ).json()
         reset = client.post(
-            f'/admin/actors/{created["actor"]["id"]}/reset-password',
+            f"/admin/actors/{created['actor']['id']}/reset-password",
             headers=_admin_headers(),
             json={"entry_theater_id": theater["id"]},
         )
         assert reset.status_code == 200
-        assert reset.json()["initial_password"] != created["credential_delivery"]["initial_password"]
+        assert (
+            reset.json()["initial_password"] != created["credential_delivery"]["initial_password"]
+        )
         assert base64.b64decode(reset.json()["pdf_base64"]).startswith(b"%PDF")
         login = client.post(
             "/auth/login",
@@ -195,9 +196,7 @@ def test_admin_reset_password_bootstraps_legacy_actor_account(db_session):
     db_session.add_all([theater, actor])
     db_session.flush()
     db_session.add(
-        ActorTheaterMembership(
-            actor_id=actor.id, theater_id=theater.id, is_entry_theater=True
-        )
+        ActorTheaterMembership(actor_id=actor.id, theater_id=theater.id, is_entry_theater=True)
     )
     db_session.commit()
     app.dependency_overrides[get_db] = _override_db(db_session)
@@ -237,7 +236,7 @@ def test_admin_updates_actor_phone_and_theater_memberships(db_session):
             },
         ).json()["actor"]
         response = client.patch(
-            f'/admin/actors/{actor["id"]}',
+            f"/admin/actors/{actor['id']}",
             headers=_admin_headers(),
             json={
                 "phone_number": "13900139000",
@@ -253,9 +252,12 @@ def test_admin_updates_actor_phone_and_theater_memberships(db_session):
         assert response.json()["phone_number"] == "13900139000"
         assert response.json()["entry_theater_id"] == second["id"]
         assert response.json()["theater_ids"] == [first["id"], second["id"]]
-        assert client.post(
-            "/auth/login",
-            json={"identifier": "13800138000", "password": "anything"},
-        ).status_code == 401
+        assert (
+            client.post(
+                "/auth/login",
+                json={"identifier": "13800138000", "password": "anything"},
+            ).status_code
+            == 401
+        )
     finally:
         app.dependency_overrides.clear()

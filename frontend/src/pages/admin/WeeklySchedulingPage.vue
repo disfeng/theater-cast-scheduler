@@ -23,8 +23,8 @@
         <div class="toolbar-secondary">
           <div class="toolbar-summary">
             <div class="active-week">
-              <small>当前操作周</small>
               <div class="week-switcher">
+                <span class="week-switcher-label">当前操作周</span>
                 <el-button aria-label="上一周" circle size="small" :disabled="loading" @click="requestWeekChange(-1)"><el-icon><ArrowLeft /></el-icon></el-button>
                 <strong>{{ activeWeekLabel }}</strong>
                 <el-button aria-label="下一周" circle size="small" :disabled="loading" @click="requestWeekChange(1)"><el-icon><ArrowRight /></el-icon></el-button>
@@ -38,6 +38,7 @@
             </div>
           </div>
           <div class="actions">
+            <el-button :disabled="!activeWeek" @click="exportWeek">导出当前周</el-button>
             <el-button :loading="recommending" :disabled="!activeWeek" @click="recommend">推荐当前周</el-button>
             <el-button :loading="validating" :disabled="!Object.keys(monthState).length" @click="validateMonth(true)">检测整月冲突</el-button>
             <el-button :loading="saving" :disabled="!dirtyWeeks.length" @click="saveAllDrafts">{{ saveButtonText }}</el-button>
@@ -66,21 +67,30 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-for="performance in activeWeek.workspace.performances" :key="performance.id">
-              <td class="sticky meta date-col">
+            <tr
+              v-for="performance in activeWeek.workspace.performances"
+              :key="performance.id"
+              :class="{ 'date-band--alternate': dateBandIndex(performance.performance_date) % 2 === 1 }"
+            >
+              <td
+                v-if="isFirstPerformanceOfDate(performance.id, performance.performance_date)"
+                class="sticky meta date-col"
+                :rowspan="performanceCountForDate(performance.performance_date)"
+              >
                 <div class="date-cell-content">
                   <div class="date-cell-heading">
                     <strong>{{ formatDate(performance.performance_date) }}</strong>
                     <small>{{ weekday(performance.performance_date) }}</small>
                   </div>
-                  <div v-if="isFirstPerformanceOfDate(performance.id, performance.performance_date)" class="day-publication">
+                  <div class="day-publication">
                     <button
                       v-if="dayHasChanges(performance.performance_date)"
                       type="button"
                       class="day-action day-action--changed"
+                      aria-label="重新发布当日"
                       :disabled="publishingDay === performance.performance_date"
                       @click="publishDay(performance.performance_date)"
-                    ><span class="day-action-dot" />{{ publishingDay === performance.performance_date ? '发布中' : '重新发布' }}</button>
+                    ><span class="day-action-dot" />{{ publishingDay === performance.performance_date ? '发布中' : '重新发布当日' }}</button>
                     <span v-else-if="dayIsPublished(performance.performance_date)" class="day-status day-status--published">
                       <el-icon><CircleCheck /></el-icon>已发布
                     </span>
@@ -88,9 +98,10 @@
                       v-else
                       type="button"
                       class="day-action day-action--publish"
+                      aria-label="发布当日"
                       :disabled="publishingDay === performance.performance_date"
                       @click="publishDay(performance.performance_date)"
-                    ><span class="day-action-dot" />{{ publishingDay === performance.performance_date ? '发布中' : '发布' }}</button>
+                    ><span class="day-action-dot" />{{ publishingDay === performance.performance_date ? '发布中' : '发布当日' }}</button>
                   </div>
                 </div>
               </td>
@@ -172,6 +183,7 @@ import { useRouter } from "vue-router";
 import { ArrowLeft, ArrowRight, CircleCheck } from "@element-plus/icons-vue";
 import { ElMessage } from "element-plus";
 import { adminApi, type ScheduleAssignment, type ScheduleConflict, type Theater } from "../../api/admin";
+import { downloadAuthenticated } from "../../api/download";
 import { ApiError } from "../../api/client";
 import { useAuthStore } from "../../auth/store";
 import PageHeader from "../../components/PageHeader.vue";
@@ -320,6 +332,16 @@ function requestTheaterChange(nextTheaterId: number) {
   navigationGuardVisible.value = true;
 }
 
+async function exportWeek() {
+  if (!auth.token || !theaterId.value || !activeWeekStart.value) return;
+  try {
+    const query = new URLSearchParams({ theater_id: String(theaterId.value), week_start: activeWeekStart.value });
+    await downloadAuthenticated(`/admin/weekly-schedules/export?${query}`, auth.token, `内部排班-${activeWeekStart.value}.csv`);
+  } catch (err: any) {
+    ElMessage.error(err.message || "导出失败");
+  }
+}
+
 function weekForDate(date: string) { return monthState.value[weekStartForDate(date)]; }
 function actorsFor(date: string, roleId: number) { return weekForDate(date)?.workspace.actors.filter((row) => row.role_ids.includes(roleId) && row.rating_level !== "suspended") || []; }
 function actorIdAt(performanceId: number, roleId: number) { return assignmentMap.value.get(assignmentKey(performanceId, roleId))?.actor_id; }
@@ -330,6 +352,13 @@ function openDesignation(id: number, performanceId: number) { router.push({ name
 function actorWeeklyCount(date: string, actorId: number) { return weekForDate(date)?.assignments.filter((row) => row.actor_id === actorId).length || 0; }
 function isFirstPerformanceOfDate(performanceId: number, performanceDate: string) {
   return activeWeek.value?.workspace.performances.find((row) => row.performance_date === performanceDate)?.id === performanceId;
+}
+function performanceCountForDate(performanceDate: string) {
+  return activeWeek.value?.workspace.performances.filter((row) => row.performance_date === performanceDate).length || 1;
+}
+function dateBandIndex(performanceDate: string) {
+  const dates = activeWeek.value?.workspace.performances.map((row) => row.performance_date) || [];
+  return [...new Set(dates)].indexOf(performanceDate);
 }
 function performancesForDate(performanceDate: string) {
   return activeWeek.value?.workspace.performances.filter((row) => row.performance_date === performanceDate) || [];
@@ -639,12 +668,14 @@ onBeforeUnmount(cancelAutoValidation);
 <style scoped>
 .scheduling-page { width: 100%; min-width: 0; display: grid; gap: 16px; }
 .toolbar-card { position: sticky; top: 0; z-index: 10; overflow: visible; }.toolbar-card :deep(.el-card__body) { padding: 16px 18px; }
-.toolbar { display: grid; gap: 12px; }.toolbar-primary, .toolbar-secondary, .toolbar-summary, .field, .month-nav, .status-block, .actions { display: flex; align-items: center; }.toolbar-primary { gap: 14px; justify-content: flex-start; }.toolbar-secondary { gap: 18px; min-width: 0; padding-top: 12px; border-top: 1px solid #edf0f5; }.toolbar-summary { min-width: 0; gap: 18px; }.field { gap: 9px; color: var(--text-secondary); font-size: 13px; white-space: nowrap; }.month-nav { gap: 8px; padding-left: 14px; border-left: 1px solid #e4e9f1; }.month-nav strong { min-width: 116px; text-align: center; color: var(--text-primary); font-size: 18px; letter-spacing: .02em; }.locate-button { margin-left: 2px; }.active-week { display: grid; min-width: 260px; gap: 4px; }.active-week small { color: var(--text-secondary); font-size: 12px; }.active-week strong { color: var(--text-primary); font-size: 14px; white-space: nowrap; }.week-switcher { display: flex; align-items: center; gap: 9px; }.week-switcher :deep(.el-button) { flex: 0 0 auto; }.status-block { flex-wrap: wrap; gap: 7px; color: var(--text-secondary); font-size: 12px; }.status-pill { display: inline-flex; align-items: center; min-height: 28px; padding: 0 10px; border: 1px solid #e3e8f0; border-radius: 999px; background: #f7f9fc; white-space: nowrap; }.status-pill--state { padding: 0; border: 0; background: transparent; }.status-pill--state :deep(.el-tag) { height: 28px; border-radius: 999px; padding: 0 11px; }.status-pill--danger { border-color: #ffd5d2; background: #fff4f3; color: #d64545; }.status-pill--warning { border-color: #f7dfb4; background: #fff9ed; color: #b86d00; }.actions { margin-left: auto; flex: 0 0 auto; gap: 8px; }.actions :deep(.el-button) { min-height: 36px; margin-left: 0; }
+.toolbar { display: grid; gap: 12px; }.toolbar-primary, .toolbar-secondary, .toolbar-summary, .field, .month-nav, .status-block, .actions { display: flex; align-items: center; }.toolbar-primary { gap: 14px; justify-content: flex-start; }.toolbar-secondary { gap: 18px; min-width: 0; padding-top: 12px; border-top: 1px solid #edf0f5; }.toolbar-summary { min-width: 0; gap: 18px; }.field { gap: 9px; color: var(--text-secondary); font-size: 13px; white-space: nowrap; }.month-nav { gap: 8px; padding-left: 14px; border-left: 1px solid #e4e9f1; }.month-nav strong { min-width: 116px; text-align: center; color: var(--text-primary); font-size: 18px; letter-spacing: .02em; }.locate-button { margin-left: 2px; }.active-week { min-width: 330px; }.active-week strong { color: var(--text-primary); font-size: 14px; white-space: nowrap; }.week-switcher { display: flex; align-items: center; gap: 9px; }.week-switcher-label { margin-right: 3px; color: var(--text-secondary); font-size: 12px; white-space: nowrap; }.week-switcher :deep(.el-button) { flex: 0 0 auto; }.status-block { flex-wrap: wrap; gap: 7px; color: var(--text-secondary); font-size: 12px; }.status-pill { display: inline-flex; align-items: center; min-height: 28px; padding: 0 10px; border: 1px solid #e3e8f0; border-radius: 999px; background: #f7f9fc; white-space: nowrap; }.status-pill--state { padding: 0; border: 0; background: transparent; }.status-pill--state :deep(.el-tag) { height: 28px; border-radius: 999px; padding: 0 11px; }.status-pill--danger { border-color: #ffd5d2; background: #fff4f3; color: #d64545; }.status-pill--warning { border-color: #f7dfb4; background: #fff9ed; color: #b86d00; }.actions { margin-left: auto; flex: 0 0 auto; gap: 8px; }.actions :deep(.el-button) { min-height: 36px; margin-left: 0; }
 .matrix-card :deep(.el-card__body) { padding: 0; }.matrix-scroll { max-height: calc(100vh - 300px); overflow: auto; scrollbar-color: #91a5bf #e6ebf2; scrollbar-width: thin; }.matrix-scroll::-webkit-scrollbar { width: 10px; height: 10px; }.matrix-scroll::-webkit-scrollbar-track { background: #e6ebf2; }.matrix-scroll::-webkit-scrollbar-thumb { border: 2px solid #e6ebf2; border-radius: 999px; background: #91a5bf; }.schedule-matrix { width: max-content; min-width: max-content; border-collapse: separate; border-spacing: 0; }.schedule-matrix th, .schedule-matrix td { height: 54px; padding: 7px 8px; border-right: 1px solid #e5eaf1; border-bottom: 1px solid #e5eaf1; background: #fff; }.schedule-matrix thead th { position: sticky; top: 0; z-index: 4; height: 48px; padding-top: 8px; padding-bottom: 8px; background: #f7f9fc; color: var(--text-secondary); text-align: left; }.sticky { position: sticky; z-index: 3; }.date-col { left: 0; width: 104px; min-width: 104px; }.slot-col { left: 104px; width: 88px; min-width: 88px; box-shadow: 8px 0 14px -14px #32415a; }.meta { background: #fbfcfe !important; }.meta strong, .meta span, .meta small, .role-col strong, .role-col small { display: block; }.meta strong, .meta span, .role-col strong { font-size: 14px; }.meta small, .role-col small { margin-top: 2px; color: var(--text-secondary); font-size: 11px; }.role-col { width: 136px; min-width: 136px; max-width: 136px; }.assignment-cell { position: relative; width: 136px; min-width: 136px; max-width: 136px; }.assignment-select { width: 100%; }.assignment-select :deep(.el-select__wrapper) { min-height: 32px; padding: 4px 9px; border-radius: 7px; box-shadow: 0 0 0 1px #d4dce8 inset; }.assignment-select :deep(.el-select__selected-item), .assignment-select :deep(.el-select__placeholder) { overflow: hidden; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }.assignment-select :deep(.el-select-dropdown__item) { height: 30px; line-height: 30px; font-size: 13px; }.assignment-cell.has-warning { background: #fffaf0; }.assignment-cell.has-warning .assignment-select :deep(.el-select__wrapper) { box-shadow: 0 0 0 1px #e7ad45 inset; }.assignment-cell.has-conflict { background: #fff7f6; }.assignment-cell.has-conflict .assignment-select :deep(.el-select__wrapper) { box-shadow: 0 0 0 1px #e86b63 inset; }
 .conflict-dot, .warning-dot { position: absolute; right: 9px; top: 3px; z-index: 2; display: grid; place-items: center; width: 16px; height: 16px; border-radius: 50%; color: #fff; font-size: 10px; font-weight: 700; }.conflict-dot { background: #e34c4c; }.warning-dot { background: #d99419; }
-.date-col { left: 0; width: 108px; min-width: 108px; }
-.slot-col { left: 108px; width: 72px; min-width: 72px; }
-.date-cell-content { display: grid; align-content: center; gap: 6px; min-height: 54px; }.date-cell-heading { display: grid; gap: 1px; }.date-cell-heading strong { color: #19243a; font-weight: 700; line-height: 1.2; }.date-cell-heading small { margin-top: 0; }.day-publication { min-height: 22px; display: flex; align-items: center; }.day-action, .day-status { display: inline-flex; align-items: center; gap: 5px; min-height: 22px; padding: 0 8px; border-radius: 999px; font-size: 10px; line-height: 1; white-space: nowrap; }.day-action { cursor: pointer; transition: border-color .18s ease, background .18s ease, color .18s ease; }.day-action:disabled { cursor: wait; opacity: .65; }.day-action-dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }.day-action--publish { border: 1px solid #c8dafd; background: #f4f8ff; color: #2f6fec; }.day-action--publish:hover { border-color: #8db4fb; background: #eaf2ff; }.day-action--changed { border: 1px solid #f1d2a1; background: #fff8e9; color: #b56a00; }.day-action--changed:hover { border-color: #e6b76b; background: #fff2d5; }.day-status--published { padding-left: 5px; border: 0; background: transparent; color: #26945f; }.day-status--published .el-icon { font-size: 12px; }
+.date-band--alternate td { background: #f8fafc; }
+.date-band--alternate .meta { background: #f5f8fc !important; }
+.date-col { left: 0; width: 108px; min-width: 108px; vertical-align: middle; text-align: center; }
+.slot-col { left: 108px; width: 72px; min-width: 72px; text-align: center; }
+.date-cell-content { display: grid; align-content: center; justify-items: center; gap: 6px; min-height: 54px; }.date-cell-heading { display: grid; gap: 1px; }.date-cell-heading strong { color: #19243a; font-weight: 700; line-height: 1.2; }.date-cell-heading small { margin-top: 0; }.day-publication { min-height: 22px; display: flex; align-items: center; justify-content: center; }.day-action, .day-status { display: inline-flex; align-items: center; gap: 5px; min-height: 22px; padding: 0 8px; border-radius: 999px; font-size: 10px; line-height: 1; white-space: nowrap; }.day-action { cursor: pointer; transition: border-color .18s ease, background .18s ease, color .18s ease; }.day-action:disabled { cursor: wait; opacity: .65; }.day-action-dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }.day-action--publish { border: 1px solid #c8dafd; background: #f4f8ff; color: #2f6fec; }.day-action--publish:hover { border-color: #8db4fb; background: #eaf2ff; }.day-action--changed { border: 1px solid #f1d2a1; background: #fff8e9; color: #b56a00; }.day-action--changed:hover { border-color: #e6b76b; background: #fff2d5; }.day-status--published { padding-left: 5px; border: 0; background: transparent; color: #26945f; }.day-status--published .el-icon { font-size: 12px; }
 .conflict-item { margin-top: 14px; padding: 14px; border: 1px solid #f0cccc; border-radius: 9px; background: #fff8f7; }.conflict-item p { margin: 10px 0 6px; }.conflict-item small { color: var(--text-secondary); }.no-conflicts { min-height: 180px; display: grid; place-items: center; align-content: center; gap: 10px; color: #2b9a66; }.no-conflicts .el-icon { font-size: 34px; }
 @media (max-width: 1380px) { .toolbar-secondary { align-items: flex-start; flex-direction: column; }.actions { width: 100%; margin-left: 0; justify-content: flex-end; } }
 @media (max-width: 1100px) { .toolbar-card { position: static; }.toolbar-primary { flex-wrap: wrap; }.toolbar-summary { width: 100%; align-items: flex-start; flex-direction: column; gap: 10px; }.actions { justify-content: flex-start; flex-wrap: wrap; } }

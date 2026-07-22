@@ -77,6 +77,32 @@ def test_entitlement_definitions_are_scoped_to_theater(db_session):
     assert db_session.query(EntitlementItemType).count() == 2
 
 
+def test_entitlement_binding_modes_are_declared_and_snapshotted():
+    item_type = EntitlementItemType(
+        code="costume",
+        display_name="新妆造指定",
+        priority=50,
+        default_validity_days=90,
+        binds_beneficiary=True,
+        binds_actor=True,
+    )
+    item = EntitlementItem(
+        serial_number="BINDING-1",
+        owner_id=1,
+        item_type=item_type,
+        source_label="测试",
+        granted_at=datetime(2026, 7, 21),
+        expires_at=datetime(2026, 10, 21),
+        binds_beneficiary_snapshot=True,
+        binds_actor_snapshot=True,
+    )
+
+    assert item_type.binds_beneficiary is True
+    assert item_type.binds_actor is True
+    assert item.binds_beneficiary_snapshot is True
+    assert item.binds_actor_snapshot is True
+
+
 def test_player_can_own_a_typed_entitlement_item(db_session):
     player = PlayerProfile(display_name="Jennifer", normalized_name="jennifer")
     top_three_type = EntitlementItemType(

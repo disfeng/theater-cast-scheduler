@@ -4,6 +4,8 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
+from app.core.time import utc_now
+
 from app.models.entities import (
     EntitlementGrantBatch,
     EntitlementGrantDraftItem,
@@ -58,7 +60,7 @@ def _available_item(db_session, *, expires_at=None):
         source_month=date(2026, 7, 1),
         source_label="manual",
         granted_at=datetime(2026, 7, 1),
-        expires_at=expires_at or datetime.utcnow() + timedelta(days=30),
+        expires_at=expires_at or utc_now() + timedelta(days=30),
         status=EntitlementItemStatus.AVAILABLE,
     )
     db_session.add(item)
@@ -70,8 +72,31 @@ def test_normalized_name_ignores_whitespace_and_english_case():
     assert normalize_player_name("  Alice \t SMITH\n") == normalize_player_name("alice smith")
 
 
+def test_lifecycle_commit_failure_rolls_back_item_and_ledger(db_session, monkeypatch):
+    item = _available_item(db_session)
+
+    def fail_commit():
+        raise RuntimeError("simulated_commit_failure")
+
+    monkeypatch.setattr(db_session, "commit", fail_commit)
+    with pytest.raises(RuntimeError, match="simulated_commit_failure"):
+        reserve_item(
+            db_session,
+            item.id,
+            designation_id=99,
+            performance_id=88,
+            operator_user_id=1,
+        )
+
+    db_session.expire_all()
+    restored = db_session.get(EntitlementItem, item.id)
+    assert restored.status == EntitlementItemStatus.AVAILABLE
+    assert restored.current_designation_id is None
+    assert db_session.query(EntitlementLedgerEntry).filter_by(item_id=item.id).count() == 0
+
+
 def test_reverse_consumption_restores_original_item_once(db_session):
-    item = _available_item(db_session, expires_at=datetime.utcnow() + timedelta(days=30))
+    item = _available_item(db_session, expires_at=utc_now() + timedelta(days=30))
     reserve_item(db_session, item.id, designation_id=9, performance_id=7, operator_user_id=1)
     consume_item(db_session, item.id, operator_user_id=1)
     consumed = db_session.scalar(
@@ -286,13 +311,13 @@ def test_reserve_succeeds_once_and_second_reservation_fails(db_session):
 @pytest.mark.parametrize(
     ("expires_at", "expected"),
     [
-        (datetime.utcnow() + timedelta(days=1), EntitlementItemStatus.AVAILABLE),
-        (datetime.utcnow() - timedelta(days=1), EntitlementItemStatus.EXPIRED),
+        (utc_now() + timedelta(days=1), EntitlementItemStatus.AVAILABLE),
+        (utc_now() - timedelta(days=1), EntitlementItemStatus.EXPIRED),
     ],
 )
 def test_release_returns_item_to_availability_based_on_expiry(db_session, expires_at, expected):
     item = _available_item(db_session, expires_at=expires_at)
-    if expires_at <= datetime.utcnow():
+    if expires_at <= utc_now():
         item.status = EntitlementItemStatus.RESERVED
         item.current_designation_id = 10
         db_session.commit()

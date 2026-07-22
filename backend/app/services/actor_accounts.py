@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.core.time import utc_now
 from app.models.entities import Actor, ActorTheaterMembership, Theater, User
 from app.models.enums import UserRole
 from app.schemas.admin import ActorCreate, ActorCredentialDelivery
@@ -113,6 +114,7 @@ def reset_actor_password(
         user.password_hash = password_context.hash(password)
         user.must_change_password = True
         user.password_changed_at = None
+        user.token_version += 1
     db.commit()
     pdf = build_actor_credential_pdf(
         theater_name=theater.name,
@@ -141,9 +143,9 @@ def change_actor_password(
         raise ValueError("new_password_must_differ")
     user.password_hash = password_context.hash(new_password)
     user.must_change_password = False
-    from datetime import datetime
 
-    user.password_changed_at = datetime.utcnow()
+    user.password_changed_at = utc_now()
+    user.token_version += 1
     db.commit()
 
 

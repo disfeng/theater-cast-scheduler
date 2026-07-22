@@ -68,9 +68,7 @@ def performance_workspace(
         )
     )
     wish_rows = list(
-        db.scalars(
-            select(Wish).where(Wish.performance_id == performance_id).order_by(Wish.id)
-        )
+        db.scalars(select(Wish).where(Wish.performance_id == performance_id).order_by(Wish.id))
     )
     conflicts = [
         conflict
@@ -82,7 +80,8 @@ def performance_workspace(
         designations=len(designation_rows),
         wishes=len(wish_rows),
         pending=sum(
-            row.lifecycle_status not in {"predesignated", "effective", "cancelled", "replaced", "fulfilled"}
+            row.lifecycle_status
+            not in {"predesignated", "effective", "cancelled", "replaced", "fulfilled"}
             for row in designation_rows
         )
         + sum(row.status in {"active", "accepted"} for row in wish_rows),

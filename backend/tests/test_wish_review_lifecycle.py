@@ -88,7 +88,10 @@ def test_admin_can_update_and_accept_wish_with_audit(db_session):
         assert accepted.status_code == 200
         assert accepted.json()["status"] == "accepted"
         assert accepted.json()["version"] == 3
-        assert [row.action for row in db_session.query(WishLifecycleEvent).order_by(WishLifecycleEvent.id)] == [
+        assert [
+            row.action
+            for row in db_session.query(WishLifecycleEvent).order_by(WishLifecycleEvent.id)
+        ] == [
             "update",
             "accept",
         ]

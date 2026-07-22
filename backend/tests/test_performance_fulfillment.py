@@ -76,7 +76,4 @@ def test_ended_performance_fulfills_effective_designations_and_wishes_once(db_se
     assert [e.action for e in db_session.query(DesignationLifecycleEvent)] == [
         "performance_fulfilled"
     ]
-    assert [e.action for e in db_session.query(WishLifecycleEvent)] == [
-        "performance_fulfilled"
-    ]
-
+    assert [e.action for e in db_session.query(WishLifecycleEvent)] == ["performance_fulfilled"]

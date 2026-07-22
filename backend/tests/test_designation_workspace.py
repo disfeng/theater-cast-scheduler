@@ -50,8 +50,18 @@ def _seed_month_workspace(db_session):
         start_time_snapshot=time(19, 30),
     )
     db_session.add_all(
-        [first_theater, second_theater, first_slot, second_slot, role, actor,
-         august_first, august_second, july, other]
+        [
+            first_theater,
+            second_theater,
+            first_slot,
+            second_slot,
+            role,
+            actor,
+            august_first,
+            august_second,
+            july,
+            other,
+        ]
     )
     db_session.flush()
     db_session.add_all(
@@ -161,9 +171,5 @@ def test_designation_conflicts_mark_only_third_and_fourth_across_year_boundary(d
     third = project_designation_conflicts(db_session, designations[2])
     fourth = project_designation_conflicts(db_session, designations[3])
 
-    assert [(row.code, row.severity) for row in third] == [
-        ("MAX_CONSECUTIVE_REACHED", "warning")
-    ]
-    assert ("MAX_CONSECUTIVE_EXCEEDED", "hard") in {
-        (row.code, row.severity) for row in fourth
-    }
+    assert [(row.code, row.severity) for row in third] == [("MAX_CONSECUTIVE_REACHED", "warning")]
+    assert ("MAX_CONSECUTIVE_EXCEEDED", "hard") in {(row.code, row.severity) for row in fourth}

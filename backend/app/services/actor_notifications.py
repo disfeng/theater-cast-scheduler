@@ -23,9 +23,7 @@ from app.models.enums import ActorNotificationTaskStatus, ActorNotificationType
 SHANGHAI = ZoneInfo("Asia/Shanghai")
 
 
-def calculate_reveal_at(
-    performance_date: date, days_before: int, reveal_time: time
-) -> datetime:
+def calculate_reveal_at(performance_date: date, days_before: int, reveal_time: time) -> datetime:
     return datetime.combine(
         performance_date - timedelta(days=days_before), reveal_time, tzinfo=SHANGHAI
     ).replace(tzinfo=None)
@@ -103,12 +101,14 @@ def reconcile_notification_tasks(
     for assignment in assignments:
         performance = db.get(Performance, assignment.performance_id)
         designation = db.scalar(
-            select(Designation).where(
+            select(Designation)
+            .where(
                 Designation.performance_id == assignment.performance_id,
                 Designation.role_id == assignment.role_id,
                 Designation.actor_id == assignment.actor_id,
                 Designation.lifecycle_status.in_(["effective", "fulfilled"]),
-            ).order_by(Designation.id.desc())
+            )
+            .order_by(Designation.id.desc())
         )
         fingerprint = _fingerprint(theater_id, assignment, schedule_version, designation)
         keep.add(fingerprint)

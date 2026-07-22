@@ -73,9 +73,7 @@ def resolve_admin_scope(db: Session, token_user: dict[str, object]) -> AdminScop
     else:
         allowed = frozenset(
             db.scalars(
-                select(UserTheaterScope.theater_id).where(
-                    UserTheaterScope.user_id == account.id
-                )
+                select(UserTheaterScope.theater_id).where(UserTheaterScope.user_id == account.id)
             ).all()
         )
     return AdminScope(

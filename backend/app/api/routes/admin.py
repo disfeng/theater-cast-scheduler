@@ -80,7 +80,12 @@ from app.services.admin_data import (
 from app.services.actor_accounts import create_actor_account
 from app.services.actor_accounts import reset_actor_password
 from app.schemas.actor_workspace import ActorPasswordResetInput
-from app.schemas.actor_workspace import LeaveApplicationDayRead, LeaveApplicationRead, LeaveDayReviewInput, LeavePendingReviewInput
+from app.schemas.actor_workspace import (
+    LeaveApplicationDayRead,
+    LeaveApplicationRead,
+    LeaveDayReviewInput,
+    LeavePendingReviewInput,
+)
 from app.services.actor_leaves import list_leave_applications, review_leave_day, review_pending_days
 from app.services.monthly_plan import (
     MonthlyPlanConflict,
@@ -225,7 +230,11 @@ def get_theaters(
     db: Session = Depends(get_db),
 ) -> list[Theater]:
     rows = list_theaters(db, include_inactive)
-    return rows if scope.is_super_admin else [row for row in rows if row.id in scope.allowed_theater_ids]
+    return (
+        rows
+        if scope.is_super_admin
+        else [row for row in rows if row.id in scope.allowed_theater_ids]
+    )
 
 
 @router.post("/theaters", response_model=TheaterRead)
@@ -355,7 +364,11 @@ def get_roles(
     if theater_id is not None:
         scope.require_theater(theater_id)
     rows = list_roles(db, theater_id, include_inactive)
-    return rows if scope.is_super_admin else [row for row in rows if row.theater_id in scope.allowed_theater_ids]
+    return (
+        rows
+        if scope.is_super_admin
+        else [row for row in rows if row.theater_id in scope.allowed_theater_ids]
+    )
 
 
 @router.post("/roles", response_model=RoleRead)
@@ -406,7 +419,13 @@ def get_actors(
 ) -> list[ActorRead]:
     rows = list_actors(db)
     if not scope.is_super_admin:
-        rows = [actor for actor in rows if any(item.theater_id in scope.allowed_theater_ids for item in actor.theater_memberships)]
+        rows = [
+            actor
+            for actor in rows
+            if any(
+                item.theater_id in scope.allowed_theater_ids for item in actor.theater_memberships
+            )
+        ]
     return [_actor_read(actor) for actor in rows]
 
 
@@ -503,16 +522,25 @@ def post_leave_review(
 
 def _leave_application_read(row: LeaveApplication) -> LeaveApplicationRead:
     return LeaveApplicationRead(
-        id=row.id, actor_id=row.actor_id, actor_name=row.actor.display_name,
-        theater_id=row.theater_id, theater_name=row.theater.name, note=row.note,
+        id=row.id,
+        actor_id=row.actor_id,
+        actor_name=row.actor.display_name,
+        theater_id=row.theater_id,
+        theater_name=row.theater.name,
+        note=row.note,
         created_at=row.created_at,
-        days=[LeaveApplicationDayRead(
-            id=day.id, leave_date=day.leave_date,
-            status="withdrawn" if day.withdrawn_at else day.status.value,
-            has_schedule_conflict=day.has_schedule_conflict,
-            review_reason=day.review_reason, reviewed_at=day.reviewed_at,
-            withdrawn_at=day.withdrawn_at,
-        ) for day in row.days],
+        days=[
+            LeaveApplicationDayRead(
+                id=day.id,
+                leave_date=day.leave_date,
+                status="withdrawn" if day.withdrawn_at else day.status.value,
+                has_schedule_conflict=day.has_schedule_conflict,
+                review_reason=day.review_reason,
+                reviewed_at=day.reviewed_at,
+                withdrawn_at=day.withdrawn_at,
+            )
+            for day in row.days
+        ],
     )
 
 
@@ -538,15 +566,21 @@ def post_leave_day_review(
         day = review_leave_day(db, day_id, status, payload.reason, int(user.get("user_id") or 1))
         db.commit()
         return LeaveApplicationDayRead(
-            id=day.id, leave_date=day.leave_date, status=day.status.value,
-            has_schedule_conflict=day.has_schedule_conflict, review_reason=day.review_reason,
-            reviewed_at=day.reviewed_at, withdrawn_at=day.withdrawn_at,
+            id=day.id,
+            leave_date=day.leave_date,
+            status=day.status.value,
+            has_schedule_conflict=day.has_schedule_conflict,
+            review_reason=day.review_reason,
+            reviewed_at=day.reviewed_at,
+            withdrawn_at=day.withdrawn_at,
         )
     except (LookupError, ValueError) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
-@router.post("/leave-applications/{application_id}/review-pending", response_model=LeaveApplicationRead)
+@router.post(
+    "/leave-applications/{application_id}/review-pending", response_model=LeaveApplicationRead
+)
 def post_leave_pending_review(
     application_id: int,
     payload: LeavePendingReviewInput,
@@ -554,8 +588,15 @@ def post_leave_pending_review(
     db: Session = Depends(get_db),
 ) -> LeaveApplicationRead:
     try:
-        row = review_pending_days(db, application_id, LeaveStatus(payload.status), payload.reason, int(user.get("user_id") or 1))
-        db.commit(); db.refresh(row)
+        row = review_pending_days(
+            db,
+            application_id,
+            LeaveStatus(payload.status),
+            payload.reason,
+            int(user.get("user_id") or 1),
+        )
+        db.commit()
+        db.refresh(row)
         return _leave_application_read(row)
     except (LookupError, ValueError) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
@@ -564,7 +605,7 @@ def post_leave_pending_review(
 @router.post("/monthly-plan/generate", response_model=list[PerformanceRead])
 def post_monthly_plan_generate(
     payload: MonthlyPlanRequest,
-    _: dict[str, str] = Depends(require_admin),
+    scope: AdminScope = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> list[Performance]:
     try:
@@ -719,11 +760,7 @@ def _actor_read(actor: Actor) -> ActorRead:
         phone_number=actor.phone_number,
         theater_ids=[membership.theater_id for membership in memberships],
         entry_theater_id=next(
-            (
-                membership.theater_id
-                for membership in memberships
-                if membership.is_entry_theater
-            ),
+            (membership.theater_id for membership in memberships if membership.is_entry_theater),
             None,
         ),
     )

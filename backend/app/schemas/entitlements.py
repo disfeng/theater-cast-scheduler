@@ -8,6 +8,7 @@ from app.models.enums import (
     EntitlementItemCategory,
     EntitlementItemStatus,
     EntitlementSourceType,
+    EntitlementGrantMode,
     GrantBatchStatus,
     PlayerStatus,
 )
@@ -116,6 +117,8 @@ class ItemTypeCreate(BaseModel):
     description: str | None = Field(default=None, max_length=1000)
     is_active: bool = True
     sort_order: int = Field(default=0, ge=0)
+    binds_beneficiary: bool = False
+    binds_actor: bool = False
 
     @field_validator("code", "display_name")
     @classmethod
@@ -145,6 +148,8 @@ class ItemTypeUpdate(BaseModel):
     description: str | None = Field(default=None, max_length=1000)
     is_active: bool | None = None
     sort_order: int | None = Field(default=None, ge=0)
+    binds_beneficiary: bool | None = None
+    binds_actor: bool | None = None
 
     @field_validator("display_name")
     @classmethod
@@ -161,6 +166,7 @@ class ItemTypeRead(ItemTypeCreate):
     model_config = ConfigDict(from_attributes=True)
     id: int
     theater_id: int | None
+    binding_locked_at: datetime | None
 
 
 class GrantDraftItemWrite(BaseModel):
@@ -197,6 +203,7 @@ class GrantDraftItemRead(BaseModel):
 
 
 class GrantBatchCreate(BaseModel):
+    grant_mode: EntitlementGrantMode = EntitlementGrantMode.BY_PLAYER
     source_type: EntitlementSourceType = EntitlementSourceType.OTHER
     source_month: date | None = None
     source_label: str = Field(min_length=1, max_length=120)
@@ -230,6 +237,7 @@ class GrantBatchRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int
     theater_id: int | None
+    grant_mode: EntitlementGrantMode
     source_type: EntitlementSourceType
     source_month: date | None
     source_label: str
@@ -326,6 +334,8 @@ class EntitlementItemRead(BaseModel):
     notes: str | None
     bound_actor_id: int | None
     bound_actor_name: str | None
+    binds_beneficiary_snapshot: bool
+    binds_actor_snapshot: bool
     ledger_entries: list[LedgerRead] = Field(default_factory=list)
 
 

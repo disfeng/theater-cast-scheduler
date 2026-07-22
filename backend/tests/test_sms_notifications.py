@@ -5,14 +5,21 @@ from fastapi.testclient import TestClient
 from app.api.deps import get_db
 from app.core.config import settings
 from app.main import app
-from app.models.entities import Actor, ActorNotificationTask, Performance, Role, Theater, TheaterSlot
+from app.models.entities import (
+    Actor,
+    ActorNotificationTask,
+    Performance,
+    Role,
+    Theater,
+    TheaterSlot,
+)
 from app.models.enums import ActorNotificationTaskStatus, ActorNotificationType
 from app.services.sms_notifications import reschedule_pending_tasks_for_theater
-from app.services.auth import create_access_token
+from auth_helpers import persisted_admin_headers_from_override
 
 
 def _headers() -> dict[str, str]:
-    return {"Authorization": f"Bearer {create_access_token('admin@example.com', 'admin')}"}
+    return persisted_admin_headers_from_override()
 
 
 def test_sms_switches_default_off(db_session):
@@ -64,9 +71,7 @@ def test_sms_secret_is_encrypted_and_never_returned(db_session, monkeypatch):
             assert "super-secret-value" not in updated.text
             assert updated.json()["credentials_configured"] is True
 
-            loaded = client.get(
-                "/admin/system-settings/actor-notifications", headers=_headers()
-            )
+            loaded = client.get("/admin/system-settings/actor-notifications", headers=_headers())
             assert "super-secret-value" not in loaded.text
     finally:
         app.dependency_overrides.clear()

@@ -3,6 +3,8 @@ from datetime import date, datetime, timedelta
 from fastapi.testclient import TestClient
 from sqlalchemy import event, select
 
+from app.core.time import utc_now
+
 from app.api.deps import get_db
 from app.main import app
 from app.models.entities import (
@@ -45,6 +47,38 @@ def _client(db_session):
     return client
 
 
+def test_growth_lists_apply_bounded_limit_and_offset(db_session):
+    client = _client(db_session)
+    theater = Theater(name="分页剧场")
+    db_session.add(theater)
+    db_session.flush()
+    db_session.add_all(
+        [
+            PlayerProfile(
+                display_name=f"player-{index}",
+                normalized_name=f"player-{index}",
+                status=PlayerStatus.ACTIVE,
+            )
+            for index in range(5)
+        ]
+    )
+    db_session.commit()
+
+    players = client.get("/admin/player-profiles", params={"limit": 2, "offset": 2})
+    assert players.status_code == 200
+    assert [row["display_name"] for row in players.json()] == ["player-2", "player-3"]
+
+    summaries = client.get(
+        f"/admin/theaters/{theater.id}/player-inventory-summaries",
+        params={"limit": 2, "offset": 1},
+    )
+    assert summaries.status_code == 200
+    assert [row["display_name"] for row in summaries.json()] == ["player-1", "player-2"]
+
+    too_large = client.get("/admin/player-profiles", params={"limit": 101})
+    assert too_large.status_code == 422
+
+
 def test_top_three_grant_requires_and_persists_bound_actor(db_session):
     client = _client(db_session)
     theater = Theater(name="榜三剧场")
@@ -62,6 +96,7 @@ def test_top_three_grant_requires_and_persists_bound_actor(db_session):
         designation_type=DesignationType.TOP_THREE,
         priority=200,
         default_validity_days=90,
+        binds_actor=True,
     )
     db_session.add(item_type)
     db_session.commit()
@@ -76,13 +111,14 @@ def test_top_three_grant_requires_and_persists_bound_actor(db_session):
         "source_type": "monthly_ranking",
         "source_month": "2026-07-01",
         "source_label": "七月个人榜",
+        "grant_mode": "by_actor",
         "bound_actor_id": None,
         "items": [item],
     }
     try:
         missing = client.post(url, json=base)
         assert missing.status_code == 409
-        assert missing.json()["detail"] == "entitlement_actor_binding_invalid"
+        assert missing.json()["detail"] == "entitlement_bound_actor_required"
 
         base["bound_actor_id"] = actor.id
         item["bound_actor_id"] = actor.id
@@ -96,12 +132,14 @@ def test_top_three_grant_requires_and_persists_bound_actor(db_session):
             headers={"Idempotency-Key": "top-three-actor-test"},
         )
         assert confirmed.status_code == 200
-        inventory = client.get(
-            f"/admin/theaters/{theater.id}/players/{player.id}/inventory"
-        ).json()
+        inventory = client.get(f"/admin/theaters/{theater.id}/players/{player.id}/inventory").json()
         assert len(inventory["items"]) == 2
         assert {row["bound_actor_id"] for row in inventory["items"]} == {actor.id}
         assert {row["bound_actor_name"] for row in inventory["items"]} == {"榜单演员"}
+        persisted = db_session.scalars(select(EntitlementItem)).all()
+        assert all(row.binds_actor_snapshot for row in persisted)
+        assert all(not row.binds_beneficiary_snapshot for row in persisted)
+        assert item_type.binding_locked_at is not None
     finally:
         app.dependency_overrides.clear()
 
@@ -125,7 +163,7 @@ def test_theater_player_inventory_summaries_include_zero_inventory_and_counts(db
     )
     db_session.add_all([theater, other_theater, player_a, player_b, inactive, item_type])
     db_session.flush()
-    now = datetime.utcnow()
+    now = utc_now()
     db_session.add_all(
         [
             EntitlementItem(
@@ -176,9 +214,7 @@ def test_theater_player_inventory_summaries_include_zero_inventory_and_counts(db
     )
     db_session.commit()
     try:
-        response = client.get(
-            f"/admin/theaters/{theater.id}/player-inventory-summaries"
-        )
+        response = client.get(f"/admin/theaters/{theater.id}/player-inventory-summaries")
         assert response.status_code == 200
         rows = response.json()
         assert [row["display_name"] for row in rows] == ["阿年", "微醺"]
@@ -213,8 +249,8 @@ def test_designation_manual_consumption_requires_note_and_is_idempotent(db_sessi
         item_type_id=definition.id,
         source_type="monthly_ranking",
         source_label="七月榜单",
-        granted_at=datetime.utcnow(),
-        expires_at=datetime.utcnow() + timedelta(days=90),
+        granted_at=utc_now(),
+        expires_at=utc_now() + timedelta(days=90),
         status=EntitlementItemStatus.AVAILABLE,
     )
     db_session.add(item)
@@ -252,8 +288,7 @@ def test_designation_manual_consumption_requires_note_and_is_idempotent(db_sessi
             db_session.scalars(
                 select(EntitlementLedgerEntry).where(
                     EntitlementLedgerEntry.item_id == item.id,
-                    EntitlementLedgerEntry.event_type
-                    == EntitlementEventType.MANUALLY_CONSUMED,
+                    EntitlementLedgerEntry.event_type == EntitlementEventType.MANUALLY_CONSUMED,
                 )
             ).all()
         )
@@ -300,9 +335,12 @@ def test_theater_item_definition_crud_and_category_validation(db_session):
         )
         assert created.status_code == 200
         assert created.json()["theater_id"] == theater.id
-        assert client.get(
-            f"/admin/theaters/{theater.id}/entitlement-item-types"
-        ).json()[0]["display_name"] == "饮品券"
+        assert (
+            client.get(f"/admin/theaters/{theater.id}/entitlement-item-types").json()[0][
+                "display_name"
+            ]
+            == "饮品券"
+        )
 
         defaults = client.post(
             f"/admin/theaters/{theater.id}/entitlement-item-types/default-designations"
@@ -344,9 +382,7 @@ def test_theater_item_definition_crud_and_category_validation(db_session):
             headers={"Idempotency-Key": "grant-config-test"},
         )
         assert repeated.status_code == 200
-        inventory = client.get(
-            f"/admin/theaters/{theater.id}/players/{player.id}/inventory"
-        )
+        inventory = client.get(f"/admin/theaters/{theater.id}/players/{player.id}/inventory")
         assert len(inventory.json()["items"]) == 2
 
         matches = client.post(
@@ -617,7 +653,7 @@ def test_missing_persisted_operator_is_rejected(db_session):
             json={"source_month": "2026-07-01", "source_label": "July", "items": []},
         )
         assert response.status_code == 401
-        assert response.json()["detail"] == "operator_user_not_found"
+        assert response.json()["detail"] == "admin_account_not_found"
     finally:
         app.dependency_overrides.clear()
 
@@ -766,14 +802,14 @@ def test_extension_void_restore_adjustment_and_stable_errors(db_session):
         )
         db_session.add_all([player, kind])
         db_session.commit()
-        expiry = datetime.utcnow() + timedelta(days=10)
+        expiry = utc_now() + timedelta(days=10)
         item = EntitlementItem(
             serial_number="DT-202607-0001",
             owner_id=player.id,
             item_type_id=kind.id,
             source_month=date(2026, 7, 1),
             source_label="July",
-            granted_at=datetime.utcnow(),
+            granted_at=utc_now(),
             expires_at=expiry,
             status=EntitlementItemStatus.AVAILABLE,
         )
@@ -895,8 +931,8 @@ def test_reconciliation_reports_batch_ledger_and_expiry_anomalies(db_session):
             grant_batch_id=batch.id,
             source_month=date(2026, 7, 1),
             source_label="Broken",
-            granted_at=datetime.utcnow(),
-            expires_at=datetime.utcnow() - timedelta(days=1),
+            granted_at=utc_now(),
+            expires_at=utc_now() - timedelta(days=1),
             status=EntitlementItemStatus.AVAILABLE,
         )
         db_session.add(item)
@@ -936,8 +972,8 @@ def test_reconciliation_detects_missing_duplicate_and_invalid_grants_per_item(db
             "item_type_id": kind.id,
             "source_month": date(2026, 7, 1),
             "source_label": "audit",
-            "granted_at": datetime.utcnow(),
-            "expires_at": datetime.utcnow() + timedelta(days=30),
+            "granted_at": utc_now(),
+            "expires_at": utc_now() + timedelta(days=30),
         }
         missing = EntitlementItem(serial_number="MISS", **common)
         duplicate = EntitlementItem(serial_number="DUP", **common)

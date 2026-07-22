@@ -17,6 +17,14 @@ test("admin navigation gives every menu item an icon", async () => {
   expect(icons.length).toBe(items.length);
 });
 
+test("admin navigation follows the operational information architecture", async () => {
+  const { container } = await renderAdminRoute("/admin/dashboard");
+  const groups = Array.from(container.querySelectorAll(".menu-group-title")).map((node) => node.textContent?.trim());
+  expect(groups).toEqual(["概览", "剧场运营", "玩家与权益", "系统治理"]);
+  const labels = Array.from(container.querySelectorAll(".sidebar-menu .el-menu-item")).map((node) => node.textContent?.trim());
+  expect(labels).toEqual(["工作台", "基础配置", "演员管理", "月度计划", "周排班", "请假审批", "指定与许愿", "权益管理", "管理员管理", "日志审查"]);
+});
+
 test("actor navigation gives every menu item an icon", async () => {
   const { container } = await renderActorRoute("/actor/leave");
   const items = container.querySelectorAll(".actor-tabs a");
@@ -79,10 +87,22 @@ test("weekly scheduling uses the original single-week role matrix", () => {
   expect(source).toContain('class="schedule-matrix schedule-matrix--compact"');
   expect(source).toContain('class="matrix-scroll"');
   expect(source).toContain(".schedule-matrix { width: max-content; min-width: max-content;");
-  expect(source).toContain(".date-col { left: 0; width: 108px; min-width: 108px; }");
+  expect(source).toContain(".date-col { left: 0; width: 108px; min-width: 108px; vertical-align: middle; text-align: center; }");
   expect(source).toContain(".slot-col { left: 108px; width: 72px; min-width: 72px;");
   expect(source).toContain(".role-col { width: 136px; min-width: 136px; max-width: 136px; }");
   expect(source).not.toContain('class="month-weeks"');
+  expect(source).toContain(".date-band--alternate td");
+  expect(source).toContain("text-align: center");
+  expect(source).toContain("justify-items: center");
+});
+
+test("theater context selectors stay compact on desktop and responsive on mobile", () => {
+  const designation = vueSources["../src/pages/admin/DesignationWishPage.vue"];
+  const entitlements = vueSources["../src/pages/admin/EntitlementManagementPage.vue"];
+  expect(designation).toContain("width:220px");
+  expect(entitlements).toContain("width:min(300px,36vw)");
+  expect(designation).toContain("width:100%");
+  expect(entitlements).toContain("width:100%");
 });
 
 test("global dialog system defines shared form and semantic confirmation styles", () => {

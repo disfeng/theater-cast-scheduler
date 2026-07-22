@@ -108,6 +108,11 @@ class GrantBatchStatus(StrEnum):
     CANCELLED = "cancelled"
 
 
+class EntitlementGrantMode(StrEnum):
+    BY_PLAYER = "by_player"
+    BY_ACTOR = "by_actor"
+
+
 class EntitlementItemCategory(StrEnum):
     DESIGNATION = "designation"
     GENERAL = "general"

@@ -79,11 +79,31 @@ def test_all_migration_revision_ids_fit_alembic_version_column():
     assert all(len(revision.revision) <= 32 for revision in script.walk_revisions())
 
 
+def test_entitlement_binding_modes_migration_declares_rules_and_reset():
+    migration = Path("migrations/versions/0020_entitlement_binding_modes.py").read_text()
+
+    assert 'down_revision = "0019_daily_publications"' in migration
+    for name in (
+        "binds_beneficiary",
+        "binds_actor",
+        "binding_locked_at",
+        "binds_beneficiary_snapshot",
+        "binds_actor_snapshot",
+        "grant_mode",
+    ):
+        assert name in migration
+    assert "DELETE FROM entitlement_ledger_entries" in migration
+    assert "DELETE FROM entitlement_items" in migration
+    assert "DELETE FROM theaters" not in migration
+    assert "DELETE FROM actors" not in migration
+    assert "DELETE FROM player_profiles" not in migration
+
+
 def test_theater_entitlement_management_is_migration_head():
     script = ScriptDirectory.from_config(Config("alembic.ini"))
     revision = script.get_revision("0012_theater_entitlements")
 
-    assert script.get_current_head() == "0019_daily_publications"
+    assert script.get_current_head() == "0023_query_hardening"
     assert revision.down_revision == "0011_weekly_publish_operations"
     migration = Path(revision.path).read_text()
     for required in (
@@ -101,7 +121,7 @@ def test_top_three_actor_binding_advances_migration_head():
     script = ScriptDirectory.from_config(Config("alembic.ini"))
     revision = script.get_revision("0013_top_three_actor_binding")
 
-    assert script.get_current_head() == "0019_daily_publications"
+    assert script.get_current_head() == "0023_query_hardening"
     assert revision.down_revision == "0012_theater_entitlements"
     migration = Path(revision.path).read_text()
     assert "bound_actor_id" in migration
@@ -112,7 +132,7 @@ def test_actor_workspace_migration_advances_head_and_declares_tables():
     script = ScriptDirectory.from_config(Config("alembic.ini"))
     revision = script.get_revision("0014_actor_mobile_workspace")
 
-    assert script.get_current_head() == "0019_daily_publications"
+    assert script.get_current_head() == "0023_query_hardening"
     assert revision.down_revision == "0013_top_three_actor_binding"
     migration = Path(revision.path).read_text()
     for table in (
@@ -131,7 +151,7 @@ def test_performance_board_migration_advances_head_and_declares_contract():
     head = script.get_current_head()
     revision = script.get_revision("0007_performance_boards")
 
-    assert head == "0019_daily_publications"
+    assert head == "0023_query_hardening"
     assert revision.down_revision == "0006_entitlement_inventory"
     migration = Path(revision.path).read_text()
     for table in (
@@ -178,6 +198,20 @@ def test_performance_board_migration_advances_head_and_declares_contract():
     assert "unmet_scope_hash" in publish_migration
     assert "response_snapshot" in publish_migration
     assert "uq_wish_active_scope_key" in wish_migration
+
+
+def test_query_hardening_migration_adds_reversible_composite_indexes():
+    migration = Path("migrations/versions/0023_query_hardening.py").read_text()
+    expected = {
+        "ix_performances_theater_date_status",
+        "ix_entitlement_items_theater_owner_status",
+        "ix_entitlement_items_theater_type_status_expiry",
+        "ix_entitlement_ledger_theater_id",
+        "ix_leave_days_status_date",
+        "ix_schedule_assignments_actor_performance",
+    }
+    assert all(name in migration for name in expected)
+    assert migration.count("op.create_index") == migration.count("op.drop_index")
 
 
 def test_performance_board_sqlite_constraints_reject_cross_board_scope(tmp_path):
@@ -516,7 +550,7 @@ def test_entitlement_migration_contract_and_round_trip(tmp_path):
         reseeded = connection.execute(
             text("SELECT code, priority FROM entitlement_item_types ORDER BY priority")
         ).all()
-    assert reseeded == []
+    assert reseeded == [("paired", 100), ("top_three", 200), ("universal", 300)]
 
 
 def test_upgrade_from_0005_preserves_representative_legacy_rows(tmp_path):
@@ -595,7 +629,9 @@ def test_upgrade_tolerates_designation_lifecycle_schema_created_ahead_of_alembic
     )
     engine = create_engine(database_url)
     with engine.begin() as connection:
-        connection.execute(text("ALTER TABLE designations ADD COLUMN version INTEGER NOT NULL DEFAULT 1"))
+        connection.execute(
+            text("ALTER TABLE designations ADD COLUMN version INTEGER NOT NULL DEFAULT 1")
+        )
         connection.execute(
             text(
                 "CREATE TABLE designation_lifecycle_events ("
@@ -626,4 +662,6 @@ def test_upgrade_tolerates_designation_lifecycle_schema_created_ahead_of_alembic
     )
     inspector = inspect(create_engine(database_url))
     assert "weekly_publish_operations" in inspector.get_table_names()
-    assert [column["name"] for column in inspector.get_columns("designations")].count("version") == 1
+    assert [column["name"] for column in inspector.get_columns("designations")].count(
+        "version"
+    ) == 1

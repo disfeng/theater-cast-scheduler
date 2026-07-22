@@ -1,9 +1,10 @@
 from collections import Counter
-from datetime import datetime
 
 from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
+
+from app.core.time import utc_now
 
 from app.models.entities import (
     Actor,
@@ -611,7 +612,7 @@ def confirm_board_item(
     for key, value in corrections.model_dump(exclude_unset=True).items():
         setattr(item, key, value)
     _validate_item(db, item)
-    item.confirmed_at = datetime.utcnow()
+    item.confirmed_at = utc_now()
     item.confirmed_by = operator_user_id
     db.flush()
     if item.item_kind == BoardItemKind.DESIGNATION:
@@ -677,7 +678,9 @@ def _apply_wish_projection(
             PerformancePlayer.is_active.is_(True),
         )
     ).all()
-    players = {row.player_profile_id: row for row in player_rows if row.player_profile_id is not None}
+    players = {
+        row.player_profile_id: row for row in player_rows if row.player_profile_id is not None
+    }
     players_by_name: dict[str, list[PerformancePlayer]] = {}
     for row in player_rows:
         players_by_name.setdefault(normalize_player_name(row.player_name_snapshot), []).append(row)
@@ -804,7 +807,7 @@ def _apply_designation_projection(db: Session, revision: PerformanceBoardRevisio
                 performance_id=performance_id,
                 beneficiary_performance_player_id=beneficiary.id if beneficiary else None,
                 owner_player_id=item.matched_player_id,
-                submitted_at=datetime.utcnow(),
+                submitted_at=utc_now(),
                 included_in_batch=False,
                 status="pending",
                 usage_type="self",
@@ -891,7 +894,7 @@ def activate_revision(
 
         backfill_revealed_notification_players(db, board.performance_id)
         revision.status = BoardRevisionStatus.CONFIRMED
-        revision.confirmed_at = datetime.utcnow()
+        revision.confirmed_at = utc_now()
         board.current_revision_id = revision.id
         db.commit()
         db.refresh(revision)

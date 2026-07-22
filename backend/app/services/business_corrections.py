@@ -1,15 +1,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
 import hashlib
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.core.time import utc_now
+
 from app.models.entities import (
     Designation,
-    DesignationLifecycleEvent,
     DesignationVersion,
     EntitlementLedgerEntry,
     EntitlementItem,
@@ -94,11 +94,14 @@ def _append_version(
     patch: DesignationCorrectionPatch,
     operator_user_id: int,
 ) -> DesignationVersion:
-    latest = db.scalar(
-        select(func.max(DesignationVersion.version_number)).where(
-            DesignationVersion.designation_id == row.id
+    latest = (
+        db.scalar(
+            select(func.max(DesignationVersion.version_number)).where(
+                DesignationVersion.designation_id == row.id
+            )
         )
-    ) or 0
+        or 0
+    )
     if latest == 0:
         baseline = DesignationVersion(
             designation_id=row.id,
@@ -200,10 +203,14 @@ def correct_designation(
         )
 
     version = _append_version(db, row, patch, operator_user_id)
-    if should_rebind_item and old_item is not None and old_item.status == EntitlementItemStatus.RESERVED:
+    if (
+        should_rebind_item
+        and old_item is not None
+        and old_item.status == EntitlementItemStatus.RESERVED
+    ):
         released_status = (
             EntitlementItemStatus.EXPIRED
-            if old_item.expires_at <= datetime.utcnow()
+            if old_item.expires_at <= utc_now()
             else EntitlementItemStatus.AVAILABLE
         )
         before = old_item.status
@@ -284,9 +291,10 @@ def correct_wish(
         raise CorrectionConflict("correction_confirmation_required")
     if row.version != patch.expected_version:
         raise CorrectionConflict("correction_version_conflict")
-    latest = db.scalar(
-        select(func.max(WishVersion.version_number)).where(WishVersion.wish_id == row.id)
-    ) or 0
+    latest = (
+        db.scalar(select(func.max(WishVersion.version_number)).where(WishVersion.wish_id == row.id))
+        or 0
+    )
     if latest == 0:
         db.add(
             WishVersion(

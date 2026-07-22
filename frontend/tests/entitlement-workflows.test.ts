@@ -2,7 +2,7 @@ import { fireEvent, screen, waitFor, within } from "@testing-library/vue";
 import { beforeEach, expect, test, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { renderAdminRoute } from "./helpers/render-app";
-import { entitlementLabel, formatEntitlementDate, formatLedgerSummary, toIsoEndOfDay } from "../src/features/entitlements/format";
+import { bindingModeLabel, entitlementLabel, formatEntitlementDate, formatLedgerSummary, itemTypeSupportsGrantMode, toIsoEndOfDay } from "../src/features/entitlements/format";
 import { applyGrantPlayerMatch, createGrantRow, expandGrantItems, grantRowIsResolved, parsePastedPlayerNames } from "../src/features/entitlements/grant-table";
 import { summarizeCardResults, topThreeCardInvalidReason } from "../src/features/entitlements/top-three-grants";
 import { filterAndSortPlayers, groupInventoryItems } from "../src/features/entitlements/inventory-workspace";
@@ -11,6 +11,16 @@ import grantBatchSource from "../src/components/admin/GrantBatchTab.vue?raw";
 const baseStyles=readFileSync(`${process.cwd()}/src/styles/base.css`,"utf8");
 
 beforeEach(()=>{localStorage.clear();vi.restoreAllMocks()});
+
+test("四种权益绑定模式决定发放入口",()=>{
+  expect(bindingModeLabel({binds_beneficiary:false,binds_actor:false})).toBe("自由使用");
+  expect(bindingModeLabel({binds_beneficiary:false,binds_actor:true})).toBe("绑定演员");
+  expect(bindingModeLabel({binds_beneficiary:true,binds_actor:false})).toBe("仅本人使用");
+  expect(bindingModeLabel({binds_beneficiary:true,binds_actor:true})).toBe("本人使用 · 绑定演员");
+  expect(itemTypeSupportsGrantMode({binds_actor:false},"by_player")).toBe(true);
+  expect(itemTypeSupportsGrantMode({binds_actor:false},"by_actor")).toBe(false);
+  expect(itemTypeSupportsGrantMode({binds_actor:true},"by_actor")).toBe(true);
+});
 
 test("空道具目录可创建默认指定道具",async()=>{
   const requests:string[]=[];
@@ -110,6 +120,20 @@ test("权益背包双栏工作台展示全部玩家并按需切换背包",async(
   await waitFor(()=>expect(requests).toContain("/admin/theaters/2/players/2/inventory"));
 });
 
+test("权益背包增长数据可以继续加载玩家和道具",async()=>{
+  const requests:string[]=[];
+  const summaries=Array.from({length:50},(_,index)=>({player_id:index+1,display_name:`玩家${index+1}`,normalized_name:`玩家${index+1}`,sort_key:`wanjia${String(index+1).padStart(3,"0")}`,status:"active",item_count:index?0:51,expired_count:0}));
+  const items=Array.from({length:50},(_,index)=>({id:index+1,theater_id:2,serial_number:`T2-${index+1}`,owner_id:1,item_type_id:1,source_type:"monthly_ranking",source_month:"2026-07-01",source_label:"七月热力",granted_at:"2026-07-19T00:00:00",expires_at:"2026-10-01T00:00:00",status:"available",current_designation_id:null,notes:null,bound_actor_id:null,bound_actor_name:null,ledger_entries:[]}));
+  vi.stubGlobal("fetch",vi.fn(async(input:RequestInfo|URL)=>{const path=String(input).replace(/https?:\/\/localhost:\d+/,"");requests.push(path);if(path==="/admin/theaters")return Response.json([{id:2,name:"西安幽州剧场",is_active:true}]);if(path==="/admin/theaters/2/entitlement-item-types")return Response.json([{id:1,theater_id:2,code:"universal",display_name:"万能指定",category:"designation",designation_type:"universal",priority:300,default_validity_days:90,color:"#409eff",icon:null,description:null,is_active:true,sort_order:0}]);if(path==="/admin/theaters/2/player-inventory-summaries")return Response.json(summaries);if(path==="/admin/theaters/2/player-inventory-summaries?limit=50&offset=50")return Response.json([{player_id:51,display_name:"最后玩家",normalized_name:"最后玩家",sort_key:"zuihou",status:"active",item_count:0,expired_count:0}]);if(path==="/admin/theaters/2/players/1/inventory")return Response.json({player:{id:1,display_name:"玩家1",normalized_name:"玩家1",status:"active"},items});if(path==="/admin/theaters/2/players/1/inventory?limit=50&offset=50")return Response.json({player:{id:1,display_name:"玩家1",normalized_name:"玩家1",status:"active"},items:[{...items[0],id:51,serial_number:"T2-51"}]});return Response.json({detail:`unexpected:${path}`},{status:500})}));
+  await renderAdminRoute("/admin/entitlements?theater_id=2&tab=inventory");
+  await fireEvent.click(await screen.findByRole("button",{name:"加载更多玩家"}));
+  expect(await screen.findByText("最后玩家")).toBeInTheDocument();
+  await fireEvent.click(screen.getByRole("button",{name:"加载更多道具"}));
+  expect(await screen.findByText("T2-51")).toBeInTheDocument();
+  expect(requests).toContain("/admin/theaters/2/player-inventory-summaries?limit=50&offset=50");
+  expect(requests).toContain("/admin/theaters/2/players/1/inventory?limit=50&offset=50");
+});
+
 test("批量玩家去重并按动态道具数量展开实例",()=>{const definitions=[{id:3,theater_id:2,code:"drink",display_name:"饮品券",category:"general",designation_type:null,priority:0,default_validity_days:30,color:"#409eff",icon:null,description:null,is_active:true,sort_order:0}] as any;expect(parsePastedPlayerNames(" 小A\nKiki\n小a \n")).toEqual(["小A","Kiki"]);const row=createGrantRow("小A",definitions);row.playerId=7;row.status="matched";row.quantities[3]=2;expect(expandGrantItems([row],"2026-07-01","七月活动",null)).toHaveLength(2)});
 
 test("发放玩家匹配结果统一映射为行状态",()=>{
@@ -142,8 +166,8 @@ test("权益发放区分通用批量与绑定演员的榜三模式",async()=>{
     const path=String(input).replace(/https?:\/\/localhost:\d+/,"");
     if(path==="/admin/theaters")return Response.json([{id:2,name:"西安幽州剧场",is_active:true}]);
     if(path==="/admin/theaters/2/entitlement-item-types")return Response.json([
-      {id:1,theater_id:2,code:"universal",display_name:"万能指定",category:"designation",designation_type:"universal",priority:300,default_validity_days:90,color:"#409eff",icon:null,description:null,is_active:true,sort_order:0},
-      {id:2,theater_id:2,code:"top-three",display_name:"榜三指定",category:"designation",designation_type:"top_three",priority:200,default_validity_days:90,color:"#409eff",icon:null,description:null,is_active:true,sort_order:1},
+      {id:1,theater_id:2,code:"universal",display_name:"万能指定",category:"designation",designation_type:"universal",priority:300,default_validity_days:90,color:"#409eff",icon:null,description:null,is_active:true,sort_order:0,binds_beneficiary:false,binds_actor:false,binding_locked_at:null},
+      {id:2,theater_id:2,code:"top-three",display_name:"榜三指定",category:"designation",designation_type:"top_three",priority:200,default_validity_days:90,color:"#409eff",icon:null,description:null,is_active:true,sort_order:1,binds_beneficiary:false,binds_actor:true,binding_locked_at:null},
     ]);
     if(path==="/admin/theaters/2/entitlement-grant-batches")return Response.json([]);
     if(path==="/admin/actors")return Response.json([{id:8,display_name:"小A",role_ids:[21],rating_level:"normal",max_consecutive_performances:3,low_rating_monthly_cap:null,notes:null}]);
@@ -151,9 +175,9 @@ test("权益发放区分通用批量与绑定演员的榜三模式",async()=>{
     return Response.json({detail:`unexpected:${path}`},{status:500});
   }));
   await renderAdminRoute("/admin/entitlements?theater_id=2&tab=grants");
-  expect(await screen.findByRole("radio",{name:"通用批量发放"})).toBeChecked();
+  expect(await screen.findByRole("radio",{name:"按玩家批量发放"})).toBeChecked();
   expect(screen.queryByRole("combobox",{name:"榜单演员"})).not.toBeInTheDocument();
-  await fireEvent.click(screen.getByRole("radio",{name:"榜三指定发放"}));
+  await fireEvent.click(screen.getByRole("radio",{name:"按演员批量发放"}));
   expect(await screen.findByRole("combobox",{name:"榜单演员"})).toBeInTheDocument();
   await fireEvent.click(screen.getByRole("combobox",{name:"榜单演员"}));
   const actorOption=await screen.findByRole("option",{name:"小A"});
@@ -223,7 +247,7 @@ test("榜三工作台可选择全部演员并分别粘贴玩家",async()=>{
   vi.stubGlobal("fetch",vi.fn(async(input:RequestInfo|URL)=>{
     const path=String(input).replace(/https?:\/\/localhost:\d+/,"");
     if(path==="/admin/theaters")return Response.json([{id:2,name:"西安幽州剧场",is_active:true}]);
-    if(path==="/admin/theaters/2/entitlement-item-types")return Response.json([{id:2,theater_id:2,code:"top-three",display_name:"榜三指定",category:"designation",designation_type:"top_three",priority:200,default_validity_days:90,color:"#409eff",icon:null,description:null,is_active:true,sort_order:1}]);
+    if(path==="/admin/theaters/2/entitlement-item-types")return Response.json([{id:2,theater_id:2,code:"top-three",display_name:"榜三指定",category:"designation",designation_type:"top_three",priority:200,default_validity_days:90,color:"#409eff",icon:null,description:null,is_active:true,sort_order:1,binds_beneficiary:false,binds_actor:true,binding_locked_at:null}]);
     if(path==="/admin/theaters/2/entitlement-grant-batches")return Response.json([]);
     if(path==="/admin/actors")return Response.json([{id:8,display_name:"小A",role_ids:[21],rating_level:"normal",max_consecutive_performances:3,low_rating_monthly_cap:null,notes:null},{id:9,display_name:"小银",role_ids:[21],rating_level:"normal",max_consecutive_performances:3,low_rating_monthly_cap:null,notes:null}]);
     if(path.startsWith("/admin/roles?"))return Response.json([{id:21,theater_id:2,name:"林月棠",group_name:"女",is_active:true}]);
@@ -231,7 +255,7 @@ test("榜三工作台可选择全部演员并分别粘贴玩家",async()=>{
     return Response.json({detail:`unexpected:${path}`},{status:500});
   }));
   await renderAdminRoute("/admin/entitlements?theater_id=2&tab=grants");
-  await fireEvent.click(await screen.findByRole("radio",{name:"榜三指定发放"}));
+  await fireEvent.click(await screen.findByRole("radio",{name:"按演员批量发放"}));
   await fireEvent.click(await screen.findByRole("button",{name:"选择全部演员"}));
   const cards=await screen.findAllByTestId("top-three-actor-card");
   expect(cards).toHaveLength(2);expect(screen.getByText("榜三指定 · 小A")).toBeInTheDocument();expect(screen.getByText("榜三指定 · 小银")).toBeInTheDocument();

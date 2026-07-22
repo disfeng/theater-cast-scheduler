@@ -45,9 +45,7 @@ def test_month_workspace_route_returns_theater_performances(db_session):
 def test_month_workspace_route_rejects_missing_theater_and_unauthorized_access(db_session):
     client = _admin_client(db_session)
     try:
-        missing = client.get(
-            "/admin/designation-workspace/month?theater_id=999&year=2026&month=8"
-        )
+        missing = client.get("/admin/designation-workspace/month?theater_id=999&year=2026&month=8")
         assert missing.status_code == 404
         assert missing.json()["detail"] == "剧场不存在"
         anonymous = TestClient(app).get(

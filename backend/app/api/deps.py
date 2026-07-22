@@ -22,6 +22,7 @@ def get_db() -> Session:
 
 def require_user(
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer),
+    db: Session = Depends(get_db),
 ) -> dict[str, object]:
     if credentials is None:
         raise HTTPException(status_code=401, detail="Not authenticated")
@@ -33,10 +34,19 @@ def require_user(
         )
     except JWTError as exc:
         raise HTTPException(status_code=401, detail="Invalid token") from exc
+    user_id = payload.get("user_id")
+    if user_id is not None:
+        account = db.get(User, int(user_id))
+        if (
+            account is None
+            or not account.is_active
+            or int(payload.get("ver", 0)) != account.token_version
+        ):
+            raise HTTPException(status_code=401, detail="Invalid token")
     return {
         "sub": str(payload["sub"]),
         "role": str(payload["role"]),
-        "user_id": payload.get("user_id"),
+        "user_id": user_id,
         "actor_id": payload.get("actor_id"),
         "must_change_password": payload.get("must_change_password", False),
     }

@@ -35,9 +35,7 @@ def fulfill_ended_performance(
     performance = db.get(Performance, performance_id)
     if performance is None:
         raise ValueError("performance_not_found")
-    starts_at = datetime.combine(
-        performance.performance_date, performance.start_time_snapshot
-    )
+    starts_at = datetime.combine(performance.performance_date, performance.start_time_snapshot)
     if now < starts_at:
         raise ValueError("performance_not_ended")
 

@@ -61,7 +61,9 @@ def _parse_wish(line: str) -> WishDraft | None:
             raw_note=match.group(4).strip(" ()（）"),
             raw_line=line,
         )
-    parenthesized = re.search(r"】\s*-?\s*([^/]+)/([^（(]+)[（(]([^，,）)]+)[，,]\s*(.*?)[）)]\s*$", line)
+    parenthesized = re.search(
+        r"】\s*-?\s*([^/]+)/([^（(]+)[（(]([^，,）)]+)[，,]\s*(.*?)[）)]\s*$", line
+    )
     if not parenthesized:
         return None
     return WishDraft(

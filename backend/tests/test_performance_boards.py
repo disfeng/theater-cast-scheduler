@@ -301,7 +301,9 @@ def test_wish_with_global_profile_falls_back_to_same_board_player_name(db_sessio
     assert wish.player_name == "微醺未醒"
 
 
-def test_deterministic_parser_preserves_evidence_and_exactly_matches_wish_and_designation(db_session):
+def test_deterministic_parser_preserves_evidence_and_exactly_matches_wish_and_designation(
+    db_session,
+):
     performance = _performance(db_session)
     player = PlayerProfile(display_name="Jennifer", normalized_name="jennifer")
     actor = Actor(display_name="小展")
@@ -342,9 +344,7 @@ def test_unresolved_item_can_be_manually_classified_as_wish_and_confirmed(db_ses
     db_session.flush()
     db_session.add(ActorRoleCapability(actor_id=actor.id, role_id=role.id))
     db_session.commit()
-    revision = create_board_revision(
-        db_session, performance.id, "#指定信息\n无法自动识别的登记", 7
-    )
+    revision = create_board_revision(db_session, performance.id, "#指定信息\n无法自动识别的登记", 7)
     item = revision.draft_items[0]
 
     confirmed = confirm_board_item(

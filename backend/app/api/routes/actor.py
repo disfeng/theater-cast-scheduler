@@ -1,11 +1,12 @@
 from datetime import date, datetime
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db, require_actor_ready, require_user
+from app.core.csv_export import csv_response
 from app.models.entities import Actor, ActorNotification, LeaveApplication, LeaveRequest, User
 from app.models.enums import LeaveStatus, UserRole
 from app.schemas.actor_workspace import (
@@ -23,7 +24,11 @@ from app.schemas.auth import TokenResponse
 from app.services.actor_accounts import change_actor_password
 from app.services.auth import create_access_token
 from app.services.actor_notifications import reveal_due_tasks, shanghai_now
-from app.services.actor_leaves import list_actor_leave_applications, submit_leave_application, withdraw_leave_day
+from app.services.actor_leaves import (
+    list_actor_leave_applications,
+    submit_leave_application,
+    withdraw_leave_day,
+)
 
 router = APIRouter(prefix="/actor", tags=["actor"])
 
@@ -51,7 +56,8 @@ def _leave_application_read(row: LeaveApplication) -> LeaveApplicationRead:
                 review_reason=day.review_reason,
                 reviewed_at=day.reviewed_at,
                 withdrawn_at=day.withdrawn_at,
-            ) for day in row.days
+            )
+            for day in row.days
         ],
     )
 
@@ -72,6 +78,9 @@ def change_password(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    account = db.get(User, int(user["user_id"]))
+    if account is None:
+        raise HTTPException(status_code=404, detail="actor_account_not_found")
     return TokenResponse(
         access_token=create_access_token(
             str(user["sub"]),
@@ -79,6 +88,7 @@ def change_password(
             user_id=int(user["user_id"]),
             actor_id=int(user["actor_id"]) if user.get("actor_id") is not None else None,
             must_change_password=False,
+            token_version=account.token_version,
         ),
         role="actor",
         must_change_password=False,
@@ -174,6 +184,32 @@ def calendar(
     return ActorCalendarRead(month=month, performances=[_notification_read(row) for row in rows])
 
 
+@router.get("/me/calendar/export", response_class=Response)
+def export_calendar(
+    month: str,
+    theater_id: int | None = None,
+    user: dict[str, object] = Depends(require_actor_ready),
+    db: Session = Depends(get_db),
+):
+    data = calendar(month, theater_id, user, db)
+    return csv_response(
+        f"actor-schedule-{month}.csv",
+        ("日期", "场次", "时间", "剧场", "角色", "对位玩家", "指定类型"),
+        (
+            (
+                row.performance_date.isoformat(),
+                row.slot_name,
+                row.start_time.strftime("%H:%M"),
+                row.theater_name,
+                row.role_name,
+                row.player_name or "",
+                row.designation_label or "",
+            )
+            for row in data.performances
+        ),
+    )
+
+
 @router.get("/me/dashboard", response_model=ActorDashboardRead)
 def dashboard(
     user: dict[str, object] = Depends(require_actor_ready),
@@ -264,7 +300,8 @@ def create_leave_application(
         row = submit_leave_application(
             db, int(user["actor_id"]), payload.theater_id, payload.dates, payload.note
         )
-        db.commit(); db.refresh(row)
+        db.commit()
+        db.refresh(row)
         return _leave_application_read(row)
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -277,7 +314,10 @@ def get_leave_applications(
     user: dict[str, object] = Depends(require_actor_ready),
     db: Session = Depends(get_db),
 ) -> list[LeaveApplicationRead]:
-    return [_leave_application_read(row) for row in list_actor_leave_applications(db, int(user["actor_id"]))]
+    return [
+        _leave_application_read(row)
+        for row in list_actor_leave_applications(db, int(user["actor_id"]))
+    ]
 
 
 @router.post("/me/leave-application-days/{day_id}/withdraw", response_model=LeaveApplicationDayRead)
@@ -287,11 +327,16 @@ def withdraw_leave_application_day(
     db: Session = Depends(get_db),
 ) -> LeaveApplicationDayRead:
     try:
-        day = withdraw_leave_day(db, int(user["actor_id"]), day_id); db.commit()
+        day = withdraw_leave_day(db, int(user["actor_id"]), day_id)
+        db.commit()
         return LeaveApplicationDayRead(
-            id=day.id, leave_date=day.leave_date, status="withdrawn",
-            has_schedule_conflict=day.has_schedule_conflict, review_reason=day.review_reason,
-            reviewed_at=day.reviewed_at, withdrawn_at=day.withdrawn_at,
+            id=day.id,
+            leave_date=day.leave_date,
+            status="withdrawn",
+            has_schedule_conflict=day.has_schedule_conflict,
+            review_reason=day.review_reason,
+            reviewed_at=day.reviewed_at,
+            withdrawn_at=day.withdrawn_at,
         )
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc

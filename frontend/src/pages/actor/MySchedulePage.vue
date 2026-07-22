@@ -6,6 +6,7 @@
         <h1>{{ calendarMode ? monthTitle : greeting }}</h1>
       </div>
       <el-segmented v-model="view" :options="viewOptions" size="small" />
+      <el-button size="small" plain @click="exportMonth">导出</el-button>
     </div>
 
     <div class="month-nav">
@@ -54,6 +55,7 @@
 import { computed, defineComponent, h, onMounted, ref, watch } from "vue";
 import { useRoute } from "vue-router";
 import { actorApi, type ActorPerformance } from "../../api/admin";
+import { downloadAuthenticated } from "../../api/download";
 import { useAuthStore } from "../../auth/store";
 
 const route = useRoute();
@@ -106,6 +108,11 @@ const shortDate=(value:string)=>`${Number(value.slice(5,7))}月${Number(value.sl
 async function readNotice(row:ActorPerformance){if(!auth.token)return;await actorApi.markNotificationRead(auth.token,row.notification_id);row.read_at=new Date().toISOString();selectedDate.value=row.performance_date;month.value=new Date(`${row.performance_date}T00:00:00`);view.value="日历"}
 function moveMonth(delta: number) { month.value = new Date(month.value.getFullYear(), month.value.getMonth() + delta, 1); }
 function resetMonth() { month.value = new Date(); }
+async function exportMonth() {
+  if (!auth.token) return;
+  try { await downloadAuthenticated(`/actor/me/calendar/export?month=${monthKey.value}`, auth.token, `我的班次-${monthKey.value}.csv`); }
+  catch (err: any) { error.value = err.message || "导出失败"; }
+}
 watch(monthKey, load); watch(calendarMode, value => { view.value = value ? "日历" : "列表"; });
 onMounted(load);
 </script>

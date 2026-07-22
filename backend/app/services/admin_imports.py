@@ -1,7 +1,9 @@
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
+
+from app.core.time import utc_now
 
 from app.models.entities import (
     Actor,
@@ -322,7 +324,7 @@ def confirm_draft_item(db: Session, item_id: int) -> ImportDraftItem:
                 actor_id=item.actor_id,
                 role_id=item.role_id,
                 target_performance_id=item.target_performance_id,
-                submitted_at=datetime.utcnow(),
+                submitted_at=utc_now(),
                 included_in_batch=True,
                 status="confirmed",
             )
@@ -342,7 +344,7 @@ def confirm_draft_item(db: Session, item_id: int) -> ImportDraftItem:
             db.flush()
             item.wish_id = wish.id
 
-        item.confirmed_at = datetime.utcnow()
+        item.confirmed_at = utc_now()
 
         # Update draft aggregate status
         db.flush()

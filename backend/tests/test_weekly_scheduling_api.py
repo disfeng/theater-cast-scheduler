@@ -6,6 +6,8 @@ from sqlalchemy.exc import IntegrityError
 
 from fastapi.testclient import TestClient
 
+from app.core.time import utc_now
+
 from app.api.deps import get_db
 from app.main import app
 from app.models.entities import (
@@ -222,7 +224,7 @@ def test_recommend_reinjects_locked_predesignation_over_manual_payload(db_sessio
         actor_id=actors[0].id,
         performance_id=performances[1].id,
         target_performance_id=performances[1].id,
-        submitted_at=datetime.utcnow(),
+        submitted_at=utc_now(),
         lifecycle_status="predesignated",
     )
     db_session.add(designation)
@@ -271,7 +273,7 @@ def test_publish_consumes_effective_reserved_item_once_with_lifecycle_audit(db_s
         actor_id=actors[0].id,
         performance_id=performances[0].id,
         target_performance_id=performances[0].id,
-        submitted_at=datetime.utcnow(),
+        submitted_at=utc_now(),
         lifecycle_status="predesignated",
         owner_player_id=player.id,
     )
@@ -757,7 +759,7 @@ def test_unmet_requires_exact_token_then_refunds_with_release_event(
         actor_id=actors[0].id,
         performance_id=performances[0].id,
         target_performance_id=performances[0].id,
-        submitted_at=datetime.utcnow(),
+        submitted_at=utc_now(),
         lifecycle_status="predesignated",
         owner_player_id=player.id,
     )
@@ -894,7 +896,7 @@ def test_publish_failure_checkpoint_rolls_back_every_domain(db_session, monkeypa
         actor_id=actors[0].id,
         performance_id=performances[0].id,
         target_performance_id=performances[0].id,
-        submitted_at=datetime.utcnow(),
+        submitted_at=utc_now(),
         lifecycle_status="predesignated",
         owner_player_id=player.id,
     )

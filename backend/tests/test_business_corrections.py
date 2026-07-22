@@ -17,9 +17,7 @@ def _reserved_world(db_session):
     perf, player, _, beneficiary, actor, role, operator, types = _world(db_session)
     old_item = _item(db_session, beneficiary, types[0], "OLD")
     new_item = _item(db_session, beneficiary, types[0], "NEW")
-    designation = _designation(
-        db_session, perf, player, beneficiary, actor, role, types[0]
-    )
+    designation = _designation(db_session, perf, player, beneficiary, actor, role, types[0])
     verify_self_designation(db_session, designation.id, old_item.id, operator.id)
     db_session.commit()
     return designation, old_item, new_item, operator

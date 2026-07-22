@@ -5,6 +5,17 @@ export const monthStart = (month: string) => `${month}-01`;
 export const toIsoEndOfDay = (date: string) => date ? `${date}T23:59:59.999+08:00` : null;
 export const businessDateInput = (value: string | null) => value ? new Intl.DateTimeFormat("en-CA", { year: "numeric", month: "2-digit", day: "2-digit", timeZone: "Asia/Shanghai" }).format(new Date(value)) : "";
 
+type BindingSource = { binds_beneficiary: boolean; binds_actor: boolean };
+export function bindingModeLabel(source: BindingSource) {
+  if (source.binds_beneficiary && source.binds_actor) return "本人使用 · 绑定演员";
+  if (source.binds_beneficiary) return "仅本人使用";
+  if (source.binds_actor) return "绑定演员";
+  return "自由使用";
+}
+export function itemTypeSupportsGrantMode(source: Pick<BindingSource,"binds_actor">, mode:"by_player"|"by_actor") {
+  return source.binds_actor === (mode === "by_actor");
+}
+
 type LedgerSummarySource = {
   purpose: string | null;
   reason: string | null;

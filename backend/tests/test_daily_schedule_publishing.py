@@ -1,5 +1,3 @@
-from datetime import date
-
 from app.models.entities import PublishedCastAssignment
 from test_weekly_scheduling_api import _client, _seed_workspace
 

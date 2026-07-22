@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
+from app.core.time import utc_now
 from app.api.deps import get_db
 from app.main import app
 from app.models.entities import (
@@ -37,7 +38,7 @@ from app.services.admin_imports import (
     parse_import_draft,
     update_draft_item,
 )
-from app.services.auth import create_access_token
+from auth_helpers import persisted_admin_headers
 
 
 def test_weekly_batch_and_import_draft_relationships(db_session):
@@ -326,7 +327,7 @@ def test_batch_scheduling_inputs(db_session):
         player_name="Jerry",
         actor_id=actor.id,
         role_id=role.id,
-        submitted_at=datetime.utcnow(),
+        submitted_at=utc_now(),
         included_in_batch=True,
         status="confirmed",
     )
@@ -345,7 +346,7 @@ def test_batch_scheduling_inputs(db_session):
         player_name="Tom",
         actor_id=actor.id,
         role_id=role.id,
-        submitted_at=datetime.utcnow(),
+        submitted_at=utc_now(),
         included_in_batch=True,
         status="confirmed",
     )
@@ -357,7 +358,7 @@ def test_batch_scheduling_inputs(db_session):
         player_name="Spike",
         actor_id=actor.id,
         role_id=role.id,
-        submitted_at=datetime.utcnow(),
+        submitted_at=utc_now(),
         included_in_batch=False,
         status="pending",
     )
@@ -388,8 +389,7 @@ def test_admin_imports_api_workflow(db_session):
     app.dependency_overrides[get_db] = override_get_db
     try:
         client = TestClient(app)
-        token = create_access_token("admin@example.com", "admin")
-        headers = {"Authorization": f"Bearer {token}"}
+        headers = persisted_admin_headers(db_session)
 
         # 1. POST /admin/weekly-batches (create batch)
         res_batch = client.post(

@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-from datetime import datetime
 import hashlib
 import json
 
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session, selectinload
+
+from app.core.time import utc_now
 
 from app.models.entities import (
     DailyPublishOperation,
@@ -57,8 +58,10 @@ def publish_schedule_day(
         from app.services.weekly_scheduling import ScheduleVersionConflict
 
         raise ScheduleVersionConflict(batch.version)
-    if not payload.week_start <= payload.performance_date <= payload.week_start.fromordinal(
-        payload.week_start.toordinal() + 6
+    if (
+        not payload.week_start
+        <= payload.performance_date
+        <= payload.week_start.fromordinal(payload.week_start.toordinal() + 6)
     ):
         raise ValueError("performance_date_outside_week")
 
@@ -146,7 +149,7 @@ def publish_schedule_day(
     if existing and has_changes and not payload.confirm_republish:
         raise RepublishConfirmationRequired(**differences)
 
-    now = datetime.utcnow()
+    now = utc_now()
     max_version = 1
     for performance_id, draft_rows in by_performance.items():
         publication = existing.get(performance_id)
@@ -268,15 +271,19 @@ def snapshot_published_week(db: Session, batch: WeeklyBatch, operator_user_id: i
         select(ScheduleAssignment).where(ScheduleAssignment.weekly_batch_id == batch.id)
     ):
         grouped.setdefault(row.performance_id, []).append(row)
-    existing = {
-        row.performance_id: row
-        for row in db.scalars(
-            select(PerformanceCastPublication)
-            .where(PerformanceCastPublication.performance_id.in_(grouped))
-            .options(selectinload(PerformanceCastPublication.assignments))
-        )
-    } if grouped else {}
-    now = datetime.utcnow()
+    existing = (
+        {
+            row.performance_id: row
+            for row in db.scalars(
+                select(PerformanceCastPublication)
+                .where(PerformanceCastPublication.performance_id.in_(grouped))
+                .options(selectinload(PerformanceCastPublication.assignments))
+            )
+        }
+        if grouped
+        else {}
+    )
+    now = utc_now()
     for performance_id, rows in grouped.items():
         digest = assignment_hash(rows)
         publication = existing.get(performance_id)
@@ -301,17 +308,21 @@ def snapshot_published_week(db: Session, batch: WeeklyBatch, operator_user_id: i
             publication.assignment_hash = digest
             publication.published_at = now
             publication.operator_user_id = operator_user_id
-            db.execute(delete(PublishedCastAssignment).where(
-                PublishedCastAssignment.publication_id == publication.id
-            ))
-        db.add_all([
-            PublishedCastAssignment(
-                publication_id=publication.id,
-                performance_id=row.performance_id,
-                role_id=row.role_id,
-                actor_id=row.actor_id,
-                source=row.source,
+            db.execute(
+                delete(PublishedCastAssignment).where(
+                    PublishedCastAssignment.publication_id == publication.id
+                )
             )
-            for row in rows
-        ])
+        db.add_all(
+            [
+                PublishedCastAssignment(
+                    publication_id=publication.id,
+                    performance_id=row.performance_id,
+                    role_id=row.role_id,
+                    actor_id=row.actor_id,
+                    source=row.source,
+                )
+                for row in rows
+            ]
+        )
     db.flush()
