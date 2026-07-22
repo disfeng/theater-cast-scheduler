@@ -56,10 +56,11 @@ from app.models.enums import (
 
 class PlayerProfile(Base):
     __tablename__ = "player_profiles"
+    __table_args__ = (UniqueConstraint("normalized_name"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     display_name: Mapped[str] = mapped_column(String(120))
-    normalized_name: Mapped[str] = mapped_column(String(120), unique=True, index=True)
+    normalized_name: Mapped[str] = mapped_column(String(120), index=True)
     status: Mapped[PlayerStatus] = mapped_column(
         Enum(PlayerStatus), default=PlayerStatus.ACTIVE, server_default=PlayerStatus.ACTIVE.name
     )
@@ -127,11 +128,12 @@ class EncryptedActorNotificationSettings(Base):
 
 class PlayerAlias(Base):
     __tablename__ = "player_aliases"
+    __table_args__ = (UniqueConstraint("normalized_alias"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     player_id: Mapped[int] = mapped_column(ForeignKey("player_profiles.id"), index=True)
     alias: Mapped[str] = mapped_column(String(120))
-    normalized_alias: Mapped[str] = mapped_column(String(120), unique=True, index=True)
+    normalized_alias: Mapped[str] = mapped_column(String(120), index=True)
     is_primary: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     player: Mapped[PlayerProfile] = relationship(back_populates="aliases")
 
@@ -252,6 +254,7 @@ class EntitlementGrantDraftItem(Base):
 class EntitlementItem(Base):
     __tablename__ = "entitlement_items"
     __table_args__ = (
+        UniqueConstraint("serial_number"),
         Index("ix_entitlement_items_theater_owner_status", "theater_id", "owner_id", "status"),
         Index(
             "ix_entitlement_items_theater_type_status_expiry",
@@ -266,7 +269,7 @@ class EntitlementItem(Base):
     theater_id: Mapped[int | None] = mapped_column(
         ForeignKey("theaters.id"), nullable=True, index=True
     )
-    serial_number: Mapped[str] = mapped_column(String(80), unique=True, index=True)
+    serial_number: Mapped[str] = mapped_column(String(80), index=True)
     owner_id: Mapped[int] = mapped_column(ForeignKey("player_profiles.id"), index=True)
     item_type_id: Mapped[int] = mapped_column(ForeignKey("entitlement_item_types.id"), index=True)
     grant_batch_id: Mapped[int | None] = mapped_column(
@@ -356,9 +359,10 @@ def prevent_entitlement_ledger_mutation(session: Session, *_: object) -> None:
 
 class User(Base):
     __tablename__ = "users"
+    __table_args__ = (UniqueConstraint("email"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    email: Mapped[str] = mapped_column(String(255), index=True)
     display_name: Mapped[str] = mapped_column(
         String(120), default="管理员", server_default="管理员"
     )
@@ -499,12 +503,14 @@ class TheaterWeeklyTemplateEntry(Base):
         UniqueConstraint(
             "theater_id", "weekday", "theater_slot_id", name="uq_weekly_template_entry"
         ),
+        Index("ix_weekly_template_theater_id", "theater_id"),
+        Index("ix_weekly_template_slot_id", "theater_slot_id"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    theater_id: Mapped[int] = mapped_column(ForeignKey("theaters.id"), index=True)
+    theater_id: Mapped[int] = mapped_column(ForeignKey("theaters.id"))
     weekday: Mapped[str] = mapped_column(String(12))
-    theater_slot_id: Mapped[int] = mapped_column(ForeignKey("theater_slots.id"), index=True)
+    theater_slot_id: Mapped[int] = mapped_column(ForeignKey("theater_slots.id"))
     theater: Mapped[Theater] = relationship(back_populates="weekly_template_entries")
     theater_slot: Mapped[TheaterSlot] = relationship()
 
@@ -523,9 +529,10 @@ class Role(Base):
 
 class Actor(Base):
     __tablename__ = "actors"
+    __table_args__ = (UniqueConstraint("display_name"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    display_name: Mapped[str] = mapped_column(String(120), unique=True, index=True)
+    display_name: Mapped[str] = mapped_column(String(120), index=True)
     phone_number: Mapped[str | None] = mapped_column(
         String(20), nullable=True, unique=True, index=True
     )
@@ -546,11 +553,13 @@ class ActorTheaterMembership(Base):
     __tablename__ = "actor_theater_memberships"
     __table_args__ = (
         UniqueConstraint("actor_id", "theater_id", name="uq_actor_theater_membership"),
+        Index("ix_actor_memberships_actor_id", "actor_id"),
+        Index("ix_actor_memberships_theater_id", "theater_id"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    actor_id: Mapped[int] = mapped_column(ForeignKey("actors.id"), index=True)
-    theater_id: Mapped[int] = mapped_column(ForeignKey("theaters.id"), index=True)
+    actor_id: Mapped[int] = mapped_column(ForeignKey("actors.id"))
+    theater_id: Mapped[int] = mapped_column(ForeignKey("theaters.id"))
     is_entry_theater: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     actor: Mapped[Actor] = relationship(back_populates="theater_memberships")
     theater: Mapped[Theater] = relationship()
@@ -585,7 +594,7 @@ class Performance(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    theater_id: Mapped[int] = mapped_column(ForeignKey("theaters.id"))
+    theater_id: Mapped[int] = mapped_column(ForeignKey("theaters.id"), index=True)
     theater_slot_id: Mapped[int] = mapped_column(ForeignKey("theater_slots.id"), index=True)
     performance_date: Mapped[date] = mapped_column(Date, index=True)
     slot_name_snapshot: Mapped[str] = mapped_column(String(80))
@@ -600,6 +609,7 @@ class Performance(Base):
 class PerformanceBoard(Base):
     __tablename__ = "performance_boards"
     __table_args__ = (
+        UniqueConstraint("performance_id"),
         UniqueConstraint("performance_id", "id", name="uq_performance_board_scope"),
         ForeignKeyConstraint(
             ["id", "current_revision_id"],
@@ -610,9 +620,7 @@ class PerformanceBoard(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement="ignore_fk")
-    performance_id: Mapped[int] = mapped_column(
-        ForeignKey("performances.id"), unique=True, index=True
-    )
+    performance_id: Mapped[int] = mapped_column(ForeignKey("performances.id"), index=True)
     current_revision_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     next_revision_number: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
     created_at: Mapped[datetime] = mapped_column(
@@ -954,7 +962,7 @@ class DesignationLifecycleEvent(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     designation_id: Mapped[int] = mapped_column(ForeignKey("designations.id"), index=True)
-    operator_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    operator_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
     action: Mapped[str] = mapped_column(String(40))
     idempotency_key: Mapped[str] = mapped_column(String(120))
     request_hash: Mapped[str] = mapped_column(String(64))

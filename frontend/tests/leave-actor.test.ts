@@ -64,6 +64,27 @@ test("actor submit leave request", async () => {
   expect(requests.some(row => row.path === "/actor/me/leave-applications")).toBe(true);
 });
 
+test("actor leave page handles an expired session without an unhandled rejection", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input).replace(/https?:\/\/localhost:\d+/, "");
+      if (path === "/actor/me/profile") {
+        return Response.json({ id: 1, display_name: "小A", theaters: [] });
+      }
+      if (path === "/actor/me/leave-applications") {
+        return Response.json({ detail: "Invalid token" }, { status: 401 });
+      }
+      return Response.json([]);
+    }),
+  );
+
+  await renderActorRoute("/actor/leave");
+
+  expect(await screen.findByRole("heading", { name: "请假申请" })).toBeVisible();
+  expect(await screen.findByText("暂无请假记录")).toBeVisible();
+});
+
 test("admin review leave requests", async () => {
   const requests: { method: string; path: string; body: any }[] = [];
   let leaveList = [

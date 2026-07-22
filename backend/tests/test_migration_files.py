@@ -79,7 +79,7 @@ def test_all_migration_revision_ids_fit_alembic_version_column():
     assert all(len(revision.revision) <= 32 for revision in script.walk_revisions())
 
 
-def test_entitlement_binding_modes_migration_declares_rules_and_reset():
+def test_entitlement_binding_modes_migration_declares_rules_without_resetting_inventory():
     migration = Path("migrations/versions/0020_entitlement_binding_modes.py").read_text()
 
     assert 'down_revision = "0019_daily_publications"' in migration
@@ -92,11 +92,137 @@ def test_entitlement_binding_modes_migration_declares_rules_and_reset():
         "grant_mode",
     ):
         assert name in migration
-    assert "DELETE FROM entitlement_ledger_entries" in migration
-    assert "DELETE FROM entitlement_items" in migration
+    assert "DELETE FROM entitlement_ledger_entries" not in migration
+    assert "DELETE FROM entitlement_items" not in migration
+    assert "UPDATE entitlement_item_types" in migration
+    assert "UPDATE entitlement_items" in migration
+    assert "UPDATE entitlement_grant_batches" in migration
     assert "DELETE FROM theaters" not in migration
     assert "DELETE FROM actors" not in migration
     assert "DELETE FROM player_profiles" not in migration
+
+
+def test_upgrade_from_0019_preserves_entitlement_inventory_and_links(tmp_path):
+    database_url = f"sqlite:///{tmp_path / 'entitlement-binding-upgrade.db'}"
+    environment = {**os.environ, "DATABASE_URL": database_url}
+    subprocess.run(
+        ["alembic", "upgrade", "0019_daily_publications"],
+        check=True,
+        env=environment,
+        capture_output=True,
+        text=True,
+    )
+    engine = create_engine(database_url)
+    with engine.begin() as connection:
+        theater_id = connection.execute(
+            text("INSERT INTO theaters (name, is_active) VALUES ('Preserved Theater', 1) RETURNING id")
+        ).scalar_one()
+        actor_id = connection.execute(
+            text(
+                "INSERT INTO actors (display_name, max_consecutive_performances, rating_level) "
+                "VALUES ('Preserved Actor', 3, 'NORMAL') RETURNING id"
+            )
+        ).scalar_one()
+        role_id = connection.execute(
+            text(
+                "INSERT INTO roles (theater_id, name, group_name, is_active) "
+                "VALUES (:theater_id, 'Preserved Role', NULL, 1) RETURNING id"
+            ),
+            {"theater_id": theater_id},
+        ).scalar_one()
+        player_id = connection.execute(
+            text(
+                "INSERT INTO player_profiles (display_name, normalized_name) "
+                "VALUES ('Preserved Player', 'preserved player') RETURNING id"
+            )
+        ).scalar_one()
+        type_id = connection.execute(
+            text(
+                "INSERT INTO entitlement_item_types "
+                "(theater_id, code, display_name, category, designation_type, priority, default_validity_days) "
+                "VALUES (:theater_id, 'legacy_top_three', '旧榜三指定', 'DESIGNATION', 'TOP_THREE', 200, 90) RETURNING id"
+            ),
+            {"theater_id": theater_id},
+        ).scalar_one()
+        batch_id = connection.execute(
+            text(
+                "INSERT INTO entitlement_grant_batches "
+                "(theater_id, source_type, source_month, source_label, status, bound_actor_id) "
+                "VALUES (:theater_id, 'MONTHLY_RANKING', '2026-06-01', '六月榜单', 'GRANTED', :actor_id) RETURNING id"
+            ),
+            {"theater_id": theater_id, "actor_id": actor_id},
+        ).scalar_one()
+        item_id = connection.execute(
+            text(
+                "INSERT INTO entitlement_items "
+                "(theater_id, serial_number, owner_id, item_type_id, grant_batch_id, source_type, source_month, "
+                "source_label, granted_at, expires_at, status, bound_actor_id) "
+                "VALUES (:theater_id, 'PRESERVE-0001', :player_id, :type_id, :batch_id, 'MONTHLY_RANKING', "
+                "'2026-06-01', '六月榜单', '2026-07-01', '2026-10-01', 'RESERVED', :actor_id) RETURNING id"
+            ),
+            {
+                "theater_id": theater_id,
+                "player_id": player_id,
+                "type_id": type_id,
+                "batch_id": batch_id,
+                "actor_id": actor_id,
+            },
+        ).scalar_one()
+        designation_id = connection.execute(
+            text(
+                "INSERT INTO designations "
+                "(designation_type, player_name, role_id, actor_id, submitted_at, included_in_batch, status, "
+                "owner_player_id, entitlement_item_id, lifecycle_status) "
+                "VALUES ('TOP_THREE', 'Preserved Player', :role_id, :actor_id, '2026-07-01', 0, 'confirmed', "
+                ":player_id, :item_id, 'reserved') RETURNING id"
+            ),
+            {"role_id": role_id, "actor_id": actor_id, "player_id": player_id, "item_id": item_id},
+        ).scalar_one()
+        connection.execute(
+            text("UPDATE entitlement_items SET current_designation_id = :designation_id WHERE id = :item_id"),
+            {"designation_id": designation_id, "item_id": item_id},
+        )
+        ledger_id = connection.execute(
+            text(
+                "INSERT INTO entitlement_ledger_entries "
+                "(theater_id, item_id, event_type, to_status, designation_id, note) "
+                "VALUES (:theater_id, :item_id, 'RESERVED', 'RESERVED', :designation_id, 'preserve me') RETURNING id"
+            ),
+            {"theater_id": theater_id, "item_id": item_id, "designation_id": designation_id},
+        ).scalar_one()
+    engine.dispose()
+
+    subprocess.run(
+        ["alembic", "upgrade", "head"],
+        check=True,
+        env=environment,
+        capture_output=True,
+        text=True,
+    )
+    with create_engine(database_url).connect() as connection:
+        item = connection.execute(
+            text(
+                "SELECT current_designation_id, binds_beneficiary_snapshot, binds_actor_snapshot "
+                "FROM entitlement_items WHERE id = :item_id"
+            ),
+            {"item_id": item_id},
+        ).one()
+        ledger = connection.execute(
+            text("SELECT designation_id, note FROM entitlement_ledger_entries WHERE id = :ledger_id"),
+            {"ledger_id": ledger_id},
+        ).one()
+        designation_item_id = connection.execute(
+            text("SELECT entitlement_item_id FROM designations WHERE id = :designation_id"),
+            {"designation_id": designation_id},
+        ).scalar_one()
+        grant_mode = connection.execute(
+            text("SELECT grant_mode FROM entitlement_grant_batches WHERE id = :batch_id"),
+            {"batch_id": batch_id},
+        ).scalar_one()
+    assert item == (designation_id, 0, 1)
+    assert ledger == (designation_id, "preserve me")
+    assert designation_item_id == item_id
+    assert grant_mode == "BY_ACTOR"
 
 
 def test_theater_entitlement_management_is_migration_head():

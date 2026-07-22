@@ -1,4 +1,4 @@
-"""add entitlement binding modes and reset test entitlement data
+"""add entitlement binding modes while preserving entitlement inventory
 
 Revision ID: 0020_entitlement_bindings
 Revises: 0019_daily_publications
@@ -54,20 +54,27 @@ def upgrade() -> None:
         batch.add_column(sa.Column("binds_beneficiary_snapshot", sa.Boolean(), nullable=False, server_default="0"))
         batch.add_column(sa.Column("binds_actor_snapshot", sa.Boolean(), nullable=False, server_default="0"))
 
-    _drop_ledger_triggers()
-    table_names = set(sa.inspect(op.get_bind()).get_table_names())
-    if "designations" in table_names:
-        op.execute(sa.text("UPDATE designations SET entitlement_item_id = NULL, lifecycle_status = 'draft' WHERE entitlement_item_id IS NOT NULL"))
-    if "designation_versions" in table_names:
-        op.execute(sa.text("UPDATE designation_versions SET entitlement_item_id = NULL WHERE entitlement_item_id IS NOT NULL"))
-    if "designation_fulfillment_events" in table_names:
-        op.execute(sa.text("UPDATE designation_fulfillment_events SET entitlement_item_id = NULL WHERE entitlement_item_id IS NOT NULL"))
-    op.execute(sa.text("DELETE FROM entitlement_ledger_entries"))
-    op.execute(sa.text("DELETE FROM entitlement_items"))
-    op.execute(sa.text("DELETE FROM entitlement_grant_draft_items"))
-    op.execute(sa.text("DELETE FROM entitlement_grant_batches"))
-    op.execute(sa.text("DELETE FROM entitlement_item_types"))
-    _create_ledger_triggers()
+    op.execute(sa.text(
+        "UPDATE entitlement_item_types SET "
+        "binds_beneficiary = CASE WHEN designation_type = 'PAIRED' THEN 1 ELSE 0 END, "
+        "binds_actor = CASE WHEN designation_type = 'TOP_THREE' THEN 1 ELSE 0 END"
+    ))
+    op.execute(sa.text(
+        "UPDATE entitlement_item_types SET binding_locked_at = CURRENT_TIMESTAMP "
+        "WHERE EXISTS (SELECT 1 FROM entitlement_items "
+        "WHERE entitlement_items.item_type_id = entitlement_item_types.id)"
+    ))
+    op.execute(sa.text(
+        "UPDATE entitlement_grant_batches SET grant_mode = "
+        "CASE WHEN bound_actor_id IS NOT NULL THEN 'BY_ACTOR' ELSE 'BY_PLAYER' END"
+    ))
+    op.execute(sa.text(
+        "UPDATE entitlement_items SET "
+        "binds_beneficiary_snapshot = COALESCE((SELECT binds_beneficiary "
+        "FROM entitlement_item_types WHERE entitlement_item_types.id = entitlement_items.item_type_id), 0), "
+        "binds_actor_snapshot = COALESCE((SELECT binds_actor "
+        "FROM entitlement_item_types WHERE entitlement_item_types.id = entitlement_items.item_type_id), 0)"
+    ))
 
     defaults = (
         ("universal", "万能指定", "UNIVERSAL", 300, 0, 0, 0),
@@ -80,7 +87,9 @@ def upgrade() -> None:
             "(theater_id, code, display_name, category, designation_type, priority, "
             "default_validity_days, color, is_active, sort_order, binds_beneficiary, binds_actor) "
             "SELECT id, :code, :name, 'DESIGNATION', :designation_type, :priority, "
-            "90, '#2f6fed', 1, :sort_order, :binds_beneficiary, :binds_actor FROM theaters"
+            "90, '#2f6fed', 1, :sort_order, :binds_beneficiary, :binds_actor FROM theaters "
+            "WHERE NOT EXISTS (SELECT 1 FROM entitlement_item_types existing "
+            "WHERE existing.theater_id = theaters.id AND existing.code = :code)"
         ).bindparams(
             code=code, name=name, designation_type=designation_type, priority=priority,
             sort_order=sort_order, binds_beneficiary=binds_beneficiary, binds_actor=binds_actor,
