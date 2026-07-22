@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 import hashlib
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.models.entities import LoginThrottle, User
@@ -74,3 +74,9 @@ def clear_throttle(db: Session, identifier: str, ip_address: str) -> None:
     row = throttle_for(db, identifier, ip_address)
     if row is not None:
         db.delete(row)
+
+
+def clear_identifier_throttles(db: Session, identifier: str) -> None:
+    """Clear every IP throttle bucket after an administrator resets credentials."""
+    digest = hashlib.sha256(identifier.strip().lower().encode("utf-8")).hexdigest()
+    db.execute(delete(LoginThrottle).where(LoginThrottle.identifier_hash == digest))

@@ -13,6 +13,7 @@ from app.models.entities import Actor, ActorTheaterMembership, Theater, User
 from app.models.enums import UserRole
 from app.schemas.admin import ActorCreate, ActorCredentialDelivery
 from app.services.credential_pdf import build_actor_credential_pdf
+from app.services.login_protection import clear_identifier_throttles, clear_login_failures
 
 password_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
 
@@ -115,6 +116,8 @@ def reset_actor_password(
         user.must_change_password = True
         user.password_changed_at = None
         user.token_version += 1
+    clear_login_failures(user)
+    clear_identifier_throttles(db, actor.phone_number)
     db.commit()
     pdf = build_actor_credential_pdf(
         theater_name=theater.name,

@@ -190,6 +190,50 @@ def test_admin_reset_password_forces_change_and_returns_fresh_pdf(db_session):
         app.dependency_overrides.clear()
 
 
+def test_admin_reset_password_unlocks_actor_and_clears_login_throttle(db_session):
+    app.dependency_overrides[get_db] = _override_db(db_session)
+    try:
+        client = TestClient(app)
+        theater = client.post(
+            "/admin/theaters", headers=_admin_headers(), json={"name": "西安幽州剧场"}
+        ).json()
+        created = client.post(
+            "/admin/actors",
+            headers=_admin_headers(),
+            json={
+                "display_name": "小A",
+                "phone_number": "13800138000",
+                "entry_theater_id": theater["id"],
+                "theater_ids": [theater["id"]],
+            },
+        ).json()
+        for _ in range(5):
+            failed = client.post(
+                "/auth/login",
+                json={"identifier": "13800138000", "password": "wrong-password"},
+            )
+            assert failed.status_code == 401
+
+        reset = client.post(
+            f"/admin/actors/{created['actor']['id']}/reset-password",
+            headers=_admin_headers(),
+            json={"entry_theater_id": theater["id"]},
+        )
+        assert reset.status_code == 200
+
+        login = client.post(
+            "/auth/login",
+            json={
+                "identifier": reset.json()["username"],
+                "password": reset.json()["initial_password"],
+            },
+        )
+        assert login.status_code == 200
+        assert login.json()["must_change_password"] is True
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_admin_reset_password_bootstraps_legacy_actor_account(db_session):
     theater = Theater(name="西安幽州剧场")
     actor = Actor(display_name="小A", phone_number="18627912251")
