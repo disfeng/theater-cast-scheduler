@@ -66,6 +66,12 @@ test("来源名称显示必填标识",()=>{
   expect(grantBatchSource).toContain('placeholder="可选"');
 });
 
+test("按演员发放的道具选择器使用稳定宽度并支持窄屏自适应",()=>{
+  expect(grantBatchSource).toContain('.actor-type-picker{display:flex;align-items:center;gap:10px');
+  expect(grantBatchSource).toContain('.actor-type-picker .el-select{width:280px}');
+  expect(grantBatchSource).toContain('.actor-type-picker .el-select{width:100%}');
+});
+
 test("背包玩家索引按拼音排序并即时筛选",()=>{
   const rows=[
     {player_id:2,display_name:"微醺",normalized_name:"微醺",sort_key:"weixun",status:"active",item_count:0,expired_count:0},

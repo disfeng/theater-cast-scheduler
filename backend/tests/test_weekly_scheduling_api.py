@@ -159,6 +159,48 @@ def test_workspace_loads_cross_year_performances_and_rejects_non_monday(db_sessi
         app.dependency_overrides.clear()
 
 
+def test_workspace_export_uses_mapping_contract_and_returns_assignment_csv(db_session):
+    theater, actors, roles, performances = _seed_workspace(db_session)
+    batch = WeeklyBatch(
+        theater_id=theater.id,
+        week_start=date(2026, 12, 28),
+        status=BatchStatus.DRAFT,
+        version=1,
+    )
+    db_session.add(batch)
+    db_session.flush()
+    db_session.add(
+        ScheduleAssignment(
+            weekly_batch_id=batch.id,
+            performance_id=performances[0].id,
+            role_id=roles[0].id,
+            actor_id=actors[0].id,
+            source="manual",
+        )
+    )
+    db_session.commit()
+
+    client, headers = _client(db_session)
+    try:
+        response = client.get(
+            f"/admin/weekly-schedules/export?theater_id={theater.id}&week_start=2026-12-28",
+            headers=headers,
+        )
+
+        assert response.status_code == 200
+        assert response.headers["content-type"].startswith("text/csv")
+        assert (
+            response.headers["content-disposition"]
+            == 'attachment; filename="weekly-schedule-2026-12-28.csv"'
+        )
+        csv_text = response.content.decode("utf-8-sig")
+        assert "日期,场次,时间,柳知雨,谢允昭,发布状态" in csv_text
+        assert "2026-12-31,早场,12:30,小展,,草稿" in csv_text
+        assert "2027-01-01,晚场,19:30,,,草稿" in csv_text
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_active_predesignation_is_injected_as_locked_and_cannot_be_overwritten(db_session):
     theater, actors, roles, performances = _seed_workspace(db_session)
     designation = Designation(

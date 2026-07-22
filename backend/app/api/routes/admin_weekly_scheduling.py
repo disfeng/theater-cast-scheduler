@@ -116,25 +116,30 @@ def export_workspace(
 ):
     scope.require_theater(theater_id)
     data = _handle(lambda: get_workspace(db, theater_id, week_start))
-    performances = {row.id: row for row in data.performances}
-    roles = {row.id: row for row in data.roles}
-    actors = {row.id: row for row in data.actors}
-    rows = []
-    for assignment in data.assignments:
-        performance = performances[assignment.performance_id]
-        rows.append(
-            (
-                performance.performance_date.isoformat(),
-                performance.slot_name,
-                performance.start_time.strftime("%H:%M"),
-                roles[assignment.role_id].name,
-                actors[assignment.actor_id].display_name,
-                "已发布" if performance.publication_status == "published" else "草稿",
-            )
+    actors = {row["id"]: row for row in data["actors"]}
+    assignment_by_slot = {
+        (assignment["performance_id"], assignment["role_id"]): actors[
+            assignment["actor_id"]
+        ]["display_name"]
+        for assignment in data["assignments"]
+    }
+    roles = data["roles"]
+    rows = [
+        (
+            performance["performance_date"].isoformat(),
+            performance["slot_name"],
+            performance["start_time"].strftime("%H:%M"),
+            *(
+                assignment_by_slot.get((performance["id"], role["id"]), "")
+                for role in roles
+            ),
+            "已发布" if performance["publication_status"] == "published" else "草稿",
         )
+        for performance in data["performances"]
+    ]
     return csv_response(
         f"weekly-schedule-{week_start.isoformat()}.csv",
-        ("日期", "场次", "时间", "角色", "演员", "发布状态"),
+        ("日期", "场次", "时间", *(role["name"] for role in roles), "发布状态"),
         rows,
     )
 

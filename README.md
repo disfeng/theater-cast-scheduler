@@ -83,141 +83,103 @@
 
 ## 界面预览
 
-### 场次配置
+### 登录与运营工作台
 
-每个剧场可以维护独立的演出场次、开始时间和显示顺序。
+管理员使用邮箱、演员使用手机号登录；运营工作台集中展示待审批、待导入和排班概况。
 
-![场次配置](screenshot/theater-slots.png)
+![登录页](screenshot/login-page.png)
 
-### 默认周模板
+![运营工作台](screenshot/admin-dashboard.png)
 
-按星期勾选默认开演场次，为月度计划提供可重复使用的基础模板。
+### 剧场基础配置
 
-![默认周模板](screenshot/weekly-template.png)
+每个剧场独立维护场次、默认周模板、角色、登记解析和演出信息披露策略。
 
-### 剧场角色与出演演员
+![场次设置](screenshot/theater-slot-settings.png)
 
-角色归属于具体剧场，并可直接查看具备该角色出演能力的演员。
+![默认周模板](screenshot/weekly-template-settings.png)
 
-![剧场角色与出演演员](screenshot/theater-roles.png)
+![剧场角色](screenshot/theater-role-settings.png)
 
-### 演员管理
+![登记信息解析设置](screenshot/registration-parser-settings.png)
 
-通过姓名、评级和剧场筛选演员，并集中查看排班限制与跨剧场角色能力。
+![演出信息披露设置](screenshot/actor-disclosure-settings.png)
 
-![演员管理](screenshot/actors.png)
+### 演员与账号交付
 
-### 新增或编辑演员
+管理员可按剧场维护演员能力与排班限制；新增演员后生成一次性账号信息和可交付凭证。
 
-在统一的侧边抽屉中维护演员资料，并按剧场分组配置可出演角色。
+![演员管理](screenshot/actor-management.png)
 
-![新增或编辑演员](screenshot/actor-form.png)
-
-### 演员账号交付
-
-新增演员后会生成一次性账号交付信息，管理员可直接下载包含系统入口、初始账号、使用说明和保密守则的 PDF。
+![新增演员](screenshot/actor-creation.png)
 
 ![演员账号交付](screenshot/actor-account-delivery.png)
 
-![演员账号交付 PDF](screenshot/actor-account-pdf.png)
+![账号交付凭证](screenshot/account-delivery-credential.png)
 
-### 月度演出计划
+### 月度计划与周排班
 
-在月历中切换月份、开关每日场次、设置闭店日，并区分已保存与待保存状态。
+月度计划负责生成和微调演出场次；周排班使用“演出场次 × 角色”矩阵安排演员，并支持冲突检查、复核和横向角色 CSV 导出。
 
-![月度演出计划](screenshot/monthly-plan.png)
+![月度演出计划](screenshot/monthly-performance-plan.png)
 
-### 指定与许愿月度工作台
+![周排班](screenshot/weekly-scheduling.png)
 
-按剧场和月份连续查看每天的演出场次，并从月历直接进入玩家登记、信息板复核、指定与许愿处理。
+![冲突预警与警示](screenshot/weekly-schedule-conflict-indicators.png)
 
-![指定与许愿月度工作台](screenshot/designation-month-calendar.png)
+![周排班冲突检查](screenshot/weekly-schedule-conflict-check.png)
 
-### 微信群信息板解析与复核
+![周排班冲突复核](screenshot/weekly-schedule-conflict-review.png)
 
-粘贴微信群登记原文后，系统会生成可追溯的新版本并解析玩家、指定和许愿。解析结果支持逐条人工补全、重新编辑、确认或判定无效；自动解析失败时仍可保留原文草稿继续处理。
+![横向角色排班导出](screenshot/weekly-schedule-export.png)
 
-![微信群信息板文本解析](screenshot/board-text-parser.png)
+### 指定与许愿
 
-![玩家、指定与许愿信息复核](screenshot/board-review.png)
+月度工作台按场次组织玩家登记。微信群原文可版本化解析、人工补全和逐条复核，确认后的指定与许愿继续进入权益核验和排班流程。
 
-### 玩家登记
+![指定与许愿月度工作台](screenshot/designation-wish-calendar.png)
 
-玩家昵称、玩家角色、对位角色及刷数信息统一保留在场次信息板中；自动识别结果也允许运营人员手工修订。
+![场次玩家登记信息解析](screenshot/performance-registration-parser.png)
 
-![场次玩家登记](screenshot/board-players.png)
+![登记信息复核](screenshot/registration-review.png)
 
-### 指定与许愿执行
+### 权益管理
 
-已确认的指定和许愿会进入各自的执行列表。运营人员可以结合演员、角色能力、权益库存和排班冲突进行接受或拒绝，并保留后续核对状态。
+权益按剧场配置和发放。系统支持通用及绑定演员道具、玩家背包、有效期、手工核销与完整流水。
 
-![指定执行与核对](screenshot/designation-review.png)
+![权益管理](screenshot/entitlement-management.png)
 
-![许愿执行与核对](screenshot/wish-review.png)
+![新增权益道具](screenshot/entitlement-item-creation.png)
 
-### 权益道具配置与发放
+![权益批量发放](screenshot/entitlement-batch-grant.png)
 
-权益按剧场管理。运营人员可配置通用道具和指定类道具，并明确道具是否绑定使用人、是否绑定演员；系统会据此自动分流到按玩家或按演员发放工作台，并在指定核验、预占与核销阶段统一执行绑定规则。
-
-![权益道具配置](screenshot/entitlement-types.png)
-
-![权益批量发放](screenshot/entitlement-grant.png)
-
-### 玩家权益背包与流水
-
-玩家背包按姓名检索，可按发放月份或道具类型排序；每张道具保留来源、有效期、状态和完整流水，并支持延期、作废与带备注的手工核销。
+![绑定演员道具发放](screenshot/actor-bound-entitlement-grant.png)
 
 ![玩家权益背包](screenshot/entitlement-backpack.png)
 
-![权益流水日志](screenshot/entitlement-ledger.png)
+![权益流水](screenshot/entitlement-ledger.png)
 
-### 周排班与跨周连场检测
+### 请假、权限与审计
 
-在“演出场次 × 角色”矩阵中安排演员。系统会自动统计当前周场次，并将相邻周已保存的排班纳入连场检测。
+请假审批支持按剧场、演员和时间范围筛选；超级管理员可管理剧场管理员并通过审计日志追踪关键操作。
 
-![同一演员跨周跨角色连场检测：上一周](screenshot/cross-week-consecutive-warning-1.png)
+![请假审批](screenshot/leave-approval.png)
 
-![同一演员跨周跨角色连场检测：下一周](screenshot/cross-week-consecutive-warning-2.png)
+![管理员管理](screenshot/administrator-management.png)
 
-当演员恰好达到个人最大连场数时，单元格显示黄色提醒；继续安排并超过上限时，显示红色冲突。
+![新增管理员](screenshot/administrator-creation.png)
 
-![达到最大连场数提醒](screenshot/consecutive-limit-reached.png)
-
-![超过最大连场数冲突](screenshot/consecutive-limit-exceeded.png)
-
-### 冲突复核
-
-保存或发布存在硬规则冲突的排班前，管理员需要在冲突复核面板中查看原因并二次确认。
-
-![周排班冲突复核](screenshot/conflict-review.png)
-
-### 请假审批
-
-管理员可按剧场、演员和日期范围检索申请，对一次多日请假逐日批准或驳回，驳回时保留原因。
-
-![请假审批](screenshot/leave-review.png)
-
-![请假驳回](screenshot/leave-review-reject.png)
+![日志审查](screenshot/audit-log-review.png)
 
 ### 演员端移动工作台
 
-演员端针对手机使用设计，工作台聚合即将演出、本月场次和请假状态，演出日历可在月历与列表间切换。
+演员端针对手机设计，展示已披露排班、演出通知、请假审批和账号安全信息，业务页面持续显示脱敏身份水印。
 
 <p align="center">
-  <img src="screenshot/actor-workbench.png" alt="演员端工作台" width="30%" />
-  <img src="screenshot/actor-calendar.png" alt="演员端演出日历" width="30%" />
-  <img src="screenshot/actor-leave.png" alt="演员端请假" width="30%" />
+  <img src="screenshot/actor-performance-notification.png" alt="演员端演出通知" width="30%" />
+  <img src="screenshot/actor-leave-approval.png" alt="演员端请假审批" width="30%" />
+  <img src="screenshot/actor-profile-v2.png" alt="演员端个人中心" width="30%" />
 </p>
-
-“我的”页面集中管理账号安全、联系方式和登录状态，页面背景持续显示脱敏身份水印。
-
-<p align="center"><img src="screenshot/actor-profile.png" alt="演员端我的" width="32%" /></p>
-
-### 演出通知与信息披露
-
-短信服务与剧场披露策略分开配置：全局短信默认关闭，每个剧场可独立设置提前天数和通知时间，且短信内不包含具体排班内容。
-
-![演出通知和信息披露策略](screenshot/actor-notification-policy.png)
 
 ## V1 工作流程
 
