@@ -55,3 +55,12 @@ def test_database_readiness_accepts_current_migration(db_session):
         "database": "ok",
         "migration": "ok",
     }
+from pathlib import Path
+import tomllib
+
+def test_backend_package_discovery_only_includes_application_package():
+    pyproject = tomllib.loads(Path("pyproject.toml").read_text())
+
+    assert pyproject["tool"]["setuptools"]["packages"]["find"] == {
+        "include": ["app*"]
+    }
