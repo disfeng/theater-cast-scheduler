@@ -289,9 +289,9 @@ npm run dev
 
 前端默认运行在 <http://localhost:7003>，API 客户端请求 <http://localhost:7004>。后端已允许 `localhost:7003` 和 `127.0.0.1:7003` 两个本地开发来源；部署到其他域名时，请改为实际前端来源。
 
-### 生产部署基线
+### 生产一键部署（宝塔）
 
-复制 `backend/.env.example` 和 `frontend/.env.example`，替换数据库账号、随机 JWT 密钥、前端域名、API 地址及演员端入口。生产环境必须设置：
+复制 `backend/.env.example` 和 `frontend/.env.example`，替换数据库账号、随机 JWT 密钥、前端域名、API 地址及演员端入口。同源部署时，前端建议设置 `VITE_API_BASE_URL=/api`。生产环境必须设置：
 
 ```bash
 APP_ENV=production
@@ -300,14 +300,55 @@ CORS_ALLOWED_ORIGINS=https://scheduler.example.com
 VITE_API_BASE_URL=https://api.scheduler.example.com
 ```
 
-生产配置检查和启动：
+首次部署执行：
 
 ```bash
-./scripts/check-production-config.sh
-./scripts/start-production.sh
+./deploy.sh init
 ```
 
-`/health` 只检查进程存活；`/ready` 同时检查数据库连接和 Alembic 迁移是否处于当前 head。发布系统应在切换流量前确认 `/ready` 返回 200。
+脚本会创建 Python 虚拟环境、安装依赖、执行 Alembic 迁移并构建前端。完成后会输出宝塔 Supervisor 和 Nginx 配置提示。Supervisor 使用：
+
+```text
+名称：theaterops-api
+运行目录：/www/wwwroot/theaterops.cn/theaterops
+启动命令：/www/wwwroot/theaterops.cn/theaterops/scripts/start-production.sh
+运行用户：www
+```
+
+Nginx 站点根目录指向 `frontend/dist`，并在站点 `server` 中配置：
+
+```nginx
+location = /api {
+    return 301 /api/;
+}
+
+location /api/ {
+    proxy_pass http://127.0.0.1:7004/;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_read_timeout 120s;
+    client_max_body_size 10m;
+}
+
+location / {
+    try_files $uri $uri/ /index.html;
+}
+```
+
+日常更新只需执行：
+
+```bash
+./deploy.sh update
+```
+
+脚本会拒绝覆盖服务器本地的 Git 修改，自动拉取 `main`，并且只在 `pyproject.toml` 或 `package-lock.json` 变化时重新安装对应依赖。npm 默认使用 `npmmirror`、本地缓存和 `--prefer-offline`，可用 `NPM_REGISTRY` 覆盖镜像。
+
+部署日志、依赖指纹、数据库发布前备份和前端恢复产物均位于 `var/deploy/`。前端在临时目录构建，数据库迁移、后端重启和 API 健康检查全部成功后，才会原子替换前端入口文件；因此后端检查失败时线上前端不会变化。数据库迁移是前进式的，迁移后失败不会强行启动旧后端；请根据日志和 `var/deploy/backups/` 中的备份进行前滚修复或人工恢复，脚本不会自动降级数据库。
+
+`/health` 只检查进程存活；`/ready` 同时检查数据库连接和 Alembic 迁移是否处于当前 head。一键更新会在完成前同时确认两个端点返回成功。
 
 ### 数据库备份、恢复与回滚
 

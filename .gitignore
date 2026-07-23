@@ -35,3 +35,6 @@ docs/
 # Local visual brainstorming artifacts
 .superpowers/
 marketing/
+
+# Deployment runtime state, logs, fingerprints, and rollback assets
+var/deploy/
